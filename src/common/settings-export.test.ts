@@ -1,6 +1,14 @@
 import { expect, it } from "vitest";
 import { createSettingsExport, parseSettingsImport } from "./settings-export";
 
+it("preserves the per-card ten-second refresh setting through backup and restore", () => {
+  const backup = createSettingsExport(
+    [{ id: "live", title: "Live", url: "https://example.com", size: "s", refreshEvery10Seconds: true }],
+    [],
+  );
+  expect(parseSettingsImport(JSON.parse(JSON.stringify(backup))).dashboard.cards[0].refreshEvery10Seconds).toBe(true);
+});
+
 it("exports only validated dashboard cards and shortcut fields", () => {
   const data = createSettingsExport(
     [
@@ -138,6 +146,7 @@ it("rejects incompatible or malformed backups instead of silently dropping entri
     { selector: "x".repeat(513) },
     { selector: "a\u0000b" },
     { autoRefresh: "true" },
+    { refreshEvery10Seconds: "true" },
   ])
     invalid.push({ ...valid, dashboard: { cards: [{ ...valid.dashboard.cards[0], ...patch }] } });
   invalid.push({ ...valid, dashboard: { cards: [valid.dashboard.cards[0], valid.dashboard.cards[0]] } });

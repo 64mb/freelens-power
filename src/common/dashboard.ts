@@ -8,6 +8,7 @@ export interface DashboardCard {
   url: string;
   size: DashboardCardSize;
   autoRefresh?: boolean;
+  refreshEvery10Seconds?: boolean;
   selector?: string;
 }
 
@@ -40,6 +41,7 @@ export function sanitizeDashboardCards(value: unknown): DashboardCard[] {
         url,
         size: card.size === "xs" || card.size === "s" || card.size === "l" || card.size === "xl" ? card.size : "m",
         autoRefresh: card.autoRefresh === true,
+        ...(card.refreshEvery10Seconds === true ? { refreshEvery10Seconds: true } : {}),
         ...(normalizeDashboardSelector(card.selector) ? { selector: normalizeDashboardSelector(card.selector) } : {}),
       } satisfies DashboardCard,
     ];

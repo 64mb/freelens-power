@@ -9,7 +9,7 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **Accent themes:** Default, Purple, Blue, Green, Yellow, Orange, Red, and Pink for controls, text links, and the welcome logo
 - **Cluster icons:** a searchable cluster grid, matching SVG icons, editable labels and colors, live previews, and saved editor settings
 - **macOS Dock icon:** optionally follows your accent, with a separate toggle to restore the original
-- **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, and optional background refresh
+- **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, per-card 10-second refresh including pinned windows, and optional background refresh
 - **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts using metrics-server and Kubernetes APIs
 - **Resource diagnostics:** CPU/memory consumers grouped by namespace and workload, application event timelines, and evidence-based Pending pod diagnostics
 - **Local metric history:** opt-in SQLite storage, up to seven days within a 100 MiB budget, with aggregated ranges and explicit collection gaps

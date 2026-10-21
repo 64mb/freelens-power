@@ -85,8 +85,14 @@ type CardView = {
   favicon?: string;
   faviconRequest?: AbortController;
   refreshTimer?: ReturnType<typeof setInterval>;
+  refreshInterval?: number;
   floating?: BrowserWindow;
-  floatingPreparation?: { refresh: () => Promise<boolean>; selectorChanged: () => void; stop: () => void };
+  floatingPreparation?: {
+    refresh: () => Promise<boolean>;
+    selectorChanged: () => void;
+    stop: () => void;
+    isPreparing: () => boolean;
+  };
 };
 type Owner = { window: BrowserWindow; cards: Map<string, CardView>; cleanup: () => void };
 
@@ -290,38 +296,49 @@ export function startDashboardViews(): () => void {
           card.floatingPreparation?.selectorChanged();
         }
         if (card.floating && !card.floating.isDestroyed()) card.floating.setTitle(setting.title);
-        if (!setting.autoRefresh) {
-          clearInterval(card.refreshTimer);
-          card.refreshTimer = undefined;
-          continue;
-        }
-        if (card.refreshTimer) continue;
+        const interval = setting.refreshEvery10Seconds ? 10000 : setting.autoRefresh ? 600000 : undefined;
+        if (card.refreshInterval === interval) continue;
+        clearInterval(card.refreshTimer);
+        card.refreshTimer = undefined;
+        card.refreshInterval = interval;
+        if (!interval) continue;
         card.refreshTimer = setInterval(() => {
           const latest = configuredCards().find((item) => item.id === id);
           if (
             owners.get(sender) !== owner ||
-            card.floating ||
-            dashboardUrl(sender.getURL()) ||
             owner.cards.get(id) !== card ||
-            !latest?.autoRefresh ||
+            !latest ||
             latest.url !== card.url ||
+            (latest.refreshEvery10Seconds ? 10000 : latest.autoRefresh ? 600000 : undefined) !== interval ||
             card.view.webContents.isDestroyed() ||
+            card.loading ||
             card.view.webContents.isLoading()
           )
             return;
-          void reload(card, latest.url);
-        }, 600000);
+          if (latest.refreshEvery10Seconds) {
+            if (card.floating) {
+              if (
+                card.floating.isDestroyed() ||
+                card.floating.webContents.isLoading() ||
+                card.floatingPreparation?.isPreparing()
+              )
+                return;
+              void Promise.all([reload(card, latest.url), card.floatingPreparation?.refresh()]);
+            } else if (card.visible && dashboardUrl(sender.getURL())) void reload(card, latest.url);
+          } else if (!card.floating && !dashboardUrl(sender.getURL())) void reload(card, latest.url);
+        }, interval);
       }
     }
   };
   const stopSettingsReaction = reaction(
     () =>
       JSON.stringify(
-        configuredCards().map(({ id, title, url, autoRefresh, selector }) => ({
+        configuredCards().map(({ id, title, url, autoRefresh, refreshEvery10Seconds, selector }) => ({
           id,
           title,
           url,
           autoRefresh,
+          refreshEvery10Seconds,
           selector,
         })),
       ),
@@ -679,10 +696,12 @@ export function startDashboardViews(): () => void {
       floating.on("resize", layoutSkeleton);
       layoutSkeleton();
       let generation = 0;
+      let floatingPreparing = false;
       let stopPreparation = () => {};
       let finishLoad: (() => Promise<boolean>) | undefined;
       const begin = () => {
         stopPreparation();
+        floatingPreparing = true;
         const token = ++generation;
         const backgroundThrottling = contents.getBackgroundThrottling();
         if (backgroundThrottling) contents.setBackgroundThrottling(false);
@@ -694,6 +713,7 @@ export function startDashboardViews(): () => void {
         stopPreparation = () => {
           if (!active) return;
           active = false;
+          floatingPreparing = false;
           network.dispose();
           if (!contents.isDestroyed() && backgroundThrottling) contents.setBackgroundThrottling(true);
         };
@@ -732,6 +752,7 @@ export function startDashboardViews(): () => void {
       };
       card.floatingPreparation = {
         refresh,
+        isPreparing: () => floatingPreparing,
         selectorChanged: () => {
           const preparation = begin();
           if (!contents.isLoading()) void preparation.finish();

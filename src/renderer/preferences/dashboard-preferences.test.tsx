@@ -178,9 +178,10 @@ describe("dashboard preferences", () => {
     expect(mocks.preferences.moveCard).toHaveBeenLastCalledWith("second", 0);
   });
   it("keeps refresh changes as a draft and preserves them only on save", () => {
+    mocks.preferences.cards[0].refreshEvery10Seconds = true;
     render(<DashboardPreferences />);
     fireEvent.click(screen.getByRole("button", { name: "Edit Example" }));
-    const toggle = screen.getByRole("checkbox", { name: "Autorefresh" }) as HTMLInputElement;
+    const toggle = screen.getByRole("checkbox", { name: "Background refresh (10 min)" }) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -190,7 +191,7 @@ describe("dashboard preferences", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Save card" }));
     expect(mocks.preferences.upsertCard).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "example", autoRefresh: true }),
+      expect.objectContaining({ id: "example", autoRefresh: true, refreshEvery10Seconds: true }),
     );
   });
 
@@ -228,9 +229,11 @@ it("uses the discovered icon after a failed root favicon and ignores icons for o
 it("enables automatic refresh for new cards and aligns its native checkbox with the other controls", () => {
   render(<DashboardPreferences />);
   fireEvent.click(screen.getByRole("button", { name: "Add card" }));
-  const checkbox = screen.getByRole("checkbox", { name: "Autorefresh" }) as HTMLInputElement;
+  const checkbox = screen.getByRole("checkbox", { name: "Background refresh (10 min)" }) as HTMLInputElement;
   expect(checkbox.checked).toBe(true);
-  expect(checkbox.closest(".power-settings-row")?.querySelector("label")?.textContent).toBe("Autorefresh");
+  expect(checkbox.closest(".power-settings-row")?.querySelector("label")?.textContent).toBe(
+    "Background refresh (10 min)",
+  );
   expect(checkbox.parentElement?.parentElement?.style.width).toBe("340px");
   fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.org" } });
   fireEvent.click(screen.getAllByRole("button", { name: "Add card" })[0]);

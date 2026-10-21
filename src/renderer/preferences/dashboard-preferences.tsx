@@ -50,6 +50,7 @@ function CardEditor({
       url: normalizedUrl,
       size,
       autoRefresh,
+      ...(card?.refreshEvery10Seconds ? { refreshEvery10Seconds: true } : {}),
       selector: normalizeDashboardSelector(selector),
     });
     onClose();
@@ -136,7 +137,7 @@ function CardEditor({
           }}
         />
       </SettingsField>
-      <SettingsField id={`${id}-autorefresh`} label="Autorefresh">
+      <SettingsField id={`${id}-autorefresh`} label="Background refresh (10 min)">
         <Checkbox {...{ id: `${id}-autorefresh` }} value={autoRefresh} onChange={setAutoRefresh} />
       </SettingsField>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>

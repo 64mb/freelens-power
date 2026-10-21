@@ -2,7 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 // SPDX-License-Identifier: Apache-2.0
 import { ipcRenderer, shell } from "electron";
 import { observer } from "mobx-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDashboardUrl } from "../common/dashboard";
 import {
   DASHBOARD_VIEWS_CLEAR,
@@ -69,6 +69,10 @@ const styles = `
   }
   .freelens-power-dashboard h2 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
   .freelens-power-dashboard .power-dashboard-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .freelens-power-dashboard .power-dashboard-card-title h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .freelens-power-dashboard .power-dashboard-card-xs .power-dashboard-card-header { flex-wrap: wrap; row-gap: 4px; }
+  .freelens-power-dashboard .power-dashboard-card-xs .power-dashboard-card-title { flex-basis: 100%; }
+  .freelens-power-dashboard .power-dashboard-card-xs .power-dashboard-card-actions { margin-left: auto; }
   .freelens-power-dashboard .power-dashboard-site-icon { width: 16px; height: 16px; border-radius: 4px; object-fit: contain; flex-shrink: 0; }
   .freelens-power-dashboard .power-dashboard-card-header a {
     flex-shrink: 0; color: var(--textColorPrimary); font-size: 12px; transition: color 160ms ease;
@@ -83,6 +87,7 @@ const styles = `
   @keyframes power-dashboard-loading { 50% { opacity: .45; } }
   @media (prefers-reduced-motion: reduce) { .freelens-power-dashboard .power-dashboard-skeleton span { animation: none; } }
   .freelens-power-dashboard .power-dashboard-hint { margin: 16px 0 0; font-size: 12px; }
+  .power-dashboard-right-tooltip { position: fixed !important; left: calc(anchor(right) + 8px) !important; top: anchor(center) !important; right: auto !important; bottom: auto !important; translate: 0 -50%; white-space: nowrap !important; max-width: none !important; }
   .freelens-power-dashboard .power-dashboard-empty {
     padding: 40px 24px; border: 1px solid var(--borderFaintColor); border-radius: 12px;
     background: var(--contentColor); text-align: center;
@@ -93,6 +98,18 @@ const styles = `
     .freelens-power-dashboard .power-dashboard-header { flex-wrap: wrap; }
   }
 `;
+
+function DashboardActionIcon({ material, tooltip }: { material: string; tooltip: string }) {
+  const [anchor] = useState(() => `--power-dashboard-action-${crypto.randomUUID()}`);
+  return (
+    <Renderer.Component.Icon
+      material={material}
+      size={18}
+      style={{ anchorName: anchor, "--size": "18px" } as CSSProperties}
+      tooltip={{ children: tooltip, className: "power-dashboard-right-tooltip", style: { positionAnchor: anchor } }}
+    />
+  );
+}
 
 function WebsiteIcon({ url, favicon }: { url: string; favicon?: string }) {
   const [failed, setFailed] = useState(false);
@@ -396,29 +413,44 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
                     <button
                       type="button"
                       className="power-dashboard-expand"
+                      aria-label={`Auto-refresh ${card.title} every 10 seconds`}
+                      aria-pressed={card.refreshEvery10Seconds === true}
+                      onClick={() => {
+                        preferences.upsertCard({ ...card, refreshEvery10Seconds: !card.refreshEvery10Seconds });
+                      }}
+                    >
+                      <DashboardActionIcon
+                        material="autorenew"
+                        tooltip={card.refreshEvery10Seconds ? "Disable refresh" : "Enable refresh (10s)"}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="power-dashboard-expand"
                       aria-label={`${pinnedCards.includes(card.id) ? "Unpin" : "Pin"} ${card.title}`}
                       aria-pressed={pinnedCards.includes(card.id)}
-                      title={pinnedCards.includes(card.id) ? "Close pinned window" : "Pin above other windows"}
                       onClick={() => {
                         void togglePinned(card.id);
                       }}
                     >
-                      <Renderer.Component.Icon material="push_pin" size={18} />
+                      <DashboardActionIcon
+                        material="push_pin"
+                        tooltip={pinnedCards.includes(card.id) ? "Unpin" : "Pin"}
+                      />
                     </button>
                     <button
                       type="button"
                       className="power-dashboard-expand"
                       aria-label={`${expanded === card.id ? "Restore" : "Expand"} ${card.title}`}
                       aria-pressed={expanded === card.id}
-                      title={expanded === card.id ? "Restore" : "Expand"}
                       onClick={() => {
                         if (!expanded) gridScrollTop.current = root.current?.scrollTop ?? 0;
                         setExpandedId(expanded === card.id ? null : card.id);
                       }}
                     >
-                      <Renderer.Component.Icon
+                      <DashboardActionIcon
                         material={expanded === card.id ? "fullscreen_exit" : "fullscreen"}
-                        size={18}
+                        tooltip={expanded === card.id ? "Restore" : "Expand"}
                       />
                     </button>
                     <a
@@ -431,7 +463,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
                       rel="noopener noreferrer"
                       aria-label={`Open ${card.title} in browser`}
                     >
-                      <Renderer.Component.Icon material="open_in_new" size={18} tooltip="Open in browser" />
+                      <DashboardActionIcon material="open_in_new" tooltip="Open" />
                     </a>
                   </div>
                 </header>

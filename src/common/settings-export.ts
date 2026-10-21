@@ -36,6 +36,7 @@ export function parseSettingsImport(value: unknown) {
       typeof card.url !== "string" ||
       !["xs", "s", "m", "l", "xl"].includes(card.size) ||
       (card.autoRefresh !== undefined && typeof card.autoRefresh !== "boolean") ||
+      (card.refreshEvery10Seconds !== undefined && typeof card.refreshEvery10Seconds !== "boolean") ||
       (card.selector !== undefined &&
         (typeof card.selector !== "string" || (card.selector.trim() && !normalizeDashboardSelector(card.selector))))
     )
