@@ -35,9 +35,9 @@ export function SettingsModal({
         .power-settings-dialog .power-dashboard-selector-input:focus-within { border-color: var(--primary); }
         .power-settings-dialog .power-dashboard-selector-input .input-area { border-bottom: 0; }
         .power-settings-dialog .power-dashboard-selector-input input { font-family: var(--font-monospace, monospace); }
-        .power-settings-dialog .power-dashboard-selector-actions { display: flex; align-items: center; }
         .power-settings-dialog button.power-settings-icon-action { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-width: 30px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--textColorSecondary); cursor: pointer; transition: color 160ms ease, background-color 160ms ease; }
-        .power-settings-dialog button.power-settings-icon-action:hover { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+        .power-settings-dialog button.power-settings-icon-action:disabled { opacity: .45; cursor: default; }
+        .power-settings-dialog button.power-settings-icon-action:hover:not(:disabled) { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
         .power-settings-dialog button.power-settings-icon-action:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         @media (max-width: 600px) { .power-settings-dialog .power-settings-row { align-items: stretch !important; flex-direction: column; gap: 8px !important; } .power-settings-dialog .power-settings-row > div { width: 100% !important; } }
       `}</style>

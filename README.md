@@ -23,11 +23,11 @@ Real extension components with synthetic website content, prompts, and conversat
 
 | Dashboard | AI assistant |
 | --- | --- |
-| <a href="docs/screenshots/dashboard.png"><img src="docs/screenshots/dashboard.png" height="240" alt="Dashboard with demonstration websites"></a> | <a href="docs/screenshots/ai-chat.png"><img src="docs/screenshots/ai-chat.png" height="240" alt="AI assistant with example read-only diagnostics and code copying"></a> |
+| [![Dashboard with demonstration websites](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) | [![AI assistant with example read-only diagnostics and code copying](docs/screenshots/ai-chat.png)](docs/screenshots/ai-chat.png) |
 
 | AI preferences and shortcuts | Focused website cards |
 | --- | --- |
-| <a href="docs/screenshots/ai-settings.png"><img src="docs/screenshots/ai-settings.png" height="240" alt="AI preferences with neutral prompts and shortcuts"></a> | <a href="docs/screenshots/card-editor.png"><img src="docs/screenshots/card-editor.png" height="240" alt="Dashboard card editor with an example URL and CSS selector"></a> |
+| [![AI preferences with neutral prompts and shortcuts](docs/screenshots/ai-settings.png)](docs/screenshots/ai-settings.png) | [![Dashboard card editor with an example URL and CSS selector](docs/screenshots/card-editor.png)](docs/screenshots/card-editor.png) |
 
 ## Install
 
