@@ -7,19 +7,20 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **Secure Node Shell:** your connection command, optional IPv6 preference, and automatic `colima ssh`
 - **Secret certificates:** CN, SAN, issuer, serial number, validity dates, and expiration details for PEM chains
 - **Accent themes:** Default, Purple, Blue, Green, Yellow, Orange, Red, and Pink for controls, text links, and the welcome logo
+- **Cluster icons:** a searchable cluster grid, matching SVG icons, editable labels and colors, live previews, and saved editor settings
 - **macOS Dock icon:** optionally follows your accent, with a separate toggle to restore the original
-- **Power Dashboard:** reorderable S/M/L website cards, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, and optional background refresh
+- **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, and optional background refresh
 - **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts using metrics-server and Kubernetes APIs
 - **Resource diagnostics:** CPU/memory consumers grouped by namespace and workload, application event timelines, and evidence-based Pending pod diagnostics
 - **Local metric history:** opt-in SQLite storage, up to seven days within a 100 MiB budget, with aggregated ranges and explicit collection gaps
-- **AI assistant:** native Codex or Claude CLI, per-cluster conversations, read-only API discovery and resource summaries, model/effort/speed selection, editable prompts, quick-start commands, Markdown, cancellable replies, context preview, resource links, resizable pinned chat, and a switch to disable all AI features
+- **AI assistant:** native Codex or Claude CLI, per-cluster conversations, read-only API discovery and resource summaries, model/effort/speed selection, editable prompts, quick-start commands, Markdown, cancellable replies, context preview, optional terminal attachments, resource links, resizable pinned chat, and a switch to disable all AI features
 - **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
 - **Master switch:** restores the native interface while preserving all settings
 - **Settings:** native switches, compact dashboard editors, and JSON backup and restore of cards and prompt shortcuts
 
-AI tool results exclude environment values and Secret payloads; logs are reduced locally to numeric issue counters. Websites run in isolated Electron views. Every dashboard card also opens in your browser.
+AI tool results exclude environment values and Secret payloads; logs are reduced locally to numeric issue counters. Terminal output is sent only when explicitly attached; review its masked preview before sending. Websites run in isolated Electron views. Every dashboard card also opens in your browser.
 
-Monitoring history is collected while Freelens is running and the cluster view is active. Cluster/node series are retained automatically when enabled; pod/workload series require explicit tracking in Diagnostics. History cannot backfill periods without collection. Timelines combine retained Kubernetes events with changes observed while the diagnostics page is open. Local Pending checks explain available evidence and do not reproduce the full scheduler.
+Monitoring history is collected while Freelens is running and the cluster view is active. Cluster and node series are retained automatically when enabled. History cannot backfill periods without collection. Timelines combine retained Kubernetes events with changes observed while the diagnostics page is open. Local Pending checks explain available evidence and do not reproduce the full scheduler.
 
 ## Screenshots
 

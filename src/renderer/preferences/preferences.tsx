@@ -1,4 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
+import { EXTENSION_ID } from "../../common/extension-info";
 import { AiPreferences } from "./ai-preferences";
 import { AppearancePreferences } from "./appearance-preferences";
 import { DashboardPreferences } from "./dashboard-preferences";
@@ -68,6 +69,15 @@ export const PowerPreferences = () => (
         <Renderer.Component.Icon material="palette" size={20} /> Appearance
       </h3>
       <AppearancePreferences />
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+        <Renderer.Component.Button
+          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          onClick={() => Renderer.Navigation.navigate(`/extension/${EXTENSION_ID}/cluster-icons`)}
+          title="Create matching icons for your saved clusters"
+        >
+          <Renderer.Component.Icon material="palette" size={16} /> Cluster icons
+        </Renderer.Component.Button>
+      </div>
     </section>
     <section aria-labelledby="freelens-power-monitoring-title">
       <h3 id="freelens-power-monitoring-title">

@@ -15,19 +15,33 @@ import { MonitoringHistoryWorker } from "./monitoring-history-worker";
 
 function trusted(event: IpcMainInvokeEvent): boolean {
   const window = BrowserWindow.fromWebContents(event.sender);
-  if (!window || window.isDestroyed() || event.senderFrame !== event.sender.mainFrame) return false;
+  if (!window || window.isDestroyed() || !event.senderFrame) return false;
   try {
-    const url = new URL(event.senderFrame?.url ?? "");
+    const frame = event.senderFrame;
+    const url = new URL(frame.url);
     const senderUrl = new URL(event.sender.getURL());
+    const trustedUrl = (candidate: URL) => {
+      if (candidate.protocol !== "https:" || candidate.username || candidate.password) return false;
+      if (candidate.hostname === "renderer.freelens.app") return true;
+      const suffix = ".renderer.freelens.app";
+      if (!candidate.hostname.endsWith(suffix)) return false;
+      const clusterId = candidate.hostname.slice(0, -suffix.length);
+      return !clusterId.includes(".") && !!Main.Catalog.getClusterById(clusterId);
+    };
+    if (!trustedUrl(url) || !trustedUrl(senderUrl)) return false;
+    if (frame === event.sender.mainFrame) return senderUrl.origin === url.origin;
     return (
-      url.protocol === "https:" &&
-      senderUrl.origin === url.origin &&
-      (url.hostname === "renderer.freelens.app" || url.hostname.endsWith(".renderer.freelens.app"))
+      senderUrl.hostname === "renderer.freelens.app" &&
+      url.port === senderUrl.port &&
+      url.hostname !== "renderer.freelens.app" &&
+      frame.parent === event.sender.mainFrame &&
+      frame.top === event.sender.mainFrame
     );
   } catch {
     return false;
   }
 }
+
 export function startMonitoringHistory(_extension: Main.LensExtension): () => void {
   let active = true;
   let database: MonitoringHistoryWorker | undefined;

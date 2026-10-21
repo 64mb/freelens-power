@@ -1,13 +1,27 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
 import { useEffect, useState } from "react";
+import ReactSelect from "react-select";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { monitoringHistory } from "./monitoring-history";
 
 import type { HistoryIdentity, HistoryPoint } from "../common/monitoring-history";
 import type { MonitoringSample } from "../common/monitoring-math";
-export const HISTORY_RANGES = { "30m": 1_800_000, "2h": 7_200_000, "24h": 86_400_000, "7d": 604_800_000 } as const;
+export const HISTORY_RANGES = {
+  "5m": 300_000,
+  "30m": 1_800_000,
+  "2h": 7_200_000,
+  "24h": 86_400_000,
+  "7d": 604_800_000,
+} as const;
 export type HistoryRange = keyof typeof HISTORY_RANGES;
+const RANGE_LABELS: Record<HistoryRange, string> = {
+  "5m": "5 min",
+  "30m": "30 min",
+  "2h": "2 hours",
+  "24h": "24 hours",
+  "7d": "7 days",
+};
 export function mergeHistorySamples(
   points: HistoryPoint[],
   live: MonitoringSample[],
@@ -65,7 +79,7 @@ export function useMonitoringHistory(identity: HistoryIdentity | undefined, live
     () => reaction(() => preferences.historyEnabled === true, setEnabled, { fireImmediately: true }),
     [preferences],
   );
-  const [range, setRange] = useState<HistoryRange>("30m");
+  const [range, setRange] = useState<HistoryRange>("5m");
   const [points, setPoints] = useState<HistoryPoint[]>([]);
   const [status, setStatus] = useState("");
   const key = identity ? `${identity.clusterId}/${identity.scope}/${identity.uid}` : "";
@@ -81,11 +95,7 @@ export function useMonitoringHistory(identity: HistoryIdentity | undefined, live
         .then((value) => {
           if (current) {
             setPoints(value);
-            setStatus(
-              value.length
-                ? "Historical averages; min/max available in stored buckets"
-                : "No local history for this range. Collection starts when enabled.",
-            );
+            setStatus(value.length ? "" : "No local history for this range. Collection starts when enabled.");
           }
         })
         .catch(() => {
@@ -111,48 +121,107 @@ export function MonitoringHistoryRange({
   range,
   onChange,
   native = false,
+  status,
+  compact = false,
 }: {
   range: HistoryRange;
   onChange: (value: HistoryRange) => void;
   // host [Select] requires injected context unavailable in detached chart roots
   native?: boolean;
+  status?: string;
+  compact?: boolean;
 }) {
   return (
-    <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      History range
-      <span style={{ width: 120 }}>
-        {native ? (
-          <Renderer.Component.Select
-            aria-label="History range"
-            value={range}
-            options={Object.keys(HISTORY_RANGES).map((value) => ({ value: value as HistoryRange, label: value }))}
-            onChange={(option) => {
-              if (option) onChange(option.value);
-            }}
-            isClearable={false}
-          />
-        ) : (
-          <select
-            aria-label="History range"
-            value={range}
-            onChange={(event) => onChange(event.target.value as HistoryRange)}
-            style={{
-              width: "100%",
-              padding: "6px 8px",
-              color: "var(--textColorPrimary)",
-              background: "var(--contentColor)",
-              border: "1px solid var(--borderColor)",
-              borderRadius: 4,
-            }}
-          >
-            {Object.keys(HISTORY_RANGES).map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-        )}
-      </span>
-    </label>
+    <div
+      className={compact ? "power-history-compact" : undefined}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 8,
+        marginBottom: compact ? 0 : 12,
+      }}
+    >
+      <style>{`
+        .power-history-select.Select { min-width: 0; width: 100%; }
+        .power-history-select .Select__control { min-height: 32px; }
+        .power-history-select .Select__value-container { padding: 6px 10px; }
+        .power-history-compact .Select__control { min-height: 26px; height:26px; font-size:12px; }
+        .power-history-compact .Select__value-container { padding:4px 8px; }
+        .power-history-compact .Select__indicator { padding:3px; }
+        .power-history-compact .Select__indicator svg { width:14px;height:14px; }
+      `}</style>
+      <label
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 12,
+          minHeight: compact ? 26 : 32,
+          color: "var(--textColorSecondary)",
+        }}
+      >
+        {!compact && "Period"}
+        <span style={{ width: compact ? 88 : 140, position: "relative", display: "inline-flex", alignItems: "center" }}>
+          {native ? (
+            <Renderer.Component.Select
+              className="power-history-select"
+              aria-label="History range"
+              value={range}
+              options={Object.keys(HISTORY_RANGES).map((value) => ({
+                value: value as HistoryRange,
+                label: RANGE_LABELS[value as HistoryRange],
+              }))}
+              onChange={(option) => {
+                if (option) onChange(option.value);
+              }}
+              isClearable={false}
+            />
+          ) : (
+            <ReactSelect
+              aria-label="History range"
+              className="Select power-history-select"
+              classNamePrefix="Select"
+              unstyled
+              isSearchable={false}
+              isClearable={false}
+              value={{ value: range, label: RANGE_LABELS[range] }}
+              options={Object.keys(HISTORY_RANGES).map((value) => ({
+                value: value as HistoryRange,
+                label: RANGE_LABELS[value as HistoryRange],
+              }))}
+              onChange={(option) => {
+                if (option) onChange(option.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") event.stopPropagation();
+              }}
+              menuPortalTarget={document.body}
+              menuPlacement="auto"
+              styles={{
+                menuPortal: (base) => ({ ...base, zIndex: 10000 }),
+                ...(compact
+                  ? {
+                      menu: (base) => ({ ...base, minWidth: 88, width: "100%" }),
+                      menuList: (base) => ({ ...base, padding: 4 }),
+                      option: (base) => ({
+                        ...base,
+                        fontSize: 12,
+                        lineHeight: "16px",
+                        padding: "4px 8px",
+                        minHeight: 24,
+                      }),
+                    }
+                  : {}),
+              }}
+            />
+          )}
+        </span>
+      </label>
+      {status && (
+        <small role="status" style={{ color: "var(--textColorSecondary)", lineHeight: 1.4 }}>
+          {status}
+        </small>
+      )}
+    </div>
   );
 }

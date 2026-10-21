@@ -4,28 +4,37 @@ import { type HistoryIdentity, validHistoryIdentity } from "../monitoring-histor
 
 export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
   enabled: boolean;
+  diagnosticsVisible: boolean;
   historyEnabled: boolean;
   trackedHistory: HistoryIdentity[];
 }> {
   enabled = false;
+  diagnosticsVisible = true;
   historyEnabled = false;
   trackedHistory: HistoryIdentity[] = [];
 
   constructor() {
     super({
       configName: "monitoring-preferences",
-      defaults: { enabled: false, historyEnabled: false, trackedHistory: [] },
+      defaults: { enabled: false, diagnosticsVisible: true, historyEnabled: false, trackedHistory: [] },
     });
     makeObservable(this, {
       enabled: observable,
+      diagnosticsVisible: observable,
       historyEnabled: observable,
       trackedHistory: observable,
       fromStore: action,
     });
   }
 
-  fromStore(data: { enabled?: boolean; historyEnabled?: boolean; trackedHistory?: HistoryIdentity[] }): void {
+  fromStore(data: {
+    enabled?: boolean;
+    diagnosticsVisible?: boolean;
+    historyEnabled?: boolean;
+    trackedHistory?: HistoryIdentity[];
+  }): void {
     this.enabled = data?.enabled === true;
+    this.diagnosticsVisible = data?.diagnosticsVisible !== false;
     this.historyEnabled = data?.historyEnabled === true;
     this.trackedHistory = Array.isArray(data?.trackedHistory)
       ? data.trackedHistory
@@ -35,9 +44,15 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
       : [];
   }
 
-  toJSON(): { enabled: boolean; historyEnabled: boolean; trackedHistory: HistoryIdentity[] } {
+  toJSON(): {
+    enabled: boolean;
+    diagnosticsVisible: boolean;
+    historyEnabled: boolean;
+    trackedHistory: HistoryIdentity[];
+  } {
     return {
       enabled: this.enabled,
+      diagnosticsVisible: this.diagnosticsVisible,
       historyEnabled: this.historyEnabled,
       trackedHistory: this.trackedHistory.map(({ clusterId, scope, uid }) => ({ clusterId, scope, uid })),
     };

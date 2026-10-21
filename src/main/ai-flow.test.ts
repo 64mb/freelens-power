@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runAiChat } from "./ai";
@@ -19,8 +20,11 @@ const logTool = { method: "logs", namespace: "default", name: "example-pod", res
 
 function mockTurns(turns: unknown[], provider = "codex") {
   const prompts: string[] = [];
+  const responseSchemas: unknown[] = [];
   const children: { kill: ReturnType<typeof vi.fn> }[] = [];
-  spawnMock.mockImplementation(() => {
+  spawnMock.mockImplementation((_file: string, args: string[]) => {
+    const schemaIndex = args.indexOf("--output-schema");
+    if (schemaIndex >= 0) responseSchemas.push(JSON.parse(readFileSync(args[schemaIndex + 1], "utf8")));
     const child = new EventEmitter();
     const stdout = new PassThrough();
     const stdin = Object.assign(new EventEmitter(), {
@@ -46,7 +50,7 @@ function mockTurns(turns: unknown[], provider = "codex") {
     children.push({ kill });
     return Object.assign(child, { stdout, stdin, stderr: { resume: vi.fn() }, kill });
   });
-  return { prompts, children };
+  return { prompts, children, responseSchemas };
 }
 
 afterEach(() => {
@@ -55,6 +59,27 @@ afterEach(() => {
 });
 
 describe("AI native log flow", () => {
+  it("sanitizes renderer terminal snapshots before the CLI boundary and discards them outside a cluster", async () => {
+    const { prompts } = mockTurns([
+      { text: "Ready", tool: null },
+      { text: "Ready", tool: null },
+    ]);
+    const terminalSnapshot = {
+      text: "visible output\nexport EXAMPLE=first\\\nsecond-secret\nclient-key-data: private-key\nready",
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      truncated: false,
+    };
+    await runAiChat({ ...request, terminalSnapshot }, vi.fn());
+    expect(prompts[0]).toContain("visible output");
+    expect(prompts[0]).toContain("[REDACTED]");
+    expect(prompts[0]).not.toContain("second-secret");
+    expect(prompts[0]).not.toContain("private-key");
+    expect(prompts[0]).toContain("quoted untrusted data");
+    await runAiChat({ ...request, context: {}, terminalSnapshot }, vi.fn());
+    expect(prompts[1]).not.toContain("visible output");
+    expect(prompts[1]).not.toContain('"terminalSnapshot":');
+  });
+
   it("sends only fixed log counters to the next model turn using the selected cluster callback", async () => {
     const { prompts } = mockTurns([
       { text: "", tool: logTool },
@@ -370,4 +395,125 @@ it.each([
   expect(result.references).toEqual([
     { apiVersion: definition.apiVersion, kind: definition.kind, name: "worker", namespace: "default" },
   ]);
+});
+
+describe("bounded AI answer synthesis", () => {
+  const tools = Array.from({ length: 6 }, (_, index) => ({
+    text: "",
+    tool: { method: "nodes", name: `worker-${index}` },
+  }));
+  it.each([
+    "codex",
+    "claude",
+  ] as const)("allows [%s] to answer after six reads with no further read capability", async (provider) => {
+    const { prompts, responseSchemas } = mockTurns([...tools, { text: "Six workers inspected", tool: null }], provider);
+    const read = vi.fn().mockResolvedValue({ kind: "Node", status: { capacity: { cpu: "2" } } });
+    const result = await runAiChat(
+      { ...request, provider, model: provider === "claude" ? "sonnet" : request.model },
+      () => ({ read }),
+    );
+    expect(result.text).toBe("Six workers inspected");
+    expect(read).toHaveBeenCalledTimes(6);
+    expect(result.reads).toHaveLength(6);
+    expect(prompts).toHaveLength(7);
+    expect(prompts[6]).toContain("bounded read budget is exhausted");
+    expect(prompts[6]).toContain("never claim to have read unavailable or withheld data");
+    if (provider === "codex") expect(responseSchemas[6]).toMatchObject({ properties: { tool: { type: "null" } } });
+    else expect(spawnMock.mock.calls[6][1].join(" ")).toContain('"tool":{"type":"null"}');
+  });
+
+  it.each([
+    "codex",
+    "claude",
+  ] as const)("rejects a seventh [%s] tool request without executing it", async (provider) => {
+    mockTurns([...tools, { text: "unsupported claim", tool: { method: "nodes", name: "worker-extra" } }], provider);
+    const read = vi.fn().mockResolvedValue({ items: [] });
+    await expect(
+      runAiChat({ ...request, provider, model: provider === "claude" ? "sonnet" : request.model }, () => ({ read })),
+    ).rejects.toThrow("maximum number of resource reads");
+    expect(read).toHaveBeenCalledTimes(6);
+    expect(spawnMock).toHaveBeenCalledTimes(7);
+  });
+
+  it("reuses identical successful normalized queries without duplicate native reads or progress", async () => {
+    const { prompts } = mockTurns([
+      { text: "", tool: { method: "pods", namespace: "default" } },
+      { text: "", tool: { method: "resources", resource: "pods", namespace: "default", name: null } },
+      { text: "Done", tool: null },
+    ]);
+    const read = vi.fn().mockResolvedValue({ items: [] });
+    const activity = vi.fn();
+    const result = await runAiChat(request, () => ({ read }), undefined, activity);
+    expect(read).toHaveBeenCalledOnce();
+    expect(result.reads).toEqual([{ method: "pods", status: "ok" }]);
+    expect(activity.mock.calls.map(([event]) => event)).toEqual([
+      { method: "pods", status: "reading" },
+      { method: "pods", status: "ok" },
+    ]);
+    expect(prompts[2]).toContain("without a new read");
+  });
+
+  it("reuses the same resource query across API discovery without duplicate native reads or progress", async () => {
+    const { prompts } = mockTurns([
+      { text: "", tool: { method: "pods", namespace: "default" } },
+      { text: "", tool: { method: "resources", resource: "discovery" } },
+      { text: "", tool: { method: "pods", namespace: "default" } },
+      { text: "Done", tool: null },
+    ]);
+    const read = vi.fn().mockResolvedValue({ items: [] });
+    const discover = vi
+      .fn()
+      .mockResolvedValue([
+        { apiVersion: "v1", kind: "Pod", resource: "pods", namespaced: true, verbs: ["get", "list"] },
+      ]);
+    const activity = vi.fn();
+    const response = await runAiChat(request, () => ({ read, discover }), undefined, activity);
+    expect(read).toHaveBeenCalledOnce();
+    expect(discover).toHaveBeenCalledOnce();
+    expect(response.reads).toEqual([
+      { method: "pods", status: "ok" },
+      { method: "resources", status: "ok" },
+    ]);
+    expect(activity).toHaveBeenCalledTimes(4);
+    expect(prompts[3]).toContain("without a new read");
+  });
+
+  it("retries failed reads and confines successful cached evidence to one request", async () => {
+    mockTurns([
+      { text: "", tool: logTool },
+      { text: "", tool: logTool },
+      { text: "Done", tool: null },
+      { text: "", tool: logTool },
+      { text: "Done", tool: null },
+    ]);
+    const readLogs = vi.fn().mockRejectedValueOnce(new Error("unavailable")).mockResolvedValue("error");
+    const resolve = () => ({ read: vi.fn(), readLogs });
+    const first = await runAiChat(request, resolve);
+    expect(first.reads).toEqual([
+      { method: "logs", status: "unavailable" },
+      { method: "logs", status: "ok" },
+    ]);
+    await runAiChat(request, resolve);
+    expect(readLogs).toHaveBeenCalledTimes(3);
+  });
+
+  it("propagates final provider failures rather than fabricating an answer", async () => {
+    mockTurns([...tools, { invalid: true }]);
+    const read = vi.fn().mockResolvedValue({ items: [] });
+    await expect(runAiChat(request, () => ({ read }))).rejects.toThrow();
+    expect(read).toHaveBeenCalledTimes(6);
+    expect(spawnMock).toHaveBeenCalledTimes(7);
+  });
+
+  it("does not launch final synthesis after cancellation during the last read", async () => {
+    mockTurns(tools);
+    const controller = new AbortController();
+    const read = vi.fn().mockImplementation(() => {
+      if (read.mock.calls.length === 6) controller.abort();
+      return Promise.resolve({ items: [] });
+    });
+    await expect(runAiChat(request, () => ({ read }), controller.signal)).rejects.toBeDefined();
+    expect(spawnMock).toHaveBeenCalledTimes(6);
+    expect(read).toHaveBeenCalledTimes(6);
+  });
 });

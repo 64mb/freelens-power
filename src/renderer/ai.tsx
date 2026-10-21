@@ -16,6 +16,12 @@ import { AiMessageContent } from "./ai-message";
 import { AiProviderIcon } from "./ai-provider-icon";
 import { AiResizeHandle, clampAiPanelWidth, DEFAULT_AI_PANEL_WIDTH } from "./ai-resize";
 import { AiStarterPrompts } from "./ai-shortcuts";
+import {
+  type AiTerminalAttachment,
+  AiTerminalContext,
+  activeAiTerminal,
+  captureAiTerminal,
+} from "./ai-terminal-context";
 
 export interface AiScreenContext {
   clusterId?: string;
@@ -106,6 +112,7 @@ export function hasAiOverlay(): boolean {
 const styles = `
 @keyframes power-ai-spin { to { transform: rotate(360deg); } }
 @keyframes power-ai-dot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) .power-ai-launcher { display: none; }
 .power-ai-read-activity > span { display: inline-flex; align-items: center; gap: 4px; }
 .power-ai-read-activity [data-status="reading"] .Icon { animation: power-ai-spin 1.2s linear infinite; }
 .power-ai-thinking { margin: 12px 16px 18px; line-height: 1.5; color: var(--textColorSecondary); }
@@ -164,6 +171,7 @@ const styles = `
 :root .power-ai-panel header button.power-ai-pin[aria-pressed="true"] { color: var(--primary); }
 .power-ai-panel header > button { flex-shrink: 0; }
 .power-ai-panel form { position: relative; flex-shrink: 0; margin: 0 16px 16px; border: 1px solid var(--borderFaintColor); border-radius: 12px; background: var(--mainBackground); transition: border-color 160ms ease; }
+.power-ai-panel form > .power-ai-context-preview { padding: 8px 48px 4px 16px !important; min-height: 34px; margin: 0; box-sizing: border-box; }
 .power-ai-panel form:focus-within { border-color: var(--primary); }
 .power-ai-message > strong { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--textColorSecondary); margin-bottom: 10px; }
 .power-ai-message-assistant { border-color: transparent; background: transparent; }
@@ -214,6 +222,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [launcherHidden, setLauncherHidden] = useState(false);
   const [draft, setDraft] = useState("");
+  const [terminalAttachment, setTerminalAttachment] = useState<AiTerminalAttachment>();
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [dismissedDraft, setDismissedDraft] = useState<string>();
   const suggestions =
@@ -378,33 +387,80 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     return () => document.removeEventListener("click", onOutsideClick, true);
   }, [open, pinned]);
   useEffect(() => {
-    const toggle = (event: KeyboardEvent) => {
-      const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const heldKeys = new Set<string>();
+    let shiftDownAt: number | undefined;
+    let lastTapAt: number | undefined;
+    const reset = () => {
+      shiftDownAt = undefined;
+      lastTapAt = undefined;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Shift") heldKeys.add(event.code || event.key);
       if (
+        event.key !== "Shift" ||
         event.repeat ||
         event.isComposing ||
         event.keyCode === 229 ||
         event.altKey ||
-        !event.shiftKey ||
-        (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) ||
-        event.code !== "KeyY" ||
+        event.ctrlKey ||
+        event.metaKey ||
+        heldKeys.size > 0 ||
+        shiftDownAt !== undefined
+      ) {
+        reset();
+        return;
+      }
+      shiftDownAt = performance.now();
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Meta") {
+        // macOS can omit keyup events for keys released while [Meta] is held
+        heldKeys.clear();
+        reset();
+        return;
+      }
+      heldKeys.delete(event.code || event.key);
+      const now = performance.now();
+      if (
+        event.key !== "Shift" ||
+        shiftDownAt === undefined ||
+        now - shiftDownAt > 400 ||
+        event.isComposing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
         !preferences.enabled ||
         !isClusterDocument() ||
         hasAiOverlay()
-      )
+      ) {
+        reset();
         return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
+      }
+      shiftDownAt = undefined;
+      if (lastTapAt === undefined || now - lastTapAt > 400) {
+        lastTapAt = now;
+        return;
+      }
+      reset();
       setContext(readAiContext());
       setOpen((value) => !value);
     };
-    window.addEventListener("keydown", toggle, true);
-    return () => window.removeEventListener("keydown", toggle, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    const onBlur = () => {
+      heldKeys.clear();
+      reset();
+    };
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [preferences, isClusterDocument]);
   const availablePanelWidth = Math.max(1, viewportWidth - Math.max(0, launcherLeft - 16));
   const panelWidth = clampAiPanelWidth(preferences.chatPanelWidth ?? DEFAULT_AI_PANEL_WIDTH, availablePanelWidth);
-  const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧Y" : "Ctrl+Shift+Y";
+  const shortcutLabel = "Shift, Shift";
   const key = context.clusterId ?? "global";
   const messages = preferences.conversations[key] ?? [];
   const busy = pending.includes(key);
@@ -418,6 +474,26 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const element = messagesElement.current;
     if (element && open) element.scrollTop = element.scrollHeight;
   }, [open, key]);
+  useEffect(() => {
+    if (!terminalAttachment) return;
+    const update = () => {
+      if (activeAiTerminal(terminalAttachment.clusterId) !== terminalAttachment.terminalId)
+        setTerminalAttachment(undefined);
+    };
+    update();
+    const timer = window.setInterval(update, 500);
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-testid"],
+    });
+    return () => {
+      window.clearInterval(timer);
+      observer.disconnect();
+    };
+  }, [terminalAttachment, context.clusterId]);
   if (!preferences.enabled || !isClusterDocument() || coveredByOverlay) return null;
   const send = async (starter?: string) => {
     const question = expandAiShortcut(
@@ -434,6 +510,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       setContext(requestContext);
       return;
     }
+    const terminalSnapshot =
+      terminalAttachment?.clusterId === requestContext.clusterId
+        ? captureAiTerminal(requestContext.clusterId, terminalAttachment?.terminalId)
+        : undefined;
+    if (terminalAttachment && !terminalSnapshot) {
+      setTerminalAttachment(undefined);
+      setError("The attached terminal changed or is unavailable. Attach it again before sending.");
+      return;
+    }
+    setTerminalAttachment(undefined);
     following.current = true;
     const next: AiMessage[] = [...messages, { role: "user", text: question }];
     preferences.setMessages(key, next);
@@ -454,6 +540,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           return tail;
         }, []),
         context: requestContext,
+        ...(terminalSnapshot ? { terminalSnapshot } : {}),
         systemPrompt: [preferences.systemPrompt, requestContext.clusterId ? preferences.clusterPrompt : ""]
           .filter(Boolean)
           .join("\n\n"),
@@ -571,6 +658,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               aria-label="New chat"
               title="Clear this conversation and start a new chat"
               onClick={() => {
+                setTerminalAttachment(undefined);
                 preferences.setMessages(key, []);
                 setStopped((keys) => keys.filter((entry) => entry !== key));
                 setActivity({ key, reads: [] });
@@ -742,6 +830,12 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               </div>
             )}
             <AiContextPreview context={attachedAiContext(context)} />
+            <AiTerminalContext
+              clusterId={context.clusterId}
+              attachment={terminalAttachment}
+              onChange={setTerminalAttachment}
+              disabled={busy}
+            />
             <textarea
               ref={composer}
               aria-controls={suggestions.length ? "power-ai-commands" : undefined}

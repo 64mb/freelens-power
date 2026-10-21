@@ -5,13 +5,13 @@ import { MonitoringPreferencesStore } from "../common/store/monitoring-preferenc
 import {
   effectivePodResource,
   MAX_SAMPLES,
-  MetricChart,
   type MonitoringPod,
   type MonitoringSample,
   parseQuantity,
 } from "./monitoring";
 import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
-import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
+import { MonitoringDetailsChart } from "./monitoring-details-chart";
+import { useMonitoringHistory } from "./monitoring-history-view";
 
 type PodIdentity = { name: string; namespace: string };
 type PodMetrics = {
@@ -54,11 +54,15 @@ function PodMonitoringChart({
 }) {
   const history = useMonitoringHistory(uid ? { clusterId, scope: "pod", uid } : undefined, samples);
   return (
-    <>
-      <MonitoringHistoryRange range={history.range} onChange={history.setRange} />
-      {history.status && <small role="status">{history.status}</small>}
-      <MetricChart metric={metric} samples={history.samples} status={status} scope="pod" />
-    </>
+    <MonitoringDetailsChart
+      metric={metric}
+      samples={history.samples}
+      status={status}
+      scope="pod"
+      range={history.range}
+      onRangeChange={history.setRange}
+      historyStatus={history.status}
+    />
   );
 }
 
@@ -110,8 +114,10 @@ function mountPodMonitoring(): () => void {
   nativeSuppression.textContent = `
     .KubeObjectDetails:has(:is(${controllers})) .ResourceMetrics,
     .KubeObjectDetails:has(:is(${controllers})) [data-time-range]:has(+ .ResourceMetrics),
-    .KubeObjectDetails:has(.PodDetails) [data-time-range]:has(+ .ResourceMetrics > [data-power-pod-monitoring]),
-    .KubeObjectDetails .ResourceMetrics:has(> [data-power-pod-monitoring]) > .loader {
+    .KubeObjectDetails:has(.PodDetails) [data-time-range]:has(+ .ResourceMetrics),
+    .KubeObjectDetails:has(.PodDetails) .ResourceMetrics > .graph,
+    .KubeObjectDetails:has(.PodDetails) .ResourceMetrics > .loader,
+    .KubeObjectDetails .PodDetails .ResourceMetrics {
       display: none !important;
     }
   `;

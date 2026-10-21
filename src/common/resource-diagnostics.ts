@@ -156,8 +156,8 @@ export function buildConsumerGroups(
 }
 export interface DiagnosticsEvent {
   metadata?: { uid?: string; creationTimestamp?: string };
-  involvedObject?: { uid?: string; name?: string; namespace?: string };
-  regarding?: { uid?: string; name?: string; namespace?: string };
+  involvedObject?: { uid?: string; name?: string; namespace?: string; kind?: string };
+  regarding?: { uid?: string; name?: string; namespace?: string; kind?: string };
   reason?: string;
   message?: string;
   note?: string;

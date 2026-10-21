@@ -18,6 +18,7 @@ import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-
 import { startAiChat } from "./ai";
 import { startAppearanceOverride } from "./appearance";
 import { startPowerButtonStyles } from "./button-styles";
+import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
 import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { DiagnosticsPage } from "./diagnostics";
@@ -111,6 +112,16 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
 
   globalPages = [
     {
+      id: "cluster-icons",
+      components: {
+        Page: () => (
+          <PowerEnabled>
+            <ClusterIconsPage />
+          </PowerEnabled>
+        ),
+      },
+    },
+    {
       id: "dashboard",
       components: {
         Page: () => (
@@ -137,9 +148,14 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
 
   clusterPageMenus = [
     {
-      visible: computed(() => PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled),
+      visible: computed(
+        () =>
+          PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled &&
+          MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>().diagnosticsVisible,
+      ),
       target: { pageId: "diagnostics" },
       title: "Diagnostics",
+      orderNumber: 5,
       components: { Icon: () => <Renderer.Component.Icon material="insights" tooltip="Resource diagnostics" /> },
     },
   ];
@@ -165,7 +181,8 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     {
       kind: "Node",
       apiVersions: ["v1"],
-      priority: 10,
+      // host order is [300 - priority], before native metrics at [-1]
+      priority: 310,
       components: {
         Details: (props) => (
           <PowerEnabled>

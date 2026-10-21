@@ -1,7 +1,8 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
+import { formatDateTime } from "../common/date-time";
 import {
   aggregateMetrics,
   aggregateResources,
@@ -49,11 +50,13 @@ export function MetricChart({
   samples,
   status,
   scope = "node",
+  headerAction,
 }: {
   metric: "cpu" | "memory";
   samples: MonitoringSample[];
   status: string;
   scope?: "node" | "pod";
+  headerAction?: ReactNode;
 }) {
   const [selectedTime, setSelectedTime] = useState<number>();
   const [pinned, setPinned] = useState(false);
@@ -153,7 +156,18 @@ export function MetricChart({
         position: "relative",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {headerAction && <div className="power-monitoring-period-action">{headerAction}</div>}
+      <div
+        data-monitoring-heading=""
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+          paddingRight: headerAction ? 100 : 0,
+          minHeight: headerAction ? 32 : undefined,
+        }}
+      >
         <ResourceTitle metric={metric} />
         <span>{status ? "Unavailable" : last ? format(last[metric]) : "Collecting…"}</span>
       </div>
@@ -241,26 +255,63 @@ export function MetricChart({
             />
           );
         })}
-        {visibleSeries.map((line) => (
-          <path
-            key={line.key}
-            data-monitoring-series={line.key}
-            d={samples.reduce((path, sample, index) => {
-              const value = line.value(sample);
-              if (value === undefined) return path;
-              const previous = index ? line.value(samples[index - 1]) : undefined;
-              return `${path} ${previous === undefined || sample.breakBefore || sample.time - samples[index - 1].time > 1.8 * Math.max(sample.historical?.[metric]?.resolution ?? INTERVAL, samples[index - 1].historical?.[metric]?.resolution ?? INTERVAL) ? "M" : "L"}${x(sample)},${208 - (value / max) * 184}`;
-            }, "")}
-            fill="none"
-            stroke={line.color}
-            strokeWidth="2"
-            strokeDasharray={line.key === "capacity" || line.key === "allocatable" ? "5 3" : undefined}
-          />
-        ))}
+        {visibleSeries.map((line) => {
+          let path = "";
+          let gaps = "";
+          let previous: { sample: MonitoringSample; point: string } | undefined;
+          let interrupted = false;
+          for (const sample of samples) {
+            const value = line.value(sample);
+            if (value === undefined || !Number.isFinite(value)) {
+              interrupted = true;
+              continue;
+            }
+            const point = `${x(sample)},${208 - (value / max) * 184}`;
+            const gap =
+              previous &&
+              (interrupted ||
+                sample.breakBefore ||
+                sample.time - previous.sample.time >
+                  1.8 *
+                    Math.max(
+                      sample.historical?.[metric]?.resolution ?? INTERVAL,
+                      previous.sample.historical?.[metric]?.resolution ?? INTERVAL,
+                    ));
+            path += ` ${!previous || gap ? "M" : "L"}${point}`;
+            if (previous && gap) gaps += ` M${previous.point} L${point}`;
+            previous = { sample, point };
+            interrupted = false;
+          }
+          return (
+            <g key={line.key}>
+              <path
+                data-monitoring-series={line.key}
+                d={path}
+                fill="none"
+                stroke={line.color}
+                strokeWidth="2"
+                strokeDasharray={line.key === "capacity" || line.key === "allocatable" ? "5 3" : undefined}
+              />
+              {gaps && (
+                <path
+                  data-monitoring-gap={line.key}
+                  d={gaps}
+                  fill="none"
+                  stroke={line.color}
+                  strokeWidth="2"
+                  strokeDasharray="3 4"
+                  opacity=".65"
+                >
+                  <title>Dashed connections span missing measurements; intermediate values are unknown</title>
+                </path>
+              )}
+            </g>
+          );
+        })}
         {samples.map((sample) => (
           <circle key={sample.time} cx={x(sample)} cy={y(sample)} r="2" fill="currentColor">
             <title>
-              {formatMonitoringTime(sample.time)}: {format(sample[metric])}
+              {formatDateTime(sample.time)}: {format(sample[metric])}
             </title>
           </circle>
         ))}
@@ -308,8 +359,8 @@ export function MetricChart({
             pointerEvents: "none",
           }}
         >
-          <div>
-            {formatMonitoringTime(selected.time)}
+          <div style={{ whiteSpace: "pre-wrap" }}>
+            {formatDateTime(selected.time)}
             {pinned ? " · Pinned" : ""}
           </div>
           {visibleSeries.map((line) => (
@@ -537,6 +588,7 @@ function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; st
       <style>{`
       [data-monitoring-layout] { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch }
       [data-monitoring-trends], [data-monitoring-summaries] { display:contents }
+      .power-monitoring-period-action { position:absolute;right:16px;top:19px }
       @container (min-width: 961px) {
         [data-monitoring-summaries] > section { --power-monitoring-summary-top:16px }
       }
@@ -546,17 +598,30 @@ function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; st
       }
       @container (max-width: 580px) {
         [data-monitoring-layout] { grid-template-columns:minmax(0,1fr) }
+        .power-monitoring-period-action { left:16px;right:auto;top:15px }
+        [data-monitoring-trends] > section:first-child { --power-monitoring-trend-top:56px }
         .power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-trends] > section:not(:first-child) { --power-monitoring-trend-top:16px }
       }
     `}</style>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <MonitoringHistoryRange range={history.range} onChange={history.setRange} />
-        <small role="status">{history.status}</small>
-      </div>
+      {history.status && (
+        <small role="status" style={{ display: "block", color: "var(--textColorSecondary)", marginBottom: 8 }}>
+          {history.status}
+        </small>
+      )}
       <div data-monitoring-layout="">
         <div data-monitoring-trends="">
           {(["cpu", "memory"] as const).map((metric) => (
-            <MetricChart key={metric} metric={metric} samples={history.samples} status={status} />
+            <MetricChart
+              key={metric}
+              metric={metric}
+              samples={history.samples}
+              status={status}
+              headerAction={
+                metric === "cpu" ? (
+                  <MonitoringHistoryRange compact range={history.range} onChange={history.setRange} />
+                ) : undefined
+              }
+            />
           ))}
         </div>
         <div data-monitoring-summaries="">

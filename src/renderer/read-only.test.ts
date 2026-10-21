@@ -32,6 +32,7 @@ describe("read-only interface", () => {
         <li id="drain" class="MenuItem"><span class="title">Drain</span></li>
         <li id="remove-cluster" class="MenuItem"><i data-icon-name="delete"></i></li>
         <li id="logs" class="MenuItem"><span class="title">Logs</span></li></ul>
+      <div class="ItemListLayout"><div class="AddRemoveButtons"><button id="floating-remove" class="remove-button">Remove</button></div></div>
       <div class="CatalogAddButton" id="add-cluster"><button>Add</button></div>
       <ul class="MenuActions"><li class="MenuItem" id="catalog-remove">Remove</li></ul>
       <div class="power-ai-panel"><div class="MenuActions"><button class="MenuItem" id="ai-edit">Edit</button></div></div>
@@ -61,6 +62,7 @@ describe("read-only interface", () => {
       "apply",
       "add-cluster",
       "catalog-remove",
+      "floating-remove",
     ])
       expect(hidden(id)).toBe(true);
     for (const id of ["logs", "nav", "settings", "dashboard", "cancel", "ai-edit"]) expect(hidden(id)).toBe(false);

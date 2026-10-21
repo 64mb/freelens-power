@@ -59,9 +59,11 @@ const styles = `
   .freelens-power-dashboard button.power-dashboard-expand[aria-pressed="true"] .Icon { color: var(--primary); }
   .freelens-power-dashboard button.power-dashboard-expand[aria-pressed="true"]:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); }
   .freelens-power-dashboard button.power-dashboard-expand:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-  .freelens-power-dashboard .power-dashboard-card-s { grid-column: span 1; grid-row: span 1; }
-  .freelens-power-dashboard .power-dashboard-card-m { grid-column: span var(--power-medium-span, 2); grid-row: span 2; }
-  .freelens-power-dashboard .power-dashboard-card-l { grid-column: span var(--power-large-span, 4); grid-row: span 4; }
+  .freelens-power-dashboard .power-dashboard-card-xs { grid-column: span 1; grid-row: span 1; }
+  .freelens-power-dashboard .power-dashboard-card-s { grid-column: span var(--power-small-span, 2); grid-row: span 2; }
+  .freelens-power-dashboard .power-dashboard-card-m { grid-column: span var(--power-medium-span, 4); grid-row: span 2; }
+  .freelens-power-dashboard .power-dashboard-card-l { grid-column: span var(--power-large-span, 4); grid-row: span 3; }
+  .freelens-power-dashboard .power-dashboard-card-xl { grid-column: span var(--power-columns, 4); grid-row: span 3; }
   .freelens-power-dashboard .power-dashboard-card-header {
     display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px;
   }
@@ -248,10 +250,11 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
         container.clientWidth -
         (Number.parseFloat(containerStyle.paddingLeft) || 0) -
         (Number.parseFloat(containerStyle.paddingRight) || 0);
-      const columns = Math.max(1, Math.min(12, Math.floor((contentWidth + 20) / 260)));
+      const columns = contentWidth >= 1200 ? 6 : contentWidth >= 800 ? 4 : contentWidth >= 520 ? 2 : 1;
       for (const [property, value] of Object.entries({
         "--power-columns": columns,
-        "--power-medium-span": Math.min(2, columns),
+        "--power-small-span": Math.min(2, columns),
+        "--power-medium-span": Math.min(4, columns),
         "--power-large-span": Math.min(4, columns),
       })) {
         if (container.style.getPropertyValue(property) !== String(value))

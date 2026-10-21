@@ -96,14 +96,14 @@ describe("DashboardPage", () => {
   });
 
   it("renders each size with a native viewport placeholder and an external link", () => {
-    mocks.preferences.cards = (["s", "m", "l"] as const).map((size) => ({
+    mocks.preferences.cards = (["xs", "s", "m", "l", "xl"] as const).map((size) => ({
       id: size,
       title: `Tool ${size}`,
       url: `https://example.com/${size}`,
       size,
     }));
     render(<DashboardPage onOpenPreferences={vi.fn()} />);
-    for (const size of ["s", "m", "l"]) {
+    for (const size of ["xs", "s", "m", "l", "xl"]) {
       const frame = screen.getByRole("region", { name: `Tool ${size}` });
       expect(frame.parentElement?.classList.contains(`power-dashboard-card-${size}`)).toBe(true);
       const link = screen.getByRole("link", { name: `Open Tool ${size} in browser` });
@@ -169,15 +169,22 @@ describe("DashboardPage", () => {
   it("adapts column counts and card spans to the available dashboard width", async () => {
     render(<DashboardPage onOpenPreferences={vi.fn()} />);
     const dashboard = document.querySelector("main")!;
-    Object.defineProperty(dashboard, "clientWidth", { configurable: true, value: 1976 });
-    fireEvent(window, new Event("resize"));
-    await waitFor(() => expect(dashboard.style.getPropertyValue("--power-columns")).toBe("7"));
-    expect(dashboard.style.getPropertyValue("--power-large-span")).toBe("4");
-    Object.defineProperty(dashboard, "clientWidth", { configurable: true, value: 500 });
-    fireEvent(window, new Event("resize"));
-    await waitFor(() => expect(dashboard.style.getPropertyValue("--power-columns")).toBe("1"));
-    expect(dashboard.style.getPropertyValue("--power-medium-span")).toBe("1");
-    expect(dashboard.style.getPropertyValue("--power-large-span")).toBe("1");
+    for (const [width, columns] of [
+      [1199, 4],
+      [1200, 6],
+      [799, 2],
+      [800, 4],
+      [519, 1],
+      [520, 2],
+      [1800, 6],
+    ]) {
+      Object.defineProperty(dashboard, "clientWidth", { configurable: true, value: width + 56 });
+      fireEvent(window, new Event("resize"));
+      await waitFor(() => expect(dashboard.style.getPropertyValue("--power-columns")).toBe(String(columns)));
+      expect(dashboard.style.getPropertyValue("--power-small-span")).toBe(String(Math.min(2, columns)));
+      expect(dashboard.style.getPropertyValue("--power-medium-span")).toBe(String(Math.min(4, columns)));
+      expect(dashboard.style.getPropertyValue("--power-large-span")).toBe(String(Math.min(4, columns)));
+    }
   });
 
   it("shows an actionable error when native view synchronization fails", async () => {

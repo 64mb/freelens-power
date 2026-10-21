@@ -14,6 +14,7 @@ export interface AiChatMessage {
 
 export interface AiChatRequest {
   provider?: AiProvider;
+  terminalSnapshot?: import("./ai-terminal-context").AiTerminalSnapshot;
   requestId?: string;
   messages: AiChatMessage[];
   context: {

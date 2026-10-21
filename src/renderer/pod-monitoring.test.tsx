@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fireEvent, screen } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -304,7 +305,7 @@ it.each([
   expect(document.head.querySelector("[data-power-detail-monitoring]")).toBeNull();
 });
 
-it("hides only the native pod time filter and loader while a custom graph is mounted", async () => {
+it("hides the native pod time filter and loader while a custom graph is mounted", async () => {
   const metrics = document.querySelector<HTMLElement>(".ResourceMetrics")!;
   const time = document.createElement("div");
   time.dataset.timeRange = "30m";
@@ -324,24 +325,29 @@ it("hides only the native pod time filter and loader while a custom graph is mou
   expect(time.getAttribute("style")).toBe("color: red;");
 });
 
-it("keeps container metric time selectors unchanged beside custom main pod metrics", async () => {
+it("immediately hides native container metrics and restores their controls on disable", async () => {
   const main = document.querySelector<HTMLElement>(".ResourceMetrics")!;
   const mainRange = document.createElement("div");
   mainRange.dataset.timeRange = "30m";
   main.before(mainRange);
   const container = document.createElement("div");
   container.innerHTML = `<div data-time-range="30m" style="color: blue">Container time range</div><div class="ResourceMetrics"><div class="RadioGroup">${["CPU", "Memory", "Filesystem"].map((label) => `<label class="Radio"><div class="label">${label}</div></label>`).join("")}</div><div class="graph">Native container metrics</div></div>`;
-  document.querySelector(".KubeObjectDetails")!.append(container);
+  document.querySelector(".PodDetails")!.append(container);
   const containerRange = container.querySelector<HTMLElement>("[data-time-range]")!;
   const originalRange = containerRange.getAttribute("style");
+  const containerMetrics = container.querySelector<HTMLElement>(".ResourceMetrics")!;
   stop = startPodMonitoring();
+  expect(getComputedStyle(containerRange).display).toBe("none");
+  expect(getComputedStyle(containerMetrics).display).toBe("none");
   await vi.advanceTimersByTimeAsync(1);
   expect(getComputedStyle(mainRange).display).toBe("none");
-  expect(getComputedStyle(containerRange).display).not.toBe("none");
+  expect(getComputedStyle(containerRange).display).toBe("none");
   expect(container.querySelector("[data-power-pod-monitoring]")).toBeNull();
   expect(containerRange.getAttribute("style")).toBe(originalRange);
-  stop();
-  stop = undefined;
+  runInAction(() => {
+    state.preferences.enabled = false;
+  });
+  expect(getComputedStyle(containerMetrics).display).not.toBe("none");
   expect(getComputedStyle(mainRange).display).not.toBe("none");
   expect(getComputedStyle(containerRange).display).not.toBe("none");
   expect(containerRange.getAttribute("style")).toBe(originalRange);
@@ -368,4 +374,43 @@ it("preserves the native radio keyboard tab stop updated during CPU fallback", a
   expect(network.getAttribute("tabindex")).toBe("0");
   network.click();
   expect(document.querySelector(".Radio.checked .label")?.textContent).toBe("Network");
+});
+
+it("suppresses graphs inserted between polling ticks before mounting their replacement", async () => {
+  document.body.innerHTML = "";
+  stop = startPodMonitoring();
+  drawer();
+  const graph = document.querySelector<HTMLElement>(".graph")!;
+  expect(document.querySelector("[data-power-pod-monitoring]")).toBeNull();
+  expect(graph.style.display).toBe("");
+  expect(getComputedStyle(graph).display).toBe("none");
+  expect(getComputedStyle(document.querySelector<HTMLElement>(".switchers")!).display).not.toBe("none");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(document.querySelector("[data-power-pod-monitoring]")).not.toBeNull();
+  runInAction(() => {
+    state.preferences.enabled = false;
+  });
+  expect(getComputedStyle(graph).display).not.toBe("none");
+});
+
+it("overlays a compact history selector in the chart and retains its range across CPU and Memory tabs", async () => {
+  stop = startPodMonitoring();
+  await vi.advanceTimersByTimeAsync(1);
+  const chart = document.querySelector("[data-power-pod-monitoring] section")!;
+  const action = chart.querySelector<HTMLElement>(".power-monitoring-period-action")!;
+  expect(action).not.toBeNull();
+  expect(getComputedStyle(action).position).toBe("absolute");
+  expect(getComputedStyle(action).right).toBe("16px");
+  expect(getComputedStyle(action).top).toBe("19px");
+  expect(chart.querySelector<HTMLElement>("[data-monitoring-heading]")?.style.paddingRight).toBe("100px");
+  expect(document.querySelector("[data-power-pod-monitoring]")?.textContent).not.toContain("Period");
+  const combo = screen.getByRole("combobox", { name: "History range" });
+  expect(combo.closest(".power-history-compact")).not.toBeNull();
+  fireEvent.keyDown(combo, { key: "ArrowDown", code: "ArrowDown" });
+  fireEvent.click(screen.getByRole("option", { name: "24 hours" }));
+  expect(action.textContent).toContain("24 hours");
+  selectTab("Memory");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(document.querySelector("[data-power-pod-monitoring] section")?.getAttribute("aria-label")).toContain("Memory");
+  expect(document.querySelector(".power-monitoring-period-action")?.textContent).toContain("24 hours");
 });

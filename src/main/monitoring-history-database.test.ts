@@ -58,7 +58,7 @@ describe("local numeric monitoring history", () => {
       Array.from({ length: 512 }, (_, i) => ({
         ...identity,
         uid: `uid-${i}`,
-        time: now,
+        time: now - (511 - i) * 30_000,
         values: { cpu: i, memory: i },
       })),
       now,
@@ -67,7 +67,7 @@ describe("local numeric monitoring history", () => {
     expect(db.query({ ...identity, uid: "uid-511", from: now - 30_000, to: now }, now)).toEqual(
       expect.arrayContaining([expect.objectContaining({ metric: "cpu", avg: 511 })]),
     );
-    expect(db.query({ ...identity, uid: "uid-0", from: now - 30_000, to: now }, now)).toEqual([]);
+    expect(db.query({ ...identity, uid: "uid-0", from: now - 512 * 30_000, to: now }, now)).toEqual([]);
     db.prune(now + 604_800_001);
     expect(db.status().samples).toBe(0);
     db.close();

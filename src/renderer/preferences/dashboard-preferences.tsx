@@ -12,9 +12,11 @@ import { SettingsField, SettingsModal } from "./settings-modal";
 
 const { Input, Select, Button, Icon, Checkbox } = Renderer.Component;
 const sizeOptions = [
+  { value: "xs" as const, label: "XS · Extra small" },
   { value: "s" as const, label: "S · Small" },
   { value: "m" as const, label: "M · Medium" },
   { value: "l" as const, label: "L · Large" },
+  { value: "xl" as const, label: "XL · Extra large" },
 ];
 
 function CardEditor({
@@ -319,7 +321,14 @@ export const DashboardPreferences = observer(() => {
         </div>
       ))}
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button primary label="Add card" onClick={() => setEditing("new")} />
+        <Button
+          primary
+          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          onClick={() => setEditing("new")}
+        >
+          <Renderer.Component.Icon material="add" size={16} />
+          <span>Add card</span>
+        </Button>
       </div>
       {editing && (
         <CardEditor

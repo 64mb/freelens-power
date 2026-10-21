@@ -6,7 +6,7 @@ const excluded = ".freelens-power-preferences, #freelens-power-settings, .freele
 const directActions = [
   ".CatalogAddButton",
   ".KubeObjectListLayout .AddRemoveButtons .add-button",
-  ".KubeObjectListLayout .AddRemoveButtons .remove-button",
+  ".AddRemoveButtons .remove-button",
   ".create-resource-tab",
   ".CreateResource .InfoPanel button.active",
   '[data-testid^="save-edit-resource-from-tab-for-"]',
@@ -36,7 +36,7 @@ export function startReadOnlyMode(): () => void {
   const preferences = ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>();
   const style = document.createElement("style");
   style.dataset.freelensPower = "read-only";
-  style.textContent = `[${marker}] { display: none !important; }`;
+  style.textContent = `[${marker}], .AddRemoveButtons .remove-button { display: none !important; }`;
   const hidden = new Set<HTMLElement>();
 
   function restore() {
