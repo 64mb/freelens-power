@@ -191,6 +191,7 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
           <button
             type="button"
             aria-label="Copy code"
+            title="Copy code to clipboard"
             onClick={() => {
               try {
                 clipboard.writeText(text);

@@ -77,7 +77,7 @@ export const PowerPreferences = () => (
     </section>
     <section aria-labelledby="freelens-power-shell-title">
       <h3 id="freelens-power-shell-title">
-        <Renderer.Component.Icon material="terminal" size={20} /> Secure Node Shell
+        <Renderer.Component.Icon material="vpn_key" size={20} /> Secure Node Shell
       </h3>
       <NodeShellPreferences />
     </section>

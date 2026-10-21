@@ -1,6 +1,14 @@
 export const DASHBOARD_VIEWS_SYNC = "freelens-power:dashboard-views:sync";
 export const DASHBOARD_VIEWS_RELOAD = "freelens-power:dashboard-views:reload";
 export const DASHBOARD_VIEWS_CLEAR = "freelens-power:dashboard-views:clear";
+export const DASHBOARD_VIEWS_LOADING = "freelens-power:dashboard-views:loading";
+
+export interface DashboardViewLoading {
+  id: string;
+  url: string;
+  loading: boolean;
+  failed: boolean;
+}
 
 export interface DashboardViewBounds {
   x: number;

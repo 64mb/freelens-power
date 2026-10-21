@@ -15,10 +15,12 @@ export function dashboardSelectorAdapter(selector: string): void {
   if (!selector) return;
   const hidden = "data-power-selector-hidden";
   const path = "data-power-selector-path";
+  const inset = "data-power-selector-inset";
+  let insetRoot: HTMLElement | undefined;
   let marked: Element[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   const style = document.createElement("style");
-  style.textContent = `[${hidden}] { display: none !important; } [${path}] { display: block !important; position: static !important; width: auto !important; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; transform: none !important; }`;
+  style.textContent = `[${hidden}] { display: none !important; } [${path}] { display: block !important; position: static !important; width: auto !important; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; transform: none !important; } body[${inset}] { padding: 12px !important; box-sizing: border-box !important; }`;
   const notice = document.createElement("div");
   notice.textContent =
     "Selected element unavailable. Showing the whole page. Clear CSS selector in card settings to reset.";
@@ -33,6 +35,8 @@ export function dashboardSelectorAdapter(selector: string): void {
       element.removeAttribute(path);
     }
     marked = [];
+    insetRoot?.removeAttribute(inset);
+    insetRoot = undefined;
     style.remove();
     notice.remove();
   }
@@ -63,6 +67,10 @@ export function dashboardSelectorAdapter(selector: string): void {
       for (const element of branches) element.setAttribute(hidden, "");
       for (const element of ancestors) element.setAttribute(path, "");
       marked = [...branches, ...ancestors];
+      if (document.body) {
+        insetRoot = document.body;
+        insetRoot.setAttribute(inset, "");
+      }
       document.documentElement.append(style);
     } else {
       document.documentElement.append(notice);

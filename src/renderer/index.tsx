@@ -22,6 +22,7 @@ import { DashboardPage } from "./dashboard";
 import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
+import { startPodMonitoring } from "./pod-monitoring";
 import { PowerPreferences } from "./preferences/preferences";
 import { startReadOnlyMode } from "./read-only";
 import { startWelcomeOverride } from "./welcome";
@@ -66,6 +67,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
           for (const start of [
             startReadOnlyMode,
             startMonitoring,
+            startPodMonitoring,
             startPowerButtonStyles,
             startAppearanceOverride,
             startWelcomeOverride,

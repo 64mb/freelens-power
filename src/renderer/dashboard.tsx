@@ -6,10 +6,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDashboardUrl } from "../common/dashboard";
 import {
   DASHBOARD_VIEWS_CLEAR,
+  DASHBOARD_VIEWS_LOADING,
   DASHBOARD_VIEWS_PIN,
   DASHBOARD_VIEWS_PINNED,
   DASHBOARD_VIEWS_RELOAD,
   DASHBOARD_VIEWS_SYNC,
+  type DashboardViewLoading,
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 
@@ -72,6 +74,12 @@ const styles = `
   .freelens-power-dashboard .power-dashboard-card-header a .Icon { color: inherit; transition: color 160ms ease; }
   .freelens-power-dashboard .power-dashboard-card-header a:hover { color: var(--textColorAccent); }
   .freelens-power-dashboard .power-dashboard-embed { width: 100%; flex: 1; min-height: 0; overflow: hidden; }
+  .freelens-power-dashboard .power-dashboard-skeleton { height: 100%; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; gap: 12px; background: var(--contentColor); }
+  .freelens-power-dashboard .power-dashboard-skeleton span { height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--textColorSecondary) 12%, transparent); animation: power-dashboard-loading 1.8s ease-in-out infinite; }
+  .freelens-power-dashboard .power-dashboard-skeleton span:first-child { width: 45%; height: 20px; margin-bottom: 8px; }
+  .freelens-power-dashboard .power-dashboard-skeleton span:last-child { flex: 1; min-height: 30px; }
+  @keyframes power-dashboard-loading { 50% { opacity: .45; } }
+  @media (prefers-reduced-motion: reduce) { .freelens-power-dashboard .power-dashboard-skeleton span { animation: none; } }
   .freelens-power-dashboard .power-dashboard-hint { margin: 16px 0 0; font-size: 12px; }
   .freelens-power-dashboard .power-dashboard-empty {
     padding: 40px 24px; border: 1px solid var(--borderFaintColor); border-radius: 12px;
@@ -145,6 +153,31 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
     };
   }, []);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [loadingCards, setLoadingCards] = useState<Record<string, DashboardViewLoading>>({});
+  useEffect(() => {
+    const update = (_event: unknown, value: DashboardViewLoading) => {
+      if (
+        !value ||
+        typeof value.id !== "string" ||
+        typeof value.url !== "string" ||
+        typeof value.loading !== "boolean" ||
+        typeof value.failed !== "boolean" ||
+        !preferences.cards.some((card) => card.id === value.id && normalizeDashboardUrl(card.url) === value.url)
+      )
+        return;
+      setLoadingCards((previous) => {
+        const existing = previous[value.id];
+        return existing?.url === value.url && existing.loading === value.loading && existing.failed === value.failed
+          ? previous
+          : { ...previous, [value.id]: value };
+      });
+      if (value.failed) setLoadFailed(true);
+    };
+    ipcRenderer.on(DASHBOARD_VIEWS_LOADING, update);
+    return () => {
+      ipcRenderer.removeListener(DASHBOARD_VIEWS_LOADING, update);
+    };
+  }, [preferences]);
   const [reloading, setReloading] = useState(false);
   const reloadCards = async () => {
     if (reloading) return;
@@ -258,17 +291,22 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
               return [];
             return [{ id: element.dataset.cardId, bounds, clip }];
           });
-      void ipcRenderer.invoke(DASHBOARD_VIEWS_SYNC, { cards: visible, ...(overlayOpen ? { hidden: true } : {}) }).then(
-        (result) => {
-          if (active) {
-            setLoadFailed(Boolean(result?.failed?.length));
-            if (Array.isArray(result?.pinned)) setPinnedCards(result.pinned);
-          }
-        },
-        () => {
-          if (active) setLoadFailed(true);
-        },
-      );
+      void ipcRenderer
+        .invoke(DASHBOARD_VIEWS_SYNC, {
+          cards: visible,
+          ...(overlayOpen ? { hidden: true } : {}),
+        })
+        .then(
+          (result) => {
+            if (active) {
+              setLoadFailed(Boolean(result?.failed?.length));
+              if (Array.isArray(result?.pinned)) setPinnedCards(result.pinned);
+            }
+          },
+          () => {
+            if (active) setLoadFailed(true);
+          },
+        );
     };
     const schedule = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
@@ -394,7 +432,22 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
                     </a>
                   </div>
                 </header>
-                <div className="power-dashboard-embed" data-card-id={card.id} role="region" aria-label={card.title}>
+                <div
+                  className="power-dashboard-embed"
+                  data-card-id={card.id}
+                  role="region"
+                  aria-label={card.title}
+                  aria-busy={loadingCards[card.id]?.url === card.url && loadingCards[card.id]?.loading}
+                >
+                  {!pinnedCards.includes(card.id) &&
+                    loadingCards[card.id]?.url === card.url &&
+                    loadingCards[card.id]?.loading && (
+                      <div className="power-dashboard-skeleton" role="status" aria-label={`Loading ${card.title}`}>
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                      </div>
+                    )}
                   {pinnedCards.includes(card.id) && (
                     <button
                       type="button"

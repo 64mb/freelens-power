@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map(),
   permissions: { fetch: vi.fn(), setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() },
   views: [] as any[],
+  nextLoad: undefined as Promise<void> | undefined,
   floating: [] as any[],
   window: { isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } },
   external: vi.fn().mockResolvedValue(undefined),
@@ -39,7 +40,7 @@ vi.mock("electron", async () => {
       isLoading: vi.fn(() => false),
       getURL: vi.fn(() => "https://example.com/current"),
       close: vi.fn(),
-      loadURL: vi.fn().mockResolvedValue(undefined),
+      loadURL: vi.fn(() => mocks.nextLoad ?? Promise.resolve()),
       executeJavaScriptInIsolatedWorld: vi.fn().mockResolvedValue(undefined),
       insertCSS: vi.fn().mockResolvedValue("styles"),
       setWindowOpenHandler: vi.fn(),
@@ -138,11 +139,70 @@ beforeEach(() => {
     mocks.store.cards[0].selector = undefined;
   });
   mocks.views.length = 0;
+  mocks.nextLoad = undefined;
   mocks.floating.length = 0;
   vi.clearAllMocks();
   mocks.permissions.fetch.mockImplementation(
     async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } }),
   );
+});
+it("masks actual loading, preserves loaded caches and ends skeleton state on failure without revealing hidden cards", async () => {
+  let finish!: () => void;
+  mocks.nextLoad = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const dispose = startDashboardViews();
+  const owner = event();
+  const handler = mocks.handlers.get(sync);
+  const loading = handler(owner, payload);
+  const contents = mocks.views[0].webContents;
+  const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(owner.sender.send).toHaveBeenCalledWith("freelens-power:dashboard-views:loading", {
+    id: "site",
+    url: "https://example.com/",
+    loading: true,
+    failed: false,
+  });
+  await handler(owner, { cards: [], hidden: true });
+  finish();
+  await loading;
+  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-views:loading", {
+    id: "site",
+    url: "https://example.com/",
+    loading: false,
+    failed: false,
+  });
+  owner.sender.send.mockClear();
+  await handler(owner, payload);
+  expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  expect(contents.loadURL).toHaveBeenCalledOnce();
+  expect(owner.sender.send).not.toHaveBeenCalledWith(
+    "freelens-power:dashboard-views:loading",
+    expect.objectContaining({ loading: true }),
+  );
+  let fail!: (error: Error) => void;
+  contents.loadURL.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const refresh = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
+  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(owner.sender.send).toHaveBeenLastCalledWith(
+    "freelens-power:dashboard-views:loading",
+    expect.objectContaining({ loading: true }),
+  );
+  fail(new Error("unreachable"));
+  expect(await refresh).toEqual({ failed: ["site"] });
+  expect(owner.sender.send).toHaveBeenLastCalledWith(
+    "freelens-power:dashboard-views:loading",
+    expect.objectContaining({ loading: false, failed: true }),
+  );
+  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  dispose();
 });
 it("accepts only the dashboard top frame and configured card URLs", () => {
   const dispose = startDashboardViews();
@@ -234,6 +294,7 @@ it("uses safe website-reported icons and repeats them when an existing view is s
   const handler = mocks.handlers.get(sync);
   await handler(owner, payload);
   const contents = mocks.views[0].webContents;
+  owner.sender.send.mockClear();
   contents.emit("page-favicon-updated", {}, ["javascript:alert(1)", "https://user:password@example.com/icon.png"]);
   expect(owner.sender.send).not.toHaveBeenCalled();
   contents.emit("page-favicon-updated", {}, ["javascript:alert(1)", "https://example.com/assets/icon.png"]);
@@ -249,7 +310,9 @@ it("uses safe website-reported icons and repeats them when an existing view is s
   );
   owner.sender.send.mockClear();
   await handler(owner, payload);
-  expect(owner.sender.send).toHaveBeenCalledOnce();
+  expect(
+    owner.sender.send.mock.calls.filter(([channel]) => channel === "freelens-power:dashboard-site-icon"),
+  ).toHaveLength(1);
   dispose();
   owner.sender.send.mockClear();
   contents.emit("page-favicon-updated", {}, ["https://example.com/other.png"]);
@@ -292,6 +355,7 @@ it("rejects unsafe favicon redirects and non-image responses", async () => {
   const dispose = startDashboardViews();
   const owner = event();
   await mocks.handlers.get(sync)(owner, payload);
+  owner.sender.send.mockClear();
   mocks.permissions.fetch.mockResolvedValueOnce(
     new Response(null, { status: 302, headers: { location: "file:///tmp/icon.png" } }),
   );
@@ -639,6 +703,16 @@ it("refreshes both the cached card and pinned page manually while pausing automa
     floating.webContents.loadURL.mockRejectedValueOnce(new Error("example failure"));
     expect(await refresh(owner, { id: "site" })).toEqual({ failed: ["site"] });
     floating.close();
+    expect(await mocks.handlers.get(sync)(owner, payload)).toEqual({ failed: [], pinned: [] });
+    const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+    expect(container.setVisible).toHaveBeenLastCalledWith(true);
+    expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-views:loading", {
+      id: "site",
+      url: "https://example.com/",
+      loading: false,
+      failed: false,
+    });
+    expect(original.webContents.loadURL).toHaveBeenCalledTimes(3);
     expect(await refresh(owner, { id: "site" })).toEqual({ failed: [] });
     expect(floating.webContents.loadURL).toHaveBeenCalledTimes(3);
   } finally {

@@ -8,8 +8,8 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **Secret certificates:** CN, SAN, issuer, serial number, validity dates, and expiration details for PEM chains
 - **Accent themes:** Default, Purple, Blue, Green, Yellow, Orange, Red, and Pink for controls, text links, and the welcome logo
 - **macOS Dock icon:** optionally follows your accent, with a separate toggle to restore the original
-- **Power Dashboard:** reorderable S/M/L website cards, cached pages, interactive element selection, expansion, pinned floating windows, shared website sessions, and optional background refresh
-- **Monitoring:** optional CPU and memory charts using metrics-server, with locally collected session samples
+- **Power Dashboard:** reorderable S/M/L website cards, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, and optional background refresh
+- **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and pod charts using metrics-server and Kubernetes APIs, with locally collected session samples
 - **AI assistant:** native Codex or Claude CLI, per-cluster conversations, read-only API discovery and resource summaries, model/effort/speed selection, editable prompts, quick-start commands, Markdown, cancellable replies, context preview, resource links, resizable pinned chat, and a switch to disable all AI features
 - **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
 - **Master switch:** restores the native interface while preserving all settings
@@ -23,11 +23,11 @@ Real extension components with synthetic website content, prompts, and conversat
 
 | Dashboard | AI assistant |
 | --- | --- |
-| [![Dashboard with demonstration websites](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) | [![AI assistant with example read-only diagnostics and code copying](docs/screenshots/ai-chat.png)](docs/screenshots/ai-chat.png) |
+| <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/dashboard.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/dashboard.png" width="288" height="224" alt="Dashboard with demonstration websites"></a> | <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-chat.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-chat.png" width="288" height="224" alt="AI assistant with example read-only diagnostics and code copying"></a> |
 
 | AI preferences and shortcuts | Focused website cards |
 | --- | --- |
-| [![AI preferences with neutral prompts and shortcuts](docs/screenshots/ai-settings.png)](docs/screenshots/ai-settings.png) | [![Dashboard card editor with an example URL and CSS selector](docs/screenshots/card-editor.png)](docs/screenshots/card-editor.png) |
+| <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-settings.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-settings.png" width="288" height="224" alt="AI preferences with neutral prompts and shortcuts"></a> | <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/card-editor.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/card-editor.png" width="288" height="224" alt="Dashboard card editor with an example URL and CSS selector"></a> |
 
 ## Install
 

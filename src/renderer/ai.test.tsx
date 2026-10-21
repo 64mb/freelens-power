@@ -566,3 +566,47 @@ it("keeps the launcher right normally and moves it left only while resource deta
   details.hidden = true;
   await waitFor(() => expect(launcher.style.right).toBe("16px"));
 });
+
+it("filters previously persisted related resources against the saved answer without rewriting history", () => {
+  const message = {
+    role: "assistant",
+    text: "The first pod is worker",
+    references: [
+      { apiVersion: "v1", kind: "Pod", name: "worker", namespace: "default" },
+      { apiVersion: "v1", kind: "Pod", name: "unrelated", namespace: "default" },
+    ],
+  };
+  mocks.preferences.conversations["cluster-a"] = [message];
+  stop = startAiChat(() => true);
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  expect(screen.getByRole("button", { name: "Pod/worker · default" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Pod/unrelated · default" })).toBeNull();
+  expect(mocks.preferences.conversations["cluster-a"]).toEqual([message]);
+  expect(message.references).toHaveLength(2);
+});
+
+it("explains chat controls on hover while leaving Send and Stop without tooltips", async () => {
+  let finish: (response: unknown) => void = () => {};
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }) as never,
+  );
+  stop = startAiChat(() => true);
+  expect(screen.getByLabelText("Open AI assistant").getAttribute("title")).toContain("Open AI assistant");
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".power-ai-panel button")) {
+    if (button.getAttribute("aria-label") === "Send") expect(button.hasAttribute("title")).toBe(false);
+    else expect(button.title).not.toBe("");
+  }
+  expect(document.querySelector(".power-ai-context-preview summary")?.getAttribute("title")).toContain("metadata");
+  expect(screen.getByRole("separator").getAttribute("title")).toContain("Drag to resize");
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "/" } });
+  for (const option of screen.getAllByRole("option")) expect(option.getAttribute("title")).toContain("Insert /");
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Stop response" })).toBeTruthy());
+  expect(screen.getByRole("button", { name: "Stop response" }).hasAttribute("title")).toBe(false);
+  await act(async () => finish({ text: "Ready" }));
+});
