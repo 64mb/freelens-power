@@ -1,0 +1,82 @@
+{
+  "name": "@64mb/freelens-power",
+  "version": "1.0.1",
+  "description": "Power tools for Freelens Kubernetes IDE",
+  "main": "out/main/index.js",
+  "renderer": "out/renderer/index.js",
+  "files": [
+    "out/**/*",
+    "THIRD_PARTY_LICENSES"
+  ],
+  "engines": {
+    "node": ">= 22.0.0",
+    "freelens": "^1.8.0"
+  },
+  "copyright": "© 2025-2026 Freelens Authors",
+  "license": "Apache-2.0",
+  "author": "64mb",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "biome": "pnpm dlx @biomejs/biome@2.5.1",
+    "biome:check": "pnpm biome check",
+    "biome:fix": "pnpm biome check --fix",
+    "lint": "pnpm lint:check",
+    "lint:check": "pnpm biome:check",
+    "lint:fix": "pnpm biome:fix",
+    "test": "pnpm test:unit",
+    "test:unit": "vitest run",
+    "type:check": "tsc --noEmit -p tsconfig.json --composite false",
+    "prebuild": "pnpm type:check",
+    "build": "electron-vite build",
+    "build:production": "VITE_PRESERVE_MODULES=false electron-vite build",
+    "bump-version": "pnpm version --no-commit-hooks --no-git-tag-version",
+    "pack:dev": "pnpm build && pnpm pack",
+    "clean": "pnpm clean:out",
+    "clean:node_modules": "pnpm dlx shx@0.4.0 rm -rf node_modules",
+    "clean:out": "pnpm dlx shx@0.4.0 rm -rf out",
+    "clean:tgz": "pnpm dlx shx@0.4.0 rm -f \"*.tgz\"",
+    "clean:all": "pnpm \"/^clean:(node_modules|out|tgz)\\$/\"",
+    "dev": "electron-vite build --watch"
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-decorators": "^8.0.2",
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@freelensapp/extensions": "^1.10.2",
+    "@testing-library/react": "^12.1.5",
+    "@types/node": "~24.12.4",
+    "@types/react": "^17.0.93",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "41.9.0",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^29.1.1",
+    "mobx": "6.13.7",
+    "mobx-react": "7.6.0",
+    "react": "17.0.2",
+    "react-dom": "17.0.2",
+    "typescript": "5.9.3",
+    "vite": "^8.1.2",
+    "vitest": "^4.1.9"
+  },
+  "keywords": [
+    "extension",
+    "freelensapp",
+    "lens",
+    "openlens",
+    "freelens"
+  ],
+  "packageManager": "pnpm@10.34.4+sha512.8768be55200ae3f2226b6527fcca2687e14bc4e5f12d7721a0f25da3df47915177058648db4177baf348120fa0ba2752d8d8d93f6beaf1fe64ae18da8de961af",
+  "dependencies": {
+    "markdown-it": "15.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/64mb/freelens-power.git"
+  },
+  "homepage": "https://github.com/64mb/freelens-power",
+  "bugs": {
+    "url": "https://github.com/64mb/freelens-power/issues"
+  }
+}

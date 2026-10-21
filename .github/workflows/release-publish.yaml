@@ -1,0 +1,120 @@
+name: Package Release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Merged release pull request number
+        required: true
+        type: string
+
+concurrency:
+  group: release-publish-${{ github.event.pull_request.number || inputs.pull_request }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+  id-token: write
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release-v') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve merged release
+        id: release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+        with:
+          script: |
+            const number = Number(process.env.PR_NUMBER);
+            if (!Number.isSafeInteger(number) || number < 1) {
+              throw new Error('a valid release pull request number is required');
+            }
+            const {data: pr} = await github.rest.pulls.get({
+              ...context.repo, pull_number: number,
+            });
+            if (!pr.merged || pr.base.ref !== 'main' ||
+                pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}` ||
+                !/^release-v\d+\.\d+\.\d+$/.test(pr.head.ref)) {
+              throw new Error('expected a merged release-vX.Y.Z pull request from this repository into main');
+            }
+            core.setOutput('sha', pr.merge_commit_sha);
+            core.setOutput('tag', pr.head.ref.slice('release-'.length));
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate and package release
+        id: package
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          test "${TAG}" = "v${version}"
+          pnpm lint:check
+          pnpm type:check
+          pnpm test:unit
+          pnpm build
+          mkdir -p release-artifacts
+          pnpm pack --json --pack-destination release-artifacts > "${RUNNER_TEMP}/pack-result.json"
+          archive="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP + "/pack-result.json", "utf8")).filename')"
+          test -f "${archive}"
+          printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
+      - name: Publish package to npm
+        env:
+          NPM_CONFIG_PROVENANCE: 'false'
+          PACKAGE_ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          npm install --global npm@11.21.0
+          package_name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          local_integrity="$(node -p '"sha512-" + require("node:crypto").createHash("sha512").update(require("node:fs").readFileSync(process.env.PACKAGE_ARCHIVE)).digest("base64")')"
+          if remote_integrity="$(npm view "${package_name}@${version}" dist.integrity --registry=https://registry.npmjs.org 2>"${RUNNER_TEMP}/npm-view-error.log")"; then
+            if [ "${remote_integrity}" != "${local_integrity}" ]; then
+              echo "the existing npm version contains a different package" >&2
+              exit 1
+            fi
+            echo "the identical package version is already published"
+          else
+            if ! grep -q 'E404' "${RUNNER_TEMP}/npm-view-error.log"; then
+              cat "${RUNNER_TEMP}/npm-view-error.log" >&2
+              exit 1
+            fi
+            npm publish "${PACKAGE_ARCHIVE}" --access public --provenance=false
+          fi
+      - name: Publish release with extension package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            actual_sha="$(git rev-parse "${TAG}^{commit}")"
+            test "${actual_sha}" = "${RELEASE_SHA}"
+          else
+            git tag "${TAG}" "${RELEASE_SHA}"
+            git push origin "${TAG}"
+          fi
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release-artifacts/*.tgz --clobber
+          else
+            gh release create "${TAG}" release-artifacts/*.tgz \
+              --verify-tag --title "${TAG}" --generate-notes
+          fi
