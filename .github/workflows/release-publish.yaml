@@ -53,7 +53,12 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.sha }}
           fetch-depth: 0
-      - uses: ./.github/actions/setup
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Validate and package release
         env:
           TAG: ${{ steps.release.outputs.tag }}

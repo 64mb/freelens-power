@@ -169,7 +169,7 @@ Keep this file in English. Never record secrets, tokens, Secret contents, privat
 - Fixed IPC serialization of observable saved conversations and UTF-8 decoding across CLI output chunks, with regression coverage
 - Independent final review completed; actionable findings were addressed and rechecked
 - Show bounded tool activity from actual backend reads and keep the latest chat message visible on open and completion
-- Final automated checks: 186 unit tests passed, TypeScript build and formatting checks passed; package contents verified
+- Final automated checks: 187 unit tests passed, TypeScript build and formatting checks passed; package contents verified
 - Live dashboard checks confirmed loaded site favicons, native dropdown accent, compact headers, responsive columns and view reuse after navigation
 - Use private, request-scoped pod references so log summaries remain callable when environment redaction withholds resource identities
 - Live explicit dashboard reload completed without an extension load error; site icons remained available
@@ -260,3 +260,7 @@ Keep this file in English. Never record secrets, tokens, Secret contents, privat
 - [x] Describe the welcome feature as AI chat so it remains accurate when more CLI providers are added
 
 - [x] Replace native prompt resize handles with bounded automatic textarea sizing and scrolling
+
+- [x] Apply custom accents to native focused Select borders and shadows while retaining Default and disabled control styling
+- [x] Keep dependency setup inline in each GitHub workflow and derive the pnpm version from package.json
+- [x] Confirm all four PR checks pass on GitHub-hosted Linux runners

@@ -71,6 +71,35 @@ describe("application accent override", () => {
     expect(document.documentElement.style.getPropertyValue("--colorSuccess")).toBe("#43a047");
   });
 
+  it("accents focused native Select controls globally while excluding disabled controls", () => {
+    dispose = startAppearanceOverride();
+    const selector =
+      ":root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled)";
+    const focusedRule = () => rules().find((rule) => rule.selectorText === selector);
+    const normalizedColor = document.createElement("div").style;
+    normalizedColor.borderColor = DEFAULT_ACCENT_COLOR;
+    expect(focusedRule()?.style.getPropertyValue("border-color")).toBe(normalizedColor.borderColor);
+    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe(`0 0 0 1px ${DEFAULT_ACCENT_COLOR}`);
+    expect(focusedRule()?.style.getPropertyPriority("box-shadow")).toBe("important");
+    document.body.innerHTML =
+      '<div class="Select"><div class="Select__control Select__control--is-focused"></div><div class="Select__control--is-focused Select__control--is-disabled"></div></div><div class="Select Select--is-disabled"><div class="Select__control--is-focused"></div></div>';
+    expect(document.querySelectorAll(selector)).toHaveLength(1);
+    runInAction(() => {
+      preferences.accentColor = "#0273ee";
+    });
+    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe("0 0 0 1px #0273ee");
+    runInAction(() => {
+      preferences.accentColor = "default";
+    });
+    expect(focusedRule()).toBeUndefined();
+    runInAction(() => {
+      preferences.accentColor = DEFAULT_ACCENT_COLOR;
+      preferences.enabled = false;
+    });
+    expect(focusedRule()).toBeUndefined();
+    document.body.innerHTML = "";
+  });
+
   it("updates the color and restores the latest theme on disable", () => {
     dispose = startAppearanceOverride();
     runInAction(() => {
