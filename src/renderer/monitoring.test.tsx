@@ -10,6 +10,21 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
+    Component: {
+      Select: ({ value, options, onChange, ...props }: any) => (
+        <select
+          aria-label={props["aria-label"]}
+          value={value}
+          onChange={(event) => onChange(options.find((option: any) => option.value === event.target.value))}
+        >
+          {options.map((option: any) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ),
+    },
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.cluster } }) } },
     K8sApi: { nodesMetricsApi: { list: state.list }, nodesApi: { list: state.nodes }, podsApi: { list: state.pods } },
   },
@@ -436,6 +451,7 @@ describe("metrics-server overview", () => {
     );
     document.body.innerHTML = '<div data-testid="cluster-overview-page"></div>';
     const stop = startMonitoring();
+    await vi.advanceTimersByTimeAsync(1);
     expect(state.list).toHaveBeenCalledTimes(1);
     state.cluster = "other-cluster";
     await vi.advanceTimersByTimeAsync(1000);

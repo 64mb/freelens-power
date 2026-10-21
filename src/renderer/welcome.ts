@@ -24,7 +24,9 @@ function createWelcomeContent(): HTMLDivElement {
     "🔐 Secure Node Shell with custom commands, IPv6 and automatic Colima support",
     "📜 Certificate details in Secrets",
     "🎨 Accent themes for Freelens",
-    "🔗 Website dashboards with flexible cards and background refresh",
+    "🔗 Website dashboards with flexible cards, pinned windows and background refresh",
+    "📈 Cluster, node and pod metrics with optional local history",
+    "🔎 Resource consumers, application timelines and Pending diagnostics",
     "🤖 Context-aware AI chat with read-only tools and prompt shortcuts",
     "🔒 Read-only UI controls for safer browsing",
   ]) {

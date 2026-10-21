@@ -4,7 +4,7 @@
  */
 
 import { Common, Renderer } from "@freelensapp/extensions";
-import { reaction } from "mobx";
+import { computed, reaction } from "mobx";
 import { observer } from "mobx-react";
 import { EXTENSION_DISPLAY_NAME, EXTENSION_ID } from "../common/extension-info";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
@@ -20,8 +20,12 @@ import { startAppearanceOverride } from "./appearance";
 import { startPowerButtonStyles } from "./button-styles";
 import { DashboardPage } from "./dashboard";
 import { SecretCertificateDetails } from "./details/secret-certificate-details";
+import { DiagnosticsPage } from "./diagnostics";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
+import { startMonitoringCollector } from "./monitoring-collector";
+import { startMonitoringHistoryCollection } from "./monitoring-history-collection";
+import { NodeMonitoringDetails } from "./node-monitoring";
 import { startPodMonitoring } from "./pod-monitoring";
 import { PowerPreferences } from "./preferences/preferences";
 import { startReadOnlyMode } from "./read-only";
@@ -66,6 +70,8 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
         if (enabled) {
           for (const start of [
             startReadOnlyMode,
+            startMonitoringCollector,
+            startMonitoringHistoryCollection,
             startMonitoring,
             startPodMonitoring,
             startPowerButtonStyles,
@@ -116,6 +122,28 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     },
   ];
 
+  clusterPages = [
+    {
+      id: "diagnostics",
+      components: {
+        Page: () => (
+          <PowerEnabled>
+            <DiagnosticsPage />
+          </PowerEnabled>
+        ),
+      },
+    },
+  ];
+
+  clusterPageMenus = [
+    {
+      visible: computed(() => PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled),
+      target: { pageId: "diagnostics" },
+      title: "Diagnostics",
+      components: { Icon: () => <Renderer.Component.Icon material="insights" tooltip="Resource diagnostics" /> },
+    },
+  ];
+
   topBarItems = [
     {
       components: {
@@ -134,6 +162,18 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   ];
 
   kubeObjectDetailItems: Renderer.LensExtension["kubeObjectDetailItems"] = [
+    {
+      kind: "Node",
+      apiVersions: ["v1"],
+      priority: 10,
+      components: {
+        Details: (props) => (
+          <PowerEnabled>
+            <NodeMonitoringDetails {...props} object={props.object as Renderer.K8sApi.Node} />
+          </PowerEnabled>
+        ),
+      },
+    },
     {
       kind: "Secret",
       apiVersions: ["v1"],

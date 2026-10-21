@@ -64,6 +64,7 @@ vi.mock("electron", async () => {
     contentView = new View();
     destroyed = false;
     isDestroyed = () => this.destroyed;
+    getContentBounds = () => ({ x: 0, y: 0, width: 800, height: 600 });
     setMenu = vi.fn();
     setAlwaysOnTop = vi.fn();
     setVisibleOnAllWorkspaces = vi.fn();
@@ -83,6 +84,7 @@ vi.mock("electron", async () => {
   }
   return {
     View,
+    nativeTheme: { shouldUseDarkColors: true },
     app: { getPath: () => "/unused" },
     session: { fromPartition: () => mocks.permissions },
     WebContentsView,
@@ -837,9 +839,11 @@ it("applies live selectors to both copies and destroys floating windows on remov
   expect(original.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(1004, [
     { code: expect.stringContaining(".example") },
   ]);
-  expect(floating.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(1004, [
-    { code: expect.stringContaining(".example") },
-  ]);
+  await vi.waitFor(() =>
+    expect(floating.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(1004, [
+      { code: expect.stringContaining(".example") },
+    ]),
+  );
   const open = floating.webContents.setWindowOpenHandler.mock.calls[0][0];
   expect(open({ url: "file:///example" })).toEqual({ action: "deny" });
   const preventDefault = vi.fn();
@@ -908,6 +912,146 @@ it("refreshes both the cached card and pinned page manually while pausing automa
     expect(original.webContents.loadURL).toHaveBeenCalledTimes(3);
     expect(await refresh(owner, { id: "site" })).toEqual({ failed: [] });
     expect(floating.webContents.loadURL).toHaveBeenCalledTimes(3);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("keeps pinned skeletons through selector readiness, navigation and refresh and cancels stale completion", async () => {
+  const dispose = startDashboardViews();
+  const owner = event();
+  try {
+    await mocks.handlers.get(sync)(owner, payload);
+    let finishLoad!: () => void;
+    mocks.nextLoad = new Promise<void>((resolve) => {
+      finishLoad = resolve;
+    });
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const floating = mocks.floating[0];
+    const contents = floating.webContents;
+    const skeleton = floating.contentView.addChildView.mock.calls[0][0];
+    expect(skeleton.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 800, height: 600 });
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    let finishSelector!: () => void;
+    let finishReady!: () => void;
+    contents.executeJavaScriptInIsolatedWorld
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSelector = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishReady = resolve;
+          }),
+      );
+    finishLoad();
+    await vi.waitFor(() => expect(finishSelector).toBeTypeOf("function"));
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    finishSelector();
+    await vi.waitFor(() => expect(finishReady).toBeTypeOf("function"));
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    finishReady();
+    await vi.waitFor(() => expect(skeleton.setVisible).toHaveBeenLastCalledWith(false));
+    expect(contents.getBackgroundThrottling()).toBe(true);
+
+    contents.emit("did-start-navigation", {}, "https://example.com/next", false, true);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    contents.executeJavaScriptInIsolatedWorld.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReady = resolve;
+        }),
+    );
+    const previousReady = finishReady;
+    contents.emit("did-finish-load");
+    await vi.waitFor(() => expect(finishReady).not.toBe(previousReady));
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    const staleReady = finishReady;
+    contents.emit("did-start-navigation", {}, "https://example.com/newer", false, true);
+    staleReady();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    contents.emit("did-finish-load");
+    await vi.waitFor(() => expect(skeleton.setVisible).toHaveBeenLastCalledWith(false));
+
+    mocks.nextLoad = undefined;
+    let finishRefresh!: () => void;
+    contents.loadURL.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    const refresh = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    finishRefresh();
+    expect(await refresh).toEqual({ failed: [] });
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
+
+    contents.isLoading.mockReturnValue(true);
+    runInAction(() => {
+      mocks.store.cards[0].selector = ".updated";
+    });
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    contents.isLoading.mockReturnValue(false);
+    contents.emit("did-finish-load");
+    await vi.waitFor(() => expect(skeleton.setVisible).toHaveBeenLastCalledWith(false));
+    expect(contents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(1004, [
+      { code: expect.stringContaining(')(".updated")') },
+    ]);
+    contents.emit("did-start-navigation", {}, "https://example.com/pending", false, true);
+    expect(contents.getBackgroundThrottling()).toBe(false);
+    floating.close();
+    expect(contents.getBackgroundThrottling()).toBe(true);
+  } finally {
+    dispose();
+  }
+});
+
+it("waits for pinned SPA requests and releases network observation after readiness and navigation failure", async () => {
+  vi.useFakeTimers();
+  const dispose = startDashboardViews();
+  const owner = event();
+  try {
+    await mocks.handlers.get(sync)(owner, payload);
+    let attached = false;
+    const protocol = Object.assign(new EventEmitter(), {
+      isAttached: vi.fn(() => attached),
+      attach: vi.fn(() => {
+        attached = true;
+      }),
+      detach: vi.fn(() => {
+        attached = false;
+      }),
+      sendCommand: vi.fn().mockResolvedValue({}),
+    });
+    mocks.nextDebugger = protocol;
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const floating = mocks.floating[0];
+    const contents = floating.webContents;
+    const skeleton = floating.contentView.addChildView.mock.calls[0][0];
+    protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "data", type: "Fetch" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    protocol.emit("message", {}, "Network.loadingFinished", { requestId: "data" });
+    await vi.advanceTimersByTimeAsync(350);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
+    expect(protocol.detach).toHaveBeenCalledOnce();
+    expect(contents.getBackgroundThrottling()).toBe(true);
+
+    contents.emit("did-start-navigation", {}, "https://example.com/frame", false, false);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
+    contents.emit("did-start-navigation", {}, "https://example.com/failed", false, true);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    contents.emit("did-fail-load", {}, -105, "unreachable", "https://example.com/failed", true);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
+    expect(protocol.detach).toHaveBeenCalledTimes(2);
+    expect(contents.getBackgroundThrottling()).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   } finally {
     dispose();
     vi.useRealTimers();
