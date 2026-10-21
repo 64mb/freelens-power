@@ -160,6 +160,35 @@ describe("metrics-server overview", () => {
     expect(document.body.innerHTML).toBe(original);
     expect(getComputedStyle(document.querySelector("#native")!).display).not.toBe("none");
   });
+  it("limits Pod charts to usage and requests without the normal data footnote while retaining errors and collecting status", () => {
+    const samples = [
+      {
+        time: 1000,
+        cpu: 1,
+        memory: 1024,
+        resources: { cpu: { requests: 2, allocatable: 3, capacity: 4 }, memory: {} },
+      },
+    ];
+    const view = render(<MetricChart metric="cpu" samples={samples} status="" scope="pod" />);
+    cleanups.add(() => view.unmount());
+    expect(view.container.querySelectorAll("[data-monitoring-series]")).toHaveLength(2);
+    expect(view.container.textContent).not.toContain("Allocatable");
+    expect(view.container.textContent).not.toContain("Capacity");
+    expect(view.container.textContent).not.toContain("metrics-server data");
+    fireEvent.focus(view.getByRole("img"));
+    expect(view.getByRole("tooltip").textContent).toContain("Requests: 2.00 cores");
+    expect(view.getByRole("tooltip").textContent).not.toContain("Capacity");
+    expect(view.getByRole("tooltip").textContent).not.toContain("Allocatable");
+    view.rerender(<MetricChart metric="cpu" samples={samples} status="Metrics access denied" scope="pod" />);
+    expect(view.getByRole("status", { name: "pod metrics status" }).textContent).toBe("Metrics access denied");
+    view.rerender(<MetricChart metric="cpu" samples={[]} status="" scope="pod" />);
+    expect(view.getByRole("status", { name: "pod metrics status" }).textContent).toContain(
+      "Waiting for metrics-server data",
+    );
+    view.rerender(<MetricChart metric="cpu" samples={samples} status="" scope="node" />);
+    expect(view.container.querySelectorAll("[data-monitoring-series]")).toHaveLength(4);
+    expect(view.getByRole("status", { name: "node metrics status" }).textContent).toContain("*metrics-server data");
+  });
   it("accounts for init peaks, restartable sidecars, pod-level budgets and overhead", () => {
     const pod = {
       spec: {

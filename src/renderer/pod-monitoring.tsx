@@ -76,6 +76,19 @@ export function startPodMonitoring(): () => void {
 }
 
 function mountPodMonitoring(): () => void {
+  const nativeSuppression = document.createElement("style");
+  const controllers =
+    ".DeploymentDetails, .ReplicaSetDetails, .DaemonSetDetails, .StatefulSetDetails, .JobDetails, .CronJobDetails, [class*=ReplicationControllerDetails]";
+  nativeSuppression.dataset.powerDetailMonitoring = "";
+  nativeSuppression.textContent = `
+    .KubeObjectDetails:has(:is(${controllers})) .ResourceMetrics,
+    .KubeObjectDetails:has(:is(${controllers})) [data-time-range]:has(+ .ResourceMetrics),
+    .KubeObjectDetails:has(.PodDetails) [data-time-range]:has(+ .ResourceMetrics > [data-power-pod-monitoring]),
+    .KubeObjectDetails .ResourceMetrics:has(> [data-power-pod-monitoring]) > .loader {
+      display: none !important;
+    }
+  `;
+  document.head.append(nativeSuppression);
   let stopped = false;
   let generation = 0;
   let session = "";
@@ -103,6 +116,58 @@ function mountPodMonitoring(): () => void {
     graph = undefined;
     renderedSamples = undefined;
   };
+  let controlledMetrics: HTMLElement | undefined;
+  const tabAttributes = new Map<HTMLElement, Map<string, string | null>>();
+  const saveAttributes = (element: HTMLElement, names: string[]) => {
+    if (!tabAttributes.has(element))
+      tabAttributes.set(element, new Map(names.map((name) => [name, element.getAttribute(name)])));
+  };
+  const unsupportedTab = (target: EventTarget | null) => {
+    const radio = target instanceof Element ? target.closest(".Radio") : null;
+    return radio && ["Network", "Filesystem"].includes(radio.querySelector(".label")?.textContent ?? "");
+  };
+  const blockUnsupported = (event: Event) => {
+    if (!unsupportedTab(event.target)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const tabEvents = ["click", "pointerdown", "mousedown", "keydown", "change"];
+  const restoreTabs = () => {
+    for (const [element, attributes] of tabAttributes) {
+      for (const [name, value] of attributes) {
+        if (value === null) element.removeAttribute(name);
+        else element.setAttribute(name, value);
+      }
+    }
+    tabAttributes.clear();
+    for (const event of tabEvents) controlledMetrics?.removeEventListener(event, blockUnsupported, true);
+    controlledMetrics = undefined;
+  };
+  const restrictTabs = (metrics: HTMLElement) => {
+    if (controlledMetrics !== metrics) {
+      restoreTabs();
+      controlledMetrics = metrics;
+      for (const event of tabEvents) metrics.addEventListener(event, blockUnsupported, true);
+    }
+    for (const radio of metrics.querySelectorAll<HTMLElement>(".Radio")) {
+      if (!unsupportedTab(radio)) continue;
+      saveAttributes(radio, ["style", "hidden", "aria-hidden"]);
+      if (radio.style.display !== "none") radio.style.display = "none";
+      radio.hidden = true;
+      radio.setAttribute("aria-hidden", "true");
+      const input = radio.querySelector<HTMLInputElement>("input");
+      if (input) {
+        saveAttributes(input, ["disabled"]);
+        input.disabled = true;
+      }
+    }
+    if (unsupportedTab(metrics.querySelector(".Radio.checked"))) {
+      const cpu = [...metrics.querySelectorAll<HTMLElement>(".Radio")].find(
+        (radio) => radio.querySelector(".label")?.textContent === "CPU",
+      );
+      cpu?.click();
+    }
+  };
   const reset = () => {
     generation++;
     session = "";
@@ -111,6 +176,7 @@ function mountPodMonitoring(): () => void {
     status = "";
     nextRead = 0;
     restore();
+    restoreTabs();
   };
   const update = async () => {
     if (stopped) return;
@@ -147,6 +213,8 @@ function mountPodMonitoring(): () => void {
         [...element.querySelectorAll(".Radio .label")].some((node) => node.textContent === label),
       ),
     );
+    if (metrics && visible(metrics)) restrictTabs(metrics);
+    else restoreTabs();
     const selected = metrics?.querySelector(".Radio.checked .label")?.textContent;
     const nativeGraph = metrics?.querySelector<HTMLElement>(":scope > .graph");
     if (!metrics || !visible(metrics) || !nativeGraph || (selected !== "CPU" && selected !== "Memory")) {
@@ -268,5 +336,6 @@ function mountPodMonitoring(): () => void {
     stopped = true;
     reset();
     window.clearInterval(timer);
+    nativeSuppression.remove();
   };
 }
