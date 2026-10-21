@@ -93,12 +93,8 @@ function CardEditor({
                 onClick={() => setSelector("")}
               />
             )}
-          </div>
-          {selectorInvalid && (
-            <div role="alert">Use at most {dashboardSelectorLimit} characters without control characters.</div>
-          )}
-          <div className="power-dashboard-selector-actions">
-            <Button
+            <SettingsIconAction
+              material="center_focus_strong"
               label={picking ? "Selecting element…" : "Pick element on website"}
               disabled={!normalizedUrl || picking}
               onClick={() => {
@@ -119,6 +115,9 @@ function CardEditor({
               }}
             />
           </div>
+          {selectorInvalid && (
+            <div role="alert">Use at most {dashboardSelectorLimit} characters without control characters.</div>
+          )}
           <div id={`${id}-selector-hint`} className="power-settings-hint" style={{ marginTop: 0 }}>
             Leave empty to show the whole website.
           </div>
