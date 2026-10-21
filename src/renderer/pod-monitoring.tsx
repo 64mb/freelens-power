@@ -242,9 +242,9 @@ function mountPodMonitoring(): () => void {
             }),
           ) as MonitoringSample["resources"];
         } catch {
-          sample.resourceStatus = "Pod requests and limits unavailable: incomplete resource data";
+          sample.resourceStatus = "Pod requests unavailable: incomplete resource data";
         }
-      } else sample.resourceStatus = "Pod requests and limits unavailable or access denied";
+      } else sample.resourceStatus = "Pod requests unavailable or access denied";
       samples = [
         ...samples.filter((entry) => entry.time !== sample.time && entry.time >= Date.now() - 30 * 60_000),
         sample,

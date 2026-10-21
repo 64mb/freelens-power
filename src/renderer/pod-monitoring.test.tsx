@@ -99,7 +99,7 @@ it("reports metrics failure safely and keeps usage available when pod resource p
   stop = startPodMonitoring();
   await vi.advanceTimersByTimeAsync(1);
   expect(document.body.textContent).toContain("0.30 cores");
-  expect(document.body.textContent).toContain("Pod requests and limits unavailable");
+  expect(document.body.textContent).toContain("Pod requests unavailable");
   state.metrics.mockRejectedValue(new Error("private backend failure"));
   await vi.advanceTimersByTimeAsync(30_000);
   expect(document.body.textContent).toContain("Pod metrics unavailable");

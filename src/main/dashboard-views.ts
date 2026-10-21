@@ -14,6 +14,7 @@ import {
 } from "electron";
 import { reaction } from "mobx";
 import { sanitizeDashboardCards } from "../common/dashboard";
+import { dashboardReadinessScript } from "../common/dashboard-readiness";
 import { dashboardSelectorScript } from "../common/dashboard-selector";
 import {
   DASHBOARD_SITE_ICONS,
@@ -24,6 +25,7 @@ import {
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 import { boundedDashboardIcons, loadDashboardIcons, saveDashboardIcons } from "./dashboard-icon-cache";
+import { observeDashboardNetwork } from "./dashboard-network";
 
 const syncChannel = "freelens-power:dashboard-views:sync";
 const reloadChannel = "freelens-power:dashboard-views:reload";
@@ -76,6 +78,7 @@ type CardView = {
   loading: boolean;
   visible: boolean;
   generation: number;
+  stopPreparation?: () => void;
   selector?: string;
   pending?: Promise<void>;
   favicon?: string;
@@ -95,6 +98,7 @@ export function startDashboardViews(): () => void {
     const card = owner.cards.get(id);
     if (!card) return;
     owner.cards.delete(id);
+    card.stopPreparation?.();
     card.faviconRequest?.abort();
     clearInterval(card.refreshTimer);
     card.floating?.destroy();
@@ -163,6 +167,23 @@ export function startDashboardViews(): () => void {
     card.url = configuredUrl;
     card.failed = false;
     card.loading = true;
+    card.stopPreparation?.();
+    const contents = card.view.webContents;
+    const backgroundThrottling = contents.getBackgroundThrottling();
+    if (backgroundThrottling) contents.setBackgroundThrottling(false);
+    const network = observeDashboardNetwork(card.view.webContents);
+    let stopped = false;
+    const stopPreparation = () => {
+      if (stopped) return;
+      stopped = true;
+      network.dispose();
+      contents.removeListener("destroyed", stopPreparation);
+      if (!contents.isDestroyed() && backgroundThrottling && !contents.getBackgroundThrottling())
+        contents.setBackgroundThrottling(backgroundThrottling);
+      if (card.stopPreparation === stopPreparation) card.stopPreparation = undefined;
+    };
+    card.stopPreparation = stopPreparation;
+    contents.once("destroyed", stopPreparation);
     const generation = ++card.generation;
     card.container.setVisible(false);
     publishLoading(card);
@@ -176,17 +197,62 @@ export function startDashboardViews(): () => void {
       }
       publishLoading(card);
     };
-    card.pending = card.view.webContents.loadURL(target).then(
-      () => settled(false),
-      () => settled(true),
+    const load = () => {
+      if (
+        card.generation !== generation ||
+        card.view.webContents.isDestroyed() ||
+        ![...owners.values()].some((owner) => [...owner.cards.values()].includes(card))
+      )
+        return Promise.resolve();
+      return card.view.webContents.loadURL(target);
+    };
+    card.pending = load().then(
+      async () => {
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        let preparing = true;
+        const current = () =>
+          preparing &&
+          card.generation === generation &&
+          !card.view.webContents.isDestroyed() &&
+          [...owners.values()].some((owner) => [...owner.cards.values()].includes(card));
+        try {
+          await Promise.race([
+            (async () => {
+              if (!current()) return;
+              await network.ready();
+              if (!current()) return;
+              await applySelector(card);
+              do {
+                await network.wait();
+                if (!current()) return;
+                await card.view.webContents.executeJavaScriptInIsolatedWorld(1004, [
+                  { code: dashboardReadinessScript(card.selector) },
+                ]);
+              } while (current() && !network.quiet());
+            })().catch(() => new Promise<void>((resolve) => setTimeout(resolve, 200))),
+            new Promise<void>((resolve) => {
+              deadline = setTimeout(resolve, 8500);
+            }),
+          ]);
+        } finally {
+          clearTimeout(deadline);
+          preparing = false;
+          stopPreparation();
+        }
+        settled(false);
+      },
+      () => {
+        stopPreparation();
+        settled(true);
+      },
     );
     return card.pending;
   };
   const applySelector = (card: { view: { webContents: WebContents }; selector?: string }) => {
-    if (!card.view.webContents.isDestroyed())
-      void card.view.webContents
-        .executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardSelectorScript(card.selector) }])
-        .catch(() => {});
+    if (card.view.webContents.isDestroyed()) return Promise.resolve();
+    return card.view.webContents
+      .executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardSelectorScript(card.selector) }])
+      .catch(() => {});
   };
   const refreshTimers = () => {
     const configured = configuredCards();

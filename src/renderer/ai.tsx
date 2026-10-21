@@ -116,7 +116,7 @@ const styles = `
 @keyframes power-ai-enter { from { transform: translateX(100%); } to { transform: translateX(0); } }
 :root .power-ai-launcher { position: fixed; bottom: 16px; left: auto; right: 16px; z-index: 100; display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 0; height: 34px; border: 1px solid var(--primary, #5896ff); border-radius: 24px; padding: 0 13px; background: var(--contentColor, #242424); color: var(--textColorAccent); box-shadow: 0 3px 12px #0003; font: inherit; font-size: 12px; font-weight: 500; line-height: 1; cursor: pointer; transition: opacity 180ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 180ms ease; }
 .power-ai-overview-actions { position: relative; z-index: 5; height: 0; min-height: 0; flex: 0 0 0; pointer-events: none; }
-.power-ai-overview-actions:has(+ [data-testid="cluster-overview-page"] [data-freelens-power-monitoring]) { height: 48px; flex-basis: 48px; }
+.power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-summaries] { --power-monitoring-summary-top: 56px; }
 .power-ai-overview-actions button { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; position: absolute; top: 12px; right: 12px; pointer-events: auto; box-shadow: 0 2px 8px #0002; display: inline-flex; flex: 0 0 auto; width: auto; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px; font: inherit; font-size: 12px; border: 1px solid var(--borderFaintColor); border-radius: 10px; color: var(--textColorPrimary); background: var(--contentColor); cursor: pointer; }
 .power-ai-overview-actions button:hover { border-color: var(--primary); color: var(--textColorAccent); background: var(--contentColor); }
 .power-ai-overview-actions button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -818,9 +818,21 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
   let mounted = false;
   let overviewActions: HTMLDivElement | undefined;
   let overviewIcon: HTMLSpanElement | undefined;
+  let overviewLabel: HTMLSpanElement | undefined;
+  let overviewResize: ResizeObserver | undefined;
+  const updateOverviewLabel = () => {
+    const overview = overviewActions?.nextElementSibling;
+    const compact = Boolean(overview?.querySelector("[data-freelens-power-monitoring]") && overview.clientWidth > 960);
+    const label = compact ? "Ask AI" : "Ask about cluster";
+    if (overviewLabel && overviewLabel.textContent !== label) overviewLabel.textContent = label;
+    overviewActions?.querySelector("button")?.setAttribute("aria-label", compact ? "Ask AI about cluster" : label);
+  };
   const removeOverview = () => {
+    overviewResize?.disconnect();
+    overviewResize = undefined;
     if (overviewIcon) ReactDOM.unmountComponentAtNode(overviewIcon);
     overviewIcon = undefined;
+    overviewLabel = undefined;
     overviewActions?.remove();
     overviewActions = undefined;
   };
@@ -835,19 +847,29 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
       removeOverview();
       return;
     }
-    if (overviewActions?.isConnected && overviewActions.nextElementSibling === overview) return;
+    if (overviewActions?.isConnected && overviewActions.nextElementSibling === overview) {
+      updateOverviewLabel();
+      return;
+    }
     removeOverview();
     overviewActions = document.createElement("div");
     overviewActions.className = "power-ai-overview-actions";
     const overviewButton = document.createElement("button");
     overviewButton.type = "button";
+    overviewButton.setAttribute("aria-label", "Ask about cluster");
     overviewButton.title = "Open the AI assistant to ask about this cluster";
     overviewIcon = document.createElement("span");
     overviewIcon.setAttribute("aria-hidden", "true");
-    overviewButton.append(overviewIcon, document.createTextNode("Ask about cluster"));
+    overviewLabel = document.createElement("span");
+    overviewButton.append(overviewIcon, overviewLabel);
     overviewButton.onclick = () => window.dispatchEvent(new Event("power-ai-open"));
     overviewActions.append(overviewButton);
     overview.before(overviewActions);
+    updateOverviewLabel();
+    if (typeof ResizeObserver !== "undefined") {
+      overviewResize = new ResizeObserver(updateOverviewLabel);
+      overviewResize.observe(overview);
+    }
     ReactDOM.render(<AiIcon material="auto_awesome" size={16} />, overviewIcon);
   };
   const observer = new MutationObserver(reconcile);

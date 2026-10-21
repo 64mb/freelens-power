@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   permissions: { fetch: vi.fn(), setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() },
   views: [] as any[],
   nextLoad: undefined as Promise<void> | undefined,
+  nextDebugger: undefined as any,
+  backgroundThrottling: true,
   floating: [] as any[],
   window: { isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } },
   external: vi.fn().mockResolvedValue(undefined),
@@ -35,7 +37,13 @@ vi.mock("electron", async () => {
     removeChildView = vi.fn();
   }
   class WebContentsView extends View {
+    backgroundThrottling = mocks.backgroundThrottling;
     webContents = Object.assign(new EventEmitter(), {
+      getBackgroundThrottling: vi.fn(() => this.backgroundThrottling),
+      setBackgroundThrottling: vi.fn((value: boolean) => {
+        this.backgroundThrottling = value;
+      }),
+      debugger: mocks.nextDebugger,
       isDestroyed: () => false,
       isLoading: vi.fn(() => false),
       getURL: vi.fn(() => "https://example.com/current"),
@@ -140,6 +148,8 @@ beforeEach(() => {
   });
   mocks.views.length = 0;
   mocks.nextLoad = undefined;
+  mocks.nextDebugger = undefined;
+  mocks.backgroundThrottling = true;
   mocks.floating.length = 0;
   vi.clearAllMocks();
   mocks.permissions.fetch.mockImplementation(
@@ -157,6 +167,7 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   const loading = handler(owner, payload);
   const contents = mocks.views[0].webContents;
   const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+  expect(contents.getBackgroundThrottling()).toBe(false);
   expect(container.setVisible).toHaveBeenLastCalledWith(false);
   expect(owner.sender.send).toHaveBeenCalledWith("freelens-power:dashboard-views:loading", {
     id: "site",
@@ -167,6 +178,7 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   await handler(owner, { cards: [], hidden: true });
   finish();
   await loading;
+  expect(contents.getBackgroundThrottling()).toBe(true);
   expect(container.setVisible).toHaveBeenLastCalledWith(false);
   expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-views:loading", {
     id: "site",
@@ -197,6 +209,7 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   );
   fail(new Error("unreachable"));
   expect(await refresh).toEqual({ failed: ["site"] });
+  expect(contents.getBackgroundThrottling()).toBe(true);
   expect(owner.sender.send).toHaveBeenLastCalledWith(
     "freelens-power:dashboard-views:loading",
     expect.objectContaining({ loading: false, failed: true }),
@@ -204,6 +217,186 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   expect(container.setVisible).toHaveBeenLastCalledWith(false);
   dispose();
 });
+it("keeps skeletons over a slow SPA fetch after document load and releases its owned debugger", async () => {
+  vi.useFakeTimers();
+  let attached = false;
+  let enable!: () => void;
+  const protocol = Object.assign(new EventEmitter(), {
+    isAttached: vi.fn(() => attached),
+    attach: vi.fn(() => {
+      attached = true;
+    }),
+    detach: vi.fn(() => {
+      attached = false;
+    }),
+    sendCommand: vi
+      .fn()
+      .mockResolvedValue({})
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            enable = () => resolve({});
+          }),
+      ),
+  });
+  mocks.nextDebugger = protocol;
+  const dispose = startDashboardViews();
+  const owner = event();
+  try {
+    const loading = mocks.handlers.get(sync)(owner, payload);
+    expect(protocol.attach).toHaveBeenCalledOnce();
+    expect(mocks.views[0].webContents.loadURL).toHaveBeenCalledOnce();
+    protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "data", type: "Fetch" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mocks.views[0].webContents.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+    enable();
+    await vi.advanceTimersByTimeAsync(2900);
+    const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+    expect(container.setVisible).toHaveBeenLastCalledWith(false);
+    expect(owner.sender.send).not.toHaveBeenCalledWith(
+      "freelens-power:dashboard-views:loading",
+      expect.objectContaining({ loading: false }),
+    );
+    protocol.emit("message", {}, "Network.loadingFinished", { requestId: "data" });
+    await vi.advanceTimersByTimeAsync(350);
+    await loading;
+    expect(mocks.views[0].webContents.getBackgroundThrottling()).toBe(true);
+    expect(container.setVisible).toHaveBeenLastCalledWith(true);
+    expect(protocol.detach).toHaveBeenCalledOnce();
+    expect(protocol.listenerCount("message")).toBe(0);
+    const scripts = mocks.views[0].webContents.executeJavaScriptInIsolatedWorld;
+    const previousScripts = scripts.mock.calls.length;
+    const capped = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
+    protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "poll", type: "Fetch" });
+    await vi.advanceTimersByTimeAsync(8500);
+    await capped;
+    expect(mocks.views[0].webContents.getBackgroundThrottling()).toBe(true);
+    expect(container.setVisible).toHaveBeenLastCalledWith(true);
+    expect(protocol.detach).toHaveBeenCalledTimes(2);
+    expect(scripts).toHaveBeenCalledTimes(previousScripts + 1);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("keeps skeleton state until selector application and actual page readiness finish", async () => {
+  let finishLoad!: () => void;
+  mocks.nextLoad = new Promise<void>((resolve) => {
+    finishLoad = resolve;
+  });
+  const dispose = startDashboardViews();
+  const owner = event();
+  const loading = mocks.handlers.get(sync)(owner, payload);
+  const contents = mocks.views[0].webContents;
+  const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+  let finishSelector!: () => void;
+  let finishReady!: () => void;
+  contents.executeJavaScriptInIsolatedWorld
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSelector = resolve;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReady = resolve;
+        }),
+    );
+  finishLoad();
+  await vi.waitFor(() => expect(finishSelector).toBeTypeOf("function"));
+  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(owner.sender.send).not.toHaveBeenCalledWith(
+    "freelens-power:dashboard-views:loading",
+    expect.objectContaining({ loading: false }),
+  );
+  finishSelector();
+  await vi.waitFor(() => expect(finishReady).toBeTypeOf("function"));
+  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  finishReady();
+  await loading;
+  expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true]);
+  expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  expect(owner.sender.send).toHaveBeenLastCalledWith(
+    "freelens-power:dashboard-views:loading",
+    expect.objectContaining({ loading: false, failed: false }),
+  );
+  const calls = contents.executeJavaScriptInIsolatedWorld.mock.calls.length;
+  await mocks.handlers.get(sync)(owner, payload);
+  expect(contents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledTimes(calls);
+  dispose();
+});
+
+it("ignores an old readiness completion after a newer reload fails", async () => {
+  let finishLoad!: () => void;
+  mocks.nextLoad = new Promise<void>((resolve) => {
+    finishLoad = resolve;
+  });
+  const dispose = startDashboardViews();
+  const owner = event();
+  const loading = mocks.handlers.get(sync)(owner, payload);
+  const contents = mocks.views[0].webContents;
+  let finishReady!: () => void;
+  contents.executeJavaScriptInIsolatedWorld.mockResolvedValueOnce(undefined).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishReady = resolve;
+      }),
+  );
+  finishLoad();
+  await vi.waitFor(() => expect(finishReady).toBeTypeOf("function"));
+  contents.loadURL.mockRejectedValueOnce(new Error("unreachable"));
+  expect(await mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" })).toEqual({
+    failed: ["site"],
+  });
+  owner.sender.send.mockClear();
+  finishReady();
+  await loading;
+  expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true, false, true]);
+  expect(owner.sender.send).not.toHaveBeenCalledWith(
+    "freelens-power:dashboard-views:loading",
+    expect.objectContaining({ failed: false }),
+  );
+  expect(await mocks.handlers.get(sync)(owner, payload)).toEqual({ failed: ["site"], pinned: [] });
+  dispose();
+});
+
+it("restores temporary throttling on removal and preserves an originally unthrottled view", async () => {
+  let finishLoad!: () => void;
+  mocks.nextLoad = new Promise<void>((resolve) => {
+    finishLoad = resolve;
+  });
+  const dispose = startDashboardViews();
+  const owner = event();
+  const loading = mocks.handlers.get(sync)(owner, payload);
+  const contents = mocks.views[0].webContents;
+  expect(contents.getBackgroundThrottling()).toBe(false);
+  owner.sender.emit("destroyed");
+  expect(contents.getBackgroundThrottling()).toBe(true);
+  finishLoad();
+  await loading;
+  expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true]);
+  dispose();
+
+  mocks.backgroundThrottling = false;
+  mocks.nextLoad = undefined;
+  const stop = startDashboardViews();
+  const secondOwner = event();
+  try {
+    await mocks.handlers.get(sync)(secondOwner, payload);
+    const unthrottled = mocks.views.at(-1).webContents;
+    expect(unthrottled.getBackgroundThrottling()).toBe(false);
+    expect(unthrottled.setBackgroundThrottling).not.toHaveBeenCalled();
+    await mocks.handlers.get("freelens-power:dashboard-views:reload")(secondOwner, { id: "site" });
+    expect(unthrottled.setBackgroundThrottling).not.toHaveBeenCalled();
+  } finally {
+    stop();
+  }
+});
+
 it("accepts only the dashboard top frame and configured card URLs", () => {
   const dispose = startDashboardViews();
   const owner = event();

@@ -610,3 +610,45 @@ it("explains chat controls on hover while leaving Send and Stop without tooltips
   expect(screen.getByRole("button", { name: "Stop response" }).hasAttribute("title")).toBe(false);
   await act(async () => finish({ text: "Ready" }));
 });
+
+it("shortens the overview action only beside horizontal custom metrics and tracks resizing", () => {
+  let width = 1103;
+  const callbacks = new Map<Element, () => void>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      targets = new Set<Element>();
+      constructor(private callback: () => void) {}
+      observe(target: Element) {
+        this.targets.add(target);
+        callbacks.set(target, this.callback);
+      }
+      disconnect() {
+        for (const target of this.targets) callbacks.delete(target);
+      }
+    },
+  );
+  try {
+    document.body.innerHTML =
+      '<div data-testid="cluster-overview-page"><div data-freelens-power-monitoring></div></div>';
+    const overview = document.querySelector<HTMLElement>('[data-testid="cluster-overview-page"]')!;
+    Object.defineProperty(overview, "clientWidth", { get: () => width });
+    stop = startAiChat(() => true);
+    const button = screen.getByRole("button", { name: "Ask AI about cluster" });
+    expect(button.textContent).toContain("Ask AI");
+    expect(button.title).toContain("cluster");
+    width = 600;
+    act(() => callbacks.get(overview)?.());
+    expect(button.textContent).toContain("Ask about cluster");
+    width = 1103;
+    act(() => callbacks.get(overview)?.());
+    expect(button.textContent).toContain("Ask AI");
+    stop();
+    stop = undefined;
+    expect(callbacks.has(overview)).toBe(false);
+  } finally {
+    stop?.();
+    stop = undefined;
+    vi.unstubAllGlobals();
+  }
+});

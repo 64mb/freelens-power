@@ -160,13 +160,13 @@ export function formatMonitoringTime(time: number): string {
   });
 }
 
-function ResourceTitle({ metric }: { metric: "cpu" | "memory" }) {
+function ResourceTitle({ metric, label }: { metric: "cpu" | "memory"; label?: string }) {
   return (
     <strong style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       <span className="Icon material" aria-hidden="true" style={{ "--size": "18px", fontWeight: 400 } as CSSProperties}>
         <span className="icon">{metric === "cpu" ? "developer_board" : "memory"}</span>
       </span>
-      {metric === "cpu" ? "CPU" : "Memory"}
+      {label ?? (metric === "cpu" ? "CPU" : "Memory")}
     </strong>
   );
 }
@@ -234,12 +234,10 @@ export function MetricChart({
     metric === "cpu" ? `${value.toFixed(2)} cores` : `${(value / 1024 ** 3).toFixed(2)} GiB`;
   const series = [
     { key: "usage", label: "Usage", color: "#c93dce", value: (sample: MonitoringSample) => sample[metric] },
-    ...(["requests", "limits", "allocatable", "capacity"] as const).map((key) => ({
+    ...(["requests", "allocatable", "capacity"] as const).map((key) => ({
       key,
-      label: { requests: "Requests", limits: "Limits", allocatable: "Allocatable Capacity", capacity: "Capacity" }[key],
-      color: { requests: "#4caf50", limits: "#00a7a0", allocatable: "#5486b5", capacity: "var(--textColorSecondary)" }[
-        key
-      ],
+      label: { requests: "Requests", allocatable: "Allocatable Capacity", capacity: "Capacity" }[key],
+      color: { requests: "#4caf50", allocatable: "#5486b5", capacity: "var(--textColorSecondary)" }[key],
       value: (sample: MonitoringSample) => sample.resources?.[metric][key],
     })),
   ];
@@ -265,7 +263,13 @@ export function MetricChart({
   return (
     <section
       aria-label={`${label} metrics-server usage`}
-      style={{ padding: 16, background: "var(--contentColor)", minWidth: 0, minHeight: 280, position: "relative" }}
+      style={{
+        padding: "var(--power-monitoring-trend-top, 16px) 16px 16px",
+        background: "var(--contentColor)",
+        minWidth: 0,
+        minHeight: 280,
+        position: "relative",
+      }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <ResourceTitle metric={metric} />
@@ -411,12 +415,7 @@ export function MetricChart({
           </div>
           {series.map((line) => (
             <div key={line.key} style={{ color: line.color }}>
-              {line.label}:{" "}
-              {line.value(selected) === undefined
-                ? line.key === "limits" && selected.resources?.[metric].unbounded
-                  ? "Unbounded"
-                  : "Unavailable"
-                : format(line.value(selected)!)}
+              {line.label}: {line.value(selected) === undefined ? "Unavailable" : format(line.value(selected)!)}
             </div>
           ))}
           <div style={{ color: "var(--textColorSecondary)", marginTop: 4, fontSize: 10 }}>
@@ -439,11 +438,15 @@ export function MetricChart({
           {last.resourceStatus}
         </div>
       )}
-      <div style={{ fontSize: 11, color: "var(--textColorSecondary)" }} role="status">
-        {status ||
-          (samples.length
-            ? `metrics-server · reported ${scope} usage · session samples`
-            : "Waiting for samples · metrics-server")}
+      <div
+        style={{ fontSize: 11, color: "var(--textColorSecondary)", display: "flex", alignItems: "center", gap: 4 }}
+        role="status"
+        aria-label={`${scope} metrics status`}
+      >
+        <sup aria-hidden="true" style={{ fontSize: 12 }}>
+          *
+        </sup>
+        <span>{status || (samples.length ? "metrics-server data" : "Waiting for metrics-server data")}</span>
       </div>
     </section>
   );
@@ -458,6 +461,18 @@ function ResourceDonut({
   sample?: MonitoringSample;
   status: string;
 }) {
+  const [activeRing, setActiveRing] = useState<number>();
+  useEffect(() => {
+    if (activeRing === undefined) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveRing(undefined);
+    };
+    document.addEventListener("keydown", dismiss, true);
+    return () => document.removeEventListener("keydown", dismiss, true);
+  }, [activeRing]);
   const label = metric === "cpu" ? "CPU" : "Memory";
   const totals = sample?.resources?.[metric];
   const format = (value: number) =>
@@ -475,13 +490,21 @@ function ResourceDonut({
     sample?.completeUsage && denominator !== undefined ? format(denominator - sample[metric]) : "Unavailable";
   const unrequested =
     denominator !== undefined && totals?.requests !== undefined ? format(denominator - totals.requests) : "Unavailable";
-  const allocationDetail = `Allocatable: ${available(denominator)}. Schedulable capacity after system reservations, used as the denominator for both rings. Physical Capacity: ${available(totals?.capacity)}. Limits: ${totals?.unbounded ? "Unbounded" : available(totals?.limits)}. Unused allocatable (usage): ${unused}. Unrequested: ${unrequested}`;
+  const allocationDetail = `Allocatable: ${available(denominator)}. Schedulable capacity after system reservations, used as the denominator for both rings. Physical Capacity: ${available(totals?.capacity)}. Unused allocatable (usage): ${unused}. Unrequested: ${unrequested}`;
+  const hovered = activeRing === undefined ? undefined : rings[activeRing];
+  const tooltipId = `power-monitoring-${metric}-donut-tooltip`;
   return (
     <section
       aria-label={`${label} resource summary`}
-      style={{ padding: 16, minWidth: 0, background: "var(--contentColor)" }}
+      style={{
+        padding: "var(--power-monitoring-summary-top, 16px) 16px 16px",
+        minWidth: 0,
+        background: "var(--contentColor)",
+        position: "relative",
+        overflow: "visible",
+      }}
     >
-      <ResourceTitle metric={metric} />
+      <ResourceTitle metric={metric} label={metric === "memory" ? "RAM" : "CPU"} />
       <svg
         data-monitoring-donut=""
         viewBox="0 0 200 200"
@@ -489,14 +512,23 @@ function ResourceDonut({
         aria-label={`${label} usage and requests relative to allocatable capacity`}
         style={{ display: "block", width: "100%", height: 200 }}
       >
-        <title>{allocationDetail}</title>
         {rings.map((ring, index) => {
           const radius = 76 - index * 18;
           const percent = percentage(ring.value);
           const detail = `${ring.label}: ${available(ring.value)}${percent === undefined ? "" : ` (${percent.toFixed(1)}% of allocatable${percent > 100 ? ", over allocatable" : ""})`}`;
           return (
-            <g key={ring.label} tabIndex={0} role="img" aria-label={detail}>
-              <title>{detail}</title>
+            <g
+              key={ring.label}
+              tabIndex={0}
+              role="img"
+              aria-label={detail}
+              aria-describedby={activeRing === index ? tooltipId : undefined}
+              onMouseEnter={() => setActiveRing(index)}
+              onMouseMove={() => setActiveRing(index)}
+              onMouseLeave={() => setActiveRing(undefined)}
+              onFocus={() => setActiveRing(index)}
+              onBlur={() => setActiveRing(undefined)}
+            >
               <circle cx="100" cy="100" r={radius} fill="none" stroke="var(--borderFaintColor)" strokeWidth="12" />
               {percent !== undefined && (
                 <circle
@@ -530,6 +562,36 @@ function ResourceDonut({
           Usage
         </text>
       </svg>
+      {hovered && (
+        <div
+          id={tooltipId}
+          data-monitoring-tooltip=""
+          role="tooltip"
+          style={{
+            position: "absolute",
+            top: 48,
+            left: 8,
+            right: 8,
+            zIndex: 20,
+            padding: 8,
+            border: "1px solid var(--borderFaintColor)",
+            background: "var(--contentColor)",
+            pointerEvents: "none",
+            overflowWrap: "anywhere",
+            boxShadow: "0 3px 12px #0003",
+          }}
+        >
+          <div style={{ color: hovered.color }}>
+            {hovered.label}: {available(hovered.value)}
+          </div>
+          <div>
+            {percentage(hovered.value) === undefined
+              ? "Percentage unavailable"
+              : `${percentage(hovered.value)!.toFixed(1)}% of allocatable${percentage(hovered.value)! > 100 ? " (over allocatable)" : ""}`}
+          </div>
+          <div>Allocatable: {available(denominator)}</div>
+        </div>
+      )}
       <div aria-label={`${label} resource totals`} style={{ display: "grid", gap: 6, fontSize: 12 }}>
         {rings.map((ring) => (
           <div
@@ -557,10 +619,19 @@ function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; st
   return (
     <div style={{ containerType: "inline-size" }}>
       <style>{`
-      [data-monitoring-layout] { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; align-items:stretch }
+      [data-monitoring-layout] { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch }
       [data-monitoring-trends], [data-monitoring-summaries] { display:contents }
-      @container (max-width: 960px) { [data-monitoring-layout] { grid-template-columns:repeat(2,minmax(0,1fr)) } }
-      @container (max-width: 580px) { [data-monitoring-layout] { grid-template-columns:minmax(0,1fr) } }
+      @container (min-width: 961px) {
+        [data-monitoring-summaries] > section { --power-monitoring-summary-top:16px }
+      }
+      @container (max-width: 960px) {
+        [data-monitoring-layout] { grid-template-columns:repeat(2,minmax(0,1fr)) }
+        .power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-trends] > section { --power-monitoring-trend-top:56px }
+      }
+      @container (max-width: 580px) {
+        [data-monitoring-layout] { grid-template-columns:minmax(0,1fr) }
+        .power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-trends] > section:not(:first-child) { --power-monitoring-trend-top:16px }
+      }
     `}</style>
       <div data-monitoring-layout="">
         <div data-monitoring-trends="">
@@ -735,7 +806,7 @@ function mountMonitoring(): () => void {
       } else
         warnings.push("Node inventory unavailable or access denied; usage coverage unverified, capacity unavailable");
       if (pods.status !== "fulfilled")
-        warnings.push("Cluster-wide Pods unavailable or access denied; requests and limits unavailable");
+        warnings.push("Cluster-wide Pods unavailable or access denied; requests unavailable");
       sample.resourceStatus = warnings.join(". ");
       samples = [...samples, sample].slice(-MAX_SAMPLES);
       status = "";

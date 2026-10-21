@@ -227,9 +227,35 @@ describe("metrics-server overview", () => {
     const stop = startMonitoring();
     await vi.advanceTimersByTimeAsync(1);
     const summary = document.querySelector('[aria-label="CPU resource summary"]')!;
-    expect(summary.querySelector("svg > title")?.textContent).toContain("Unrequested: -2.00 cores");
-    expect(summary.querySelector("svg > title")?.textContent).toContain("Unused allocatable (usage): 2.00 cores");
+    const allocationTooltip = () => summary.querySelector('[title^="Allocatable:"]')?.getAttribute("title");
+    expect(summary.querySelector("svg > title")).toBeNull();
+    expect(allocationTooltip()).toContain("Unrequested: -2.00 cores");
+    expect(allocationTooltip()).toContain("Unused allocatable (usage): 2.00 cores");
     expect(summary.querySelectorAll("g")).toHaveLength(2);
+    const donutRings = summary.querySelectorAll("g");
+    fireEvent.mouseEnter(donutRings[0]);
+    expect(summary.querySelector('[role="tooltip"]')?.textContent).toContain("Usage: 1.00 cores");
+    expect(summary.querySelector('[role="tooltip"]')?.textContent).toContain("33.3% of allocatable");
+    fireEvent.mouseMove(donutRings[1]);
+    expect(summary.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(summary.querySelector('[role="tooltip"]')?.textContent).toContain("Requests: 5.00 cores");
+    fireEvent.mouseLeave(donutRings[1]);
+    expect(summary.querySelector('[role="tooltip"]')).toBeNull();
+    fireEvent.focus(donutRings[1]);
+    expect(summary.querySelector('[role="tooltip"]')?.textContent).toContain(
+      "166.7% of allocatable (over allocatable)",
+    );
+    expect(donutRings[1].getAttribute("aria-describedby")).toBe(summary.querySelector('[role="tooltip"]')?.id);
+    donutRings[1].setAttribute("tabindex", "0");
+    (donutRings[1] as SVGGElement).focus();
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    fireEvent(donutRings[1], escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(summary.querySelector('[role="tooltip"]')).toBeNull();
+    expect(document.activeElement).toBe(donutRings[1]);
+    fireEvent.blur(donutRings[1]);
+    expect(summary.querySelector('[role="tooltip"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Memory resource summary"] strong')?.textContent).toContain("RAM");
     expect(summary.querySelectorAll("circle:not([data-monitoring-ring])")).toHaveLength(2);
     expect(summary.querySelectorAll("circle:not([data-monitoring-ring])[stroke-dasharray]")).toHaveLength(0);
     expect(summary.querySelector("[data-monitoring-usage-percentage]")?.textContent).toBe("33.3%");
@@ -242,19 +268,23 @@ describe("metrics-server overview", () => {
       "100 100",
     );
     expect(document.querySelector('[aria-label="CPU resource summary"]')?.textContent).toContain("166.7%");
-    expect(summary.querySelector("svg > title")?.textContent).toContain("Physical Capacity: 4.00 cores");
-    expect(document.querySelectorAll("[data-monitoring-series]")).toHaveLength(10);
+    expect(allocationTooltip()).toContain("Physical Capacity: 4.00 cores");
+    expect(document.querySelectorAll("[data-monitoring-series]")).toHaveLength(8);
+    expect(document.querySelector('[data-monitoring-series="limits"]')).toBeNull();
+    expect(allocationTooltip()).not.toContain("Limits");
+    expect(document.querySelector('[aria-label="node metrics status"]')?.textContent).toContain("metrics-server data");
     fireEvent.focus(document.querySelector("svg")!);
     expect(document.querySelector("[role=tooltip]")?.textContent).toContain("Requests: 5.00 cores");
+    expect(document.querySelector("[role=tooltip]")?.textContent).not.toContain("Limits");
     state.pods.mockResolvedValue([{ spec: { nodeName: "node-a", containers: [{}] }, status: { phase: "Running" } }]);
     state.list.mockResolvedValue([
       { metadata: { name: "other-node" }, usage: { cpu: "1", memory: "1Gi" }, timestamp: new Date().toISOString() },
     ]);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(document.body.textContent).toContain("Partial node metrics coverage");
-    expect(summary.querySelector("svg > title")?.textContent).toContain("Limits: Unbounded");
+    expect(allocationTooltip()).not.toContain("Limits");
     expect(document.querySelectorAll('[data-monitoring-ring="Limits"]')).toHaveLength(0);
-    expect(summary.querySelector("svg > title")?.textContent).toContain("Unused allocatable (usage): Unavailable");
+    expect(allocationTooltip()).toContain("Unused allocatable (usage): Unavailable");
     stop();
     vi.useRealTimers();
   });
