@@ -10,6 +10,21 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
+    Component: {
+      Select: ({ value, options, onChange, ...props }: any) => (
+        <select
+          aria-label={props["aria-label"]}
+          value={value}
+          onChange={(event) => onChange(options.find((option: any) => option.value === event.target.value))}
+        >
+          {options.map((option: any) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ),
+    },
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.cluster } }) } },
     K8sApi: { podsMetricsApi: { list: state.metrics }, podsApi: { get: state.pod } },
   },
@@ -74,7 +89,7 @@ it("replaces only the selected CPU or Memory graph and restores native styles ex
   const original = graph.getAttribute("style");
   stop = startPodMonitoring();
   await vi.advanceTimersByTimeAsync(1);
-  expect(state.metrics).toHaveBeenCalledWith({ namespace: "default" }, { fieldSelector: "metadata.name=worker" });
+  expect(state.metrics).toHaveBeenCalledWith();
   expect(state.pod).toHaveBeenCalledWith(identity);
   expect(graph.style.display).toBe("none");
   expect(document.querySelector("[data-power-pod-monitoring] section")?.getAttribute("aria-label")).toContain("CPU");

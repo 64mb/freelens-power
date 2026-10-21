@@ -38,13 +38,15 @@ describe("welcome content override", () => {
     expect(content?.querySelector("p")?.textContent).toBe(
       "Make Freelens your own with practical tools for everyday Kubernetes work.",
     );
-    expect(content?.querySelectorAll('[role="listitem"]')).toHaveLength(6);
-    expect(content?.querySelector("ul")?.children).toHaveLength(6);
+    expect(content?.querySelectorAll('[role="listitem"]')).toHaveLength(8);
+    expect(content?.querySelector("ul")?.children).toHaveLength(8);
     expect(Array.from(content?.querySelectorAll("li") ?? [], (item) => item.textContent?.split(" ")[0])).toEqual([
       "🔐",
       "📜",
       "🎨",
       "🔗",
+      "📈",
+      "🔎",
       "🤖",
       "🔒",
     ]);

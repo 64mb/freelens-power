@@ -2,154 +2,27 @@ import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
+import {
+  aggregateMetrics,
+  aggregateResources,
+  MONITORING_INTERVAL as INTERVAL,
+  MAX_SAMPLES,
+  type MonitoringSample,
+} from "../common/monitoring-math";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
+import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
+import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
 
-type ResourceValues = { requests?: Partial<Record<string, string>>; limits?: Partial<Record<string, string>> };
-type ResourceContainer = { resources?: ResourceValues; restartPolicy?: string };
-export type MonitoringPod = {
-  spec?: {
-    nodeName?: string;
-    containers?: ResourceContainer[];
-    initContainers?: ResourceContainer[];
-    overhead?: Partial<Record<string, string>>;
-    resources?: ResourceValues;
-  };
-  status?: { phase?: string };
-};
-export type MonitoringNode = {
-  metadata: { name: string };
-  status?: { capacity?: Partial<Record<string, string>>; allocatable?: Partial<Record<string, string>> };
-};
-type ResourceTotals = {
-  capacity?: number;
-  allocatable?: number;
-  requests?: number;
-  limits?: number;
-  unbounded?: boolean;
-};
-export type MonitoringSample = {
-  time: number;
-  cpu: number;
-  memory: number;
-  resources?: Record<"cpu" | "memory", ResourceTotals>;
-  resourceStatus?: string;
-  completeUsage?: boolean;
-};
-
-export function effectivePodResource(
-  pod: MonitoringPod,
-  metric: "cpu" | "memory",
-  kind: "requests" | "limits",
-): number {
-  const read = (resources?: ResourceValues) => {
-    const raw = resources?.[kind]?.[metric];
-    if (raw !== undefined) return parseQuantity(raw, metric === "memory");
-    if (kind === "requests" && resources?.limits?.[metric] !== undefined)
-      return parseQuantity(resources.limits[metric], metric === "memory");
-    return kind === "requests" ? 0 : Infinity;
-  };
-  const spec = pod.spec;
-  if (!spec?.containers?.length) throw new Error("Missing pod containers");
-  let sidecars = 0;
-  let initPeak = 0;
-  for (const container of spec.initContainers ?? []) {
-    const value = read(container.resources);
-    if (container.restartPolicy === "Always") {
-      sidecars += value;
-      initPeak = Math.max(initPeak, sidecars);
-    } else initPeak = Math.max(initPeak, sidecars + value);
-  }
-  let effective = Math.max(
-    initPeak,
-    sidecars + spec.containers.reduce((sum, container) => sum + read(container.resources), 0),
-  );
-  if (spec.resources?.[kind]?.[metric] !== undefined) effective = read(spec.resources);
-  const overhead = spec.overhead?.[metric];
-  if (overhead !== undefined && (kind === "requests" || effective > 0))
-    effective += parseQuantity(overhead, metric === "memory");
-  return effective;
-}
-
-export function aggregateResources(
-  nodes: MonitoringNode[],
-  pods?: MonitoringPod[],
-): Record<"cpu" | "memory", ResourceTotals> {
-  if (!nodes.length || nodes.some((node) => !node.metadata?.name)) throw new Error("Missing node inventory");
-  const names = new Set(nodes.map((node) => node.metadata.name));
-  const scheduled = pods?.filter(
-    (pod) =>
-      pod.spec?.nodeName &&
-      names.has(pod.spec.nodeName) &&
-      pod.status?.phase !== "Succeeded" &&
-      pod.status?.phase !== "Failed",
-  );
-  const sum = (metric: "cpu" | "memory"): ResourceTotals => {
-    const capacity = nodes.reduce(
-      (total, node) => total + parseQuantity(node.status?.capacity?.[metric] ?? "", metric === "memory"),
-      0,
-    );
-    const allocatable = nodes.reduce(
-      (total, node) => total + parseQuantity(node.status?.allocatable?.[metric] ?? "", metric === "memory"),
-      0,
-    );
-    const requests = scheduled?.reduce((total, pod) => total + effectivePodResource(pod, metric, "requests"), 0);
-    const limits = scheduled?.reduce((total, pod) => total + effectivePodResource(pod, metric, "limits"), 0);
-    return {
-      capacity,
-      allocatable,
-      requests,
-      limits: limits === Infinity ? undefined : limits,
-      unbounded: limits === Infinity,
-    };
-  };
-  return { cpu: sum("cpu"), memory: sum("memory") };
-}
-const INTERVAL = 30_000;
-export const MAX_SAMPLES = 60;
-
-export function parseQuantity(raw: string, memory = false): number {
-  const match = /^(\d+(?:\.\d*)?|\.\d+)([eE][+-]?\d+|n|u|m|Ki|Mi|Gi|Ti|Pi|Ei|k|K|M|G|T|P|E)?$/.exec(raw);
-  if (!match) throw new Error("Invalid metrics quantity");
-  const suffix = match[2] ?? "";
-  const factors: Record<string, number> = {
-    n: 1e-9,
-    u: 1e-6,
-    m: 1e-3,
-    k: 1e3,
-    K: 1e3,
-    M: 1e6,
-    G: 1e9,
-    T: 1e12,
-    P: 1e15,
-    E: 1e18,
-  };
-  const value =
-    Number(match[1]) *
-    (suffix.endsWith("i")
-      ? 1024 ** (["Ki", "Mi", "Gi", "Ti", "Pi", "Ei"].indexOf(suffix) + 1)
-      : /^[eE][+-]?\d+$/.test(suffix)
-        ? 10 ** Number(suffix.slice(1))
-        : (factors[suffix] ?? 1));
-  if (!Number.isFinite(value) || (!memory && suffix.endsWith("i"))) throw new Error("Invalid metrics quantity");
-  return value;
-}
-
-export function aggregateMetrics(
-  nodes: { usage: { cpu: string; memory: string }; timestamp: string }[],
-  now = Date.now(),
-): MonitoringSample {
-  if (!nodes.length) throw new Error("No node metrics available");
-  let cpu = 0;
-  let memory = 0;
-  for (const node of nodes) {
-    const timestamp = Date.parse(node.timestamp);
-    if (!Number.isFinite(timestamp) || now - timestamp > 120_000 || timestamp > now + 30_000)
-      throw new Error("Node metrics are stale");
-    cpu += parseQuantity(node.usage.cpu);
-    memory += parseQuantity(node.usage.memory, true);
-  }
-  return { time: now, cpu, memory };
-}
+export {
+  aggregateMetrics,
+  aggregateResources,
+  effectivePodResource,
+  MAX_SAMPLES,
+  type MonitoringNode,
+  type MonitoringPod,
+  type MonitoringSample,
+  parseQuantity,
+} from "../common/monitoring-math";
 
 export function formatMonitoringTime(time: number): string {
   return new Date(time).toLocaleTimeString([], {
@@ -244,7 +117,13 @@ export function MetricChart({
   const visibleSeries =
     scope === "pod" ? series.filter((line) => line.key === "usage" || line.key === "requests") : series;
   const max =
-    Math.max(...samples.flatMap((sample) => visibleSeries.map((line) => line.value(sample) ?? 0)), 0.001) * 1.1;
+    Math.max(
+      ...samples.flatMap((sample) => [
+        ...visibleSeries.map((line) => line.value(sample) ?? 0),
+        sample.historical?.[metric]?.max ?? 0,
+      ]),
+      0.001,
+    ) * 1.1;
   const end = last?.time ?? Date.now();
   const start = samples[0]?.time ?? end;
   const duration = Math.max(end - start, INTERVAL);
@@ -345,6 +224,23 @@ export function MetricChart({
             </text>
           </g>
         ))}
+        {samples.map((sample) => {
+          const summary = sample.historical?.[metric];
+          if (!summary || summary.min === summary.max) return null;
+          return (
+            <line
+              key={`range:${sample.time}`}
+              data-monitoring-extrema=""
+              x1={x(sample)}
+              x2={x(sample)}
+              y1={208 - (summary.max / max) * 184}
+              y2={208 - (summary.min / max) * 184}
+              stroke="#c93dce"
+              strokeOpacity={0.35}
+              strokeWidth={4}
+            />
+          );
+        })}
         {visibleSeries.map((line) => (
           <path
             key={line.key}
@@ -353,7 +249,7 @@ export function MetricChart({
               const value = line.value(sample);
               if (value === undefined) return path;
               const previous = index ? line.value(samples[index - 1]) : undefined;
-              return `${path} ${previous === undefined ? "M" : "L"}${x(sample)},${208 - (value / max) * 184}`;
+              return `${path} ${previous === undefined || sample.breakBefore || sample.time - samples[index - 1].time > 1.8 * Math.max(sample.historical?.[metric]?.resolution ?? INTERVAL, samples[index - 1].historical?.[metric]?.resolution ?? INTERVAL) ? "M" : "L"}${x(sample)},${208 - (value / max) * 184}`;
             }, "")}
             fill="none"
             stroke={line.color}
@@ -421,6 +317,14 @@ export function MetricChart({
               {line.label}: {line.value(selected) === undefined ? "Unavailable" : format(line.value(selected)!)}
             </div>
           ))}
+          {selected.historical?.[metric] && (
+            <div>
+              Min: {format(selected.historical[metric]!.min)} · Max: {format(selected.historical[metric]!.max)}
+              <br />
+              {selected.historical[metric]!.count} samples ·{" "}
+              {Math.round(selected.historical[metric]!.resolution / 1000)}s bucket
+            </div>
+          )}
           <div style={{ color: "var(--textColorSecondary)", marginTop: 4, fontSize: 10 }}>
             {pinned ? "Click chart or Escape to unpin" : "Click or Enter to pin"}
           </div>
@@ -623,6 +527,11 @@ function ResourceDonut({
 }
 
 function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; status: string }) {
+  const clusterId = Renderer.Catalog.activeCluster.get()?.metadata.uid;
+  const history = useMonitoringHistory(
+    clusterId ? { clusterId, scope: "cluster", uid: clusterId } : undefined,
+    samples,
+  );
   return (
     <div style={{ containerType: "inline-size" }}>
       <style>{`
@@ -640,10 +549,14 @@ function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; st
         .power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-trends] > section:not(:first-child) { --power-monitoring-trend-top:16px }
       }
     `}</style>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <MonitoringHistoryRange range={history.range} onChange={history.setRange} />
+        <small role="status">{history.status}</small>
+      </div>
       <div data-monitoring-layout="">
         <div data-monitoring-trends="">
           {(["cpu", "memory"] as const).map((metric) => (
-            <MetricChart key={metric} metric={metric} samples={samples} status={status} />
+            <MetricChart key={metric} metric={metric} samples={history.samples} status={status} />
           ))}
         </div>
         <div data-monitoring-summaries="">
@@ -657,6 +570,7 @@ function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; st
 }
 
 export function startMonitoring(): () => void {
+  const release = retainMonitoringCollector();
   const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
   let stopCurrent: (() => void) | undefined;
   const stop = reaction(
@@ -670,6 +584,7 @@ export function startMonitoring(): () => void {
   return () => {
     stop();
     stopCurrent?.();
+    release();
   };
 }
 
@@ -784,14 +699,23 @@ function mountMonitoring(): () => void {
       overview?.isConnected === true &&
       Renderer.Catalog.activeCluster.get()?.metadata.uid === cluster;
     try {
-      const [metrics, inventory, pods] = await Promise.allSettled([
-        Renderer.K8sApi.nodesMetricsApi.list(),
-        Promise.resolve().then(() => Renderer.K8sApi.nodesApi.list()),
-        Promise.resolve().then(() => Renderer.K8sApi.podsApi.list()),
-      ]);
+      const collected = await getMonitoringSnapshot();
+      const metrics =
+        collected.nodeMetrics === undefined
+          ? { status: "rejected" as const }
+          : { status: "fulfilled" as const, value: collected.nodeMetrics };
+      const inventory =
+        collected.nodes === undefined
+          ? { status: "rejected" as const }
+          : { status: "fulfilled" as const, value: collected.nodes };
+      const pods =
+        collected.pods === undefined
+          ? { status: "rejected" as const }
+          : { status: "fulfilled" as const, value: collected.pods };
       if (!isCurrent()) return;
       if (metrics.status !== "fulfilled") throw new Error("Metrics unavailable");
       const sample = aggregateMetrics(metrics.value ?? []);
+      sample.time = Math.min(...metrics.value.map((item) => Date.parse(item.timestamp)));
       const warnings: string[] = [];
       if (inventory.status === "fulfilled") {
         try {
@@ -815,7 +739,9 @@ function mountMonitoring(): () => void {
       if (pods.status !== "fulfilled")
         warnings.push("Cluster-wide Pods unavailable or access denied; requests unavailable");
       sample.resourceStatus = warnings.join(". ");
-      samples = [...samples, sample].slice(-MAX_SAMPLES);
+      samples = [...samples.filter((entry) => entry.time !== sample.time), sample]
+        .sort((a, b) => a.time - b.time)
+        .slice(-MAX_SAMPLES);
       status = "";
     } catch {
       if (!isCurrent()) return;

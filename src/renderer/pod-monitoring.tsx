@@ -10,6 +10,8 @@ import {
   type MonitoringSample,
   parseQuantity,
 } from "./monitoring";
+import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
+import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
 
 type PodIdentity = { name: string; namespace: string };
 type PodMetrics = {
@@ -37,6 +39,29 @@ export function aggregatePodMetrics(metrics: PodMetrics, identity: PodIdentity, 
   return { time, cpu, memory };
 }
 
+function PodMonitoringChart({
+  clusterId,
+  uid,
+  samples,
+  status,
+  metric,
+}: {
+  clusterId: string;
+  uid?: string;
+  samples: MonitoringSample[];
+  status: string;
+  metric: "cpu" | "memory";
+}) {
+  const history = useMonitoringHistory(uid ? { clusterId, scope: "pod", uid } : undefined, samples);
+  return (
+    <>
+      <MonitoringHistoryRange range={history.range} onChange={history.setRange} />
+      {history.status && <small role="status">{history.status}</small>}
+      <MetricChart metric={metric} samples={history.samples} status={status} scope="pod" />
+    </>
+  );
+}
+
 function selectedPod(): PodIdentity | undefined {
   const details = new URLSearchParams(window.location.search).get("kube-details");
   const match = details?.match(/^\/api\/v1\/namespaces\/([a-z0-9][a-z0-9.-]*)\/pods\/([a-z0-9][a-z0-9.-]*)$/);
@@ -59,6 +84,7 @@ function visible(element: HTMLElement): boolean {
 }
 
 export function startPodMonitoring(): () => void {
+  const release = retainMonitoringCollector();
   const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
   let dispose: (() => void) | undefined;
   const stop = reaction(
@@ -72,6 +98,7 @@ export function startPodMonitoring(): () => void {
   return () => {
     stop();
     dispose?.();
+    release();
   };
 }
 
@@ -235,7 +262,16 @@ function mountPodMonitoring(): () => void {
     }
     const render = () => {
       if (host && (renderedSamples !== samples || renderedStatus !== status || renderedMetric !== metric)) {
-        ReactDOM.render(<MetricChart metric={metric} samples={samples} status={status} scope="pod" />, host);
+        ReactDOM.render(
+          <PodMonitoringChart
+            clusterId={cluster}
+            uid={resourceUid}
+            metric={metric}
+            samples={samples}
+            status={status}
+          />,
+          host,
+        );
         renderedSamples = samples;
         renderedStatus = status;
         renderedMetric = metric;
@@ -256,14 +292,24 @@ function mountPodMonitoring(): () => void {
       Renderer.Catalog.activeCluster.get()?.metadata.uid === cluster &&
       JSON.stringify(selectedPod()) === JSON.stringify(identity);
     try {
+      const collected = await getMonitoringSnapshot();
+      if (!isCurrent()) return;
       const [usage, pod] = await Promise.allSettled([
-        Promise.resolve().then(() =>
-          Renderer.K8sApi.podsMetricsApi.list(
-            { namespace: identity.namespace },
-            { fieldSelector: `metadata.name=${identity.name}` },
-          ),
-        ),
-        Promise.resolve().then(() => Renderer.K8sApi.podsApi.get(identity)),
+        collected.podMetrics !== undefined
+          ? Promise.resolve(collected.podMetrics)
+          : Promise.resolve().then(() =>
+              Renderer.K8sApi.podsMetricsApi.list(
+                { namespace: identity.namespace },
+                { fieldSelector: `metadata.name=${identity.name}` },
+              ),
+            ),
+        collected.pods !== undefined
+          ? Promise.resolve(
+              collected.pods.find(
+                (item) => item.metadata.name === identity.name && item.metadata.namespace === identity.namespace,
+              ),
+            )
+          : Promise.resolve().then(() => Renderer.K8sApi.podsApi.get(identity)),
       ]);
       if (!isCurrent()) return;
       const currentPod =

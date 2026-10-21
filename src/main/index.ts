@@ -15,6 +15,7 @@ import { registerDashboardCatalog } from "./dashboard-catalog";
 import { startDashboardPicker } from "./dashboard-picker";
 import { startDashboardViews } from "./dashboard-views";
 import { startDockIconOverride } from "./dock-icon";
+import { startMonitoringHistory } from "./monitoring-history";
 import { startSettingsExport } from "./settings-export";
 
 export default class FreelensPowerMain extends Main.LensExtension {
@@ -49,6 +50,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
         for (const dispose of disposers) dispose();
         disposers = enabled
           ? [
+              startMonitoringHistory(this),
               startAiIpc(),
               startAiModels(),
               startDockIconOverride(),
