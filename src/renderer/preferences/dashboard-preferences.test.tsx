@@ -181,7 +181,7 @@ describe("dashboard preferences", () => {
     mocks.preferences.cards[0].refreshEvery10Seconds = true;
     render(<DashboardPreferences />);
     fireEvent.click(screen.getByRole("button", { name: "Edit Example" }));
-    const toggle = screen.getByRole("checkbox", { name: "Background refresh (10 min)" }) as HTMLInputElement;
+    const toggle = screen.getByRole("checkbox", { name: "Background refresh" }) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -229,11 +229,9 @@ it("uses the discovered icon after a failed root favicon and ignores icons for o
 it("enables automatic refresh for new cards and aligns its native checkbox with the other controls", () => {
   render(<DashboardPreferences />);
   fireEvent.click(screen.getByRole("button", { name: "Add card" }));
-  const checkbox = screen.getByRole("checkbox", { name: "Background refresh (10 min)" }) as HTMLInputElement;
+  const checkbox = screen.getByRole("checkbox", { name: "Background refresh" }) as HTMLInputElement;
   expect(checkbox.checked).toBe(true);
-  expect(checkbox.closest(".power-settings-row")?.querySelector("label")?.textContent).toBe(
-    "Background refresh (10 min)",
-  );
+  expect(checkbox.closest(".power-settings-row")?.querySelector("label")?.textContent).toBe("Background refresh");
   expect(checkbox.parentElement?.parentElement?.style.width).toBe("340px");
   fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.org" } });
   fireEvent.click(screen.getAllByRole("button", { name: "Add card" })[0]);
