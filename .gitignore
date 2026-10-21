@@ -1,0 +1,8 @@
+/.research/
+/node_modules/
+/out/
+/coverage/
+*.tgz
+*.log
+*.tsbuildinfo
+.DS_Store

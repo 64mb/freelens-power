@@ -1,0 +1,87 @@
+name: Package Release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Merged release pull request number
+        required: true
+        type: string
+
+concurrency:
+  group: release-publish-${{ github.event.pull_request.number || inputs.pull_request }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release-v') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve merged release
+        id: release
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+        with:
+          script: |
+            const number = Number(process.env.PR_NUMBER);
+            if (!Number.isSafeInteger(number) || number < 1) {
+              throw new Error('a valid release pull request number is required');
+            }
+            const {data: pr} = await github.rest.pulls.get({
+              ...context.repo, pull_number: number,
+            });
+            if (!pr.merged || pr.base.ref !== 'main' ||
+                pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}` ||
+                !/^release-v\d+\.\d+\.\d+$/.test(pr.head.ref)) {
+              throw new Error('expected a merged release-vX.Y.Z pull request from this repository into main');
+            }
+            core.setOutput('sha', pr.merge_commit_sha);
+            core.setOutput('tag', pr.head.ref.slice('release-'.length));
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Validate and package release
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          test "${TAG}" = "v${version}"
+          pnpm lint:check
+          pnpm type:check
+          pnpm test:unit
+          pnpm build
+          mkdir -p release-artifacts
+          pnpm pack --pack-destination release-artifacts
+      - name: Publish release with extension package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            actual_sha="$(git rev-parse "${TAG}^{commit}")"
+            test "${actual_sha}" = "${RELEASE_SHA}"
+          else
+            git tag "${TAG}" "${RELEASE_SHA}"
+            git push origin "${TAG}"
+          fi
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release-artifacts/*.tgz --clobber
+          else
+            gh release create "${TAG}" release-artifacts/*.tgz \
+              --verify-tag --title "${TAG}" --generate-notes
+          fi

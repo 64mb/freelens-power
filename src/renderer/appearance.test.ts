@@ -1,0 +1,181 @@
+// @vitest-environment jsdom
+// SPDX-License-Identifier: Apache-2.0
+import { runInAction } from "mobx";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ACCENT_COLOR_OPTIONS,
+  AppearancePreferencesStore,
+  DEFAULT_ACCENT_COLOR,
+} from "../common/store/appearance-preferences-store";
+import { startAppearanceOverride } from "./appearance";
+
+vi.mock("@freelensapp/extensions", () => ({
+  Common: {
+    Store: {
+      ExtensionStore: class {
+        static instance: unknown;
+
+        static getInstanceOrCreate() {
+          return (this.instance ??= new this());
+        }
+      },
+    },
+  },
+}));
+
+describe("application accent override", () => {
+  let dispose: (() => void) | undefined;
+  let preferences: AppearancePreferencesStore;
+
+  beforeEach(() => {
+    preferences = AppearancePreferencesStore.getInstanceOrCreate<AppearancePreferencesStore>();
+    runInAction(() => preferences.fromStore({ enabled: true, accentColor: DEFAULT_ACCENT_COLOR }));
+    document.documentElement.style.setProperty("--primary", "#00a7a0");
+    document.documentElement.style.setProperty("--colorSuccess", "#43a047");
+  });
+
+  afterEach(() => {
+    dispose?.();
+    document.documentElement.removeAttribute("style");
+    document.head.innerHTML = "";
+  });
+
+  function accentRule(): CSSStyleRule | undefined {
+    return rules().find((rule) => rule.selectorText === ":root");
+  }
+
+  function rules(): CSSStyleRule[] {
+    const style = document.querySelector<HTMLStyleElement>('style[data-freelens-power="accent-color"]');
+    return Array.from(style?.sheet?.cssRules ?? []) as CSSStyleRule[];
+  }
+
+  it.each(
+    ACCENT_COLOR_OPTIONS.filter((option) => option.value !== "default"),
+  )("persists and applies the $label accent preset", ({ value, color }) => {
+    runInAction(() => preferences.fromStore({ enabled: true, accentColor: value }));
+    expect(preferences.toJSON().accentColor).toBe(value);
+    dispose = startAppearanceOverride();
+    expect(accentRule()?.style.getPropertyValue("--primary")).toBe(color);
+  });
+
+  it("applies accent variables with priority over inline theme values and preserves status colors", () => {
+    dispose = startAppearanceOverride();
+
+    for (const variable of ["--blue", "--primary", "--buttonPrimaryBackground"]) {
+      expect(accentRule()?.style.getPropertyValue(variable)).toBe(DEFAULT_ACCENT_COLOR);
+      expect(accentRule()?.style.getPropertyPriority(variable)).toBe("important");
+    }
+
+    expect(accentRule()?.selectorText).toBe(":root");
+    expect(accentRule()?.style.getPropertyValue("--colorSuccess")).toBe("");
+    expect(document.documentElement.style.getPropertyValue("--colorSuccess")).toBe("#43a047");
+  });
+
+  it("updates the color and restores the latest theme on disable", () => {
+    dispose = startAppearanceOverride();
+    runInAction(() => {
+      preferences.accentColor = "#0273ee";
+    });
+    expect(accentRule()?.style.getPropertyValue("--primary")).toBe("#0273ee");
+
+    document.documentElement.style.setProperty("--primary", "#abcdef");
+    expect(accentRule()?.style.getPropertyPriority("--primary")).toBe("important");
+    runInAction(() => {
+      preferences.enabled = false;
+    });
+    expect(accentRule()).toBeUndefined();
+    expect(rules()).toHaveLength(0);
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--primary")).toBe("#abcdef");
+
+    runInAction(() => {
+      preferences.enabled = true;
+    });
+    expect(accentRule()?.style.getPropertyValue("--primary")).toBe("#0273ee");
+  });
+
+  it("uses the latest host theme for default selection while keeping native switches accented", () => {
+    dispose = startAppearanceOverride();
+    document.documentElement.style.setProperty("--primary", "#abcdef");
+    runInAction(() => {
+      preferences.accentColor = "default";
+    });
+
+    expect(accentRule()).toBeUndefined();
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--primary")).toBe("#abcdef");
+    expect(rules()).toHaveLength(1);
+    expect(rules()[0]?.selectorText).toBe('input[role="switch"]');
+    expect(rules()[0]?.style.getPropertyValue("--track-color-active")).toBe("var(--primary)");
+    expect(rules()[0]?.style.getPropertyPriority("--track-color-active")).toBe("important");
+
+    runInAction(() => {
+      preferences.accentColor = "#0273ee";
+    });
+    expect(accentRule()?.style.getPropertyValue("--primary")).toBe("#0273ee");
+  });
+
+  it("accents link text and only the teal paths in the welcome logo", () => {
+    dispose = startAppearanceOverride();
+    const linkRule = rules().find((rule) => rule.selectorText === ":root a.link");
+    expect(linkRule?.selectorText).toBe(":root a.link");
+    expect(linkRule?.style.getPropertyValue("color")).toBe("var(--primary)");
+    document.body.innerHTML =
+      '<nav><a href="/nodes">Nodes</a></nav><a class="link" href="https://example.com">Documentation</a>';
+    expect(document.querySelectorAll(linkRule!.selectorText)).toHaveLength(1);
+    expect(document.querySelector(linkRule!.selectorText)?.textContent).toBe("Documentation");
+
+    const logoRule = rules().find((rule) => rule.style.getPropertyValue("fill"));
+    expect(logoRule?.style.getPropertyValue("fill")).toBe("var(--primary)");
+    document.body.innerHTML = `<div class="Welcome"><span data-testid="no-welcome-banners-icon"><svg><path fill="#fbfbfb"/><path fill="#23a49c"/></svg></span><svg><path fill="#23a49c"/></svg></div>`;
+    expect(document.querySelectorAll(logoRule?.selectorText ?? "path")).toHaveLength(1);
+    expect(document.querySelector(logoRule?.selectorText ?? "path")?.getAttribute("fill")).toBe("#23a49c");
+    document.body.innerHTML = "";
+  });
+
+  it("removes the override on disposal and stops reacting", () => {
+    dispose = startAppearanceOverride();
+    dispose();
+    runInAction(() => {
+      preferences.accentColor = "#0273ee";
+    });
+    expect(accentRule()).toBeUndefined();
+    expect(rules()).toHaveLength(0);
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--primary")).toBe("#00a7a0");
+  });
+
+  it("does not create a stylesheet when initially disabled", () => {
+    runInAction(() => {
+      preferences.enabled = false;
+    });
+    dispose = startAppearanceOverride();
+    expect(accentRule()).toBeUndefined();
+  });
+
+  it("migrates saved palette choices to the refined shades", () => {
+    for (const [oldColor, newColor] of [
+      ["#7868f4", "#7060e8"],
+      ["#027bfe", "#0273ee"],
+      ["#ffc107", "#edc927"],
+      ["#009688", "default"],
+    ]) {
+      runInAction(() => preferences.fromStore({ accentColor: oldColor }));
+      expect(preferences.accentColor).toBe(newColor);
+    }
+  });
+
+  it("persists icon opt-out independently of accent selection", () => {
+    runInAction(() => preferences.fromStore({ enabled: true, accentColor: "#0273ee", recolorAppIcon: false }));
+    expect(preferences.toJSON()).toEqual({ enabled: true, accentColor: "#0273ee", recolorAppIcon: false });
+    dispose = startAppearanceOverride();
+    expect(accentRule()).toBeTruthy();
+  });
+
+  it("rejects invalid persisted colors and blocks CSS injection at runtime", () => {
+    runInAction(() => preferences.fromStore({ accentColor: "red; --colorSuccess: red" }));
+    expect(preferences.toJSON()).toEqual({ enabled: true, accentColor: DEFAULT_ACCENT_COLOR, recolorAppIcon: true });
+    dispose = startAppearanceOverride();
+    runInAction(() => {
+      preferences.accentColor = "#123456; } body { display: none";
+    });
+    expect(accentRule()).toBeUndefined();
+  });
+});

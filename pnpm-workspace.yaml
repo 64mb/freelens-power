@@ -1,0 +1,7 @@
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - node-pty
+  - playwright
+
+shellEmulator: true

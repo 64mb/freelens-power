@@ -1,0 +1,14 @@
+name: Set up development tools
+description: Install pinned Node.js, pnpm and project dependencies
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10.34.4
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 24.15.0
+        cache: pnpm
+    - shell: bash
+      run: pnpm install --frozen-lockfile

@@ -1,0 +1,56 @@
+name: Make Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Version increment
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+concurrency:
+  group: release-make
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  make-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: ./.github/actions/setup
+      - name: Validate release source
+        run: |
+          pnpm lint:check
+          pnpm type:check
+          pnpm test:unit
+          pnpm build
+      - name: Bump version and open release pull request
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm bump-version "${RELEASE_TYPE}"
+          version="v$(node -p 'require("./package.json").version')"
+          branch="release-${version}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${branch}"
+          git add package.json pnpm-lock.yaml
+          git commit -m "release: up version to ${version}"
+          git push origin "${branch}"
+          cat > "${RUNNER_TEMP}/release-pr.md" <<'EOF'
+          - Обновляем версию пакета для следующего релиза
+          - Проверили линтер, типы, модульные тесты и сборку в Make Release
+          - После слияния публикуем GitHub Release с пакетом расширения
+          EOF
+          gh pr create --base main --head "${branch}" \
+            --title "release: up version to ${version}" \
+            --body-file "${RUNNER_TEMP}/release-pr.md"
