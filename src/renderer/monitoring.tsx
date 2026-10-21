@@ -241,7 +241,10 @@ export function MetricChart({
       value: (sample: MonitoringSample) => sample.resources?.[metric][key],
     })),
   ];
-  const max = Math.max(...samples.flatMap((sample) => series.map((line) => line.value(sample) ?? 0)), 0.001) * 1.1;
+  const visibleSeries =
+    scope === "pod" ? series.filter((line) => line.key === "usage" || line.key === "requests") : series;
+  const max =
+    Math.max(...samples.flatMap((sample) => visibleSeries.map((line) => line.value(sample) ?? 0)), 0.001) * 1.1;
   const end = last?.time ?? Date.now();
   const start = samples[0]?.time ?? end;
   const duration = Math.max(end - start, INTERVAL);
@@ -342,7 +345,7 @@ export function MetricChart({
             </text>
           </g>
         ))}
-        {series.map((line) => (
+        {visibleSeries.map((line) => (
           <path
             key={line.key}
             data-monitoring-series={line.key}
@@ -413,7 +416,7 @@ export function MetricChart({
             {formatMonitoringTime(selected.time)}
             {pinned ? " · Pinned" : ""}
           </div>
-          {series.map((line) => (
+          {visibleSeries.map((line) => (
             <div key={line.key} style={{ color: line.color }}>
               {line.label}: {line.value(selected) === undefined ? "Unavailable" : format(line.value(selected)!)}
             </div>
@@ -427,7 +430,7 @@ export function MetricChart({
         aria-label={`${label} chart legend`}
         style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 8 }}
       >
-        {series.map((line) => (
+        {visibleSeries.map((line) => (
           <span key={line.key}>
             <span style={{ color: line.color }}>●</span> {line.label}
           </span>
@@ -438,16 +441,20 @@ export function MetricChart({
           {last.resourceStatus}
         </div>
       )}
-      <div
-        style={{ fontSize: 11, color: "var(--textColorSecondary)", display: "flex", alignItems: "center", gap: 4 }}
-        role="status"
-        aria-label={`${scope} metrics status`}
-      >
-        <sup aria-hidden="true" style={{ fontSize: 12 }}>
-          *
-        </sup>
-        <span>{status || (samples.length ? "metrics-server data" : "Waiting for metrics-server data")}</span>
-      </div>
+      {(scope === "node" || status || !samples.length) && (
+        <div
+          style={{ fontSize: 11, color: "var(--textColorSecondary)", display: "flex", alignItems: "center", gap: 4 }}
+          role="status"
+          aria-label={`${scope} metrics status`}
+        >
+          {scope === "node" && (
+            <sup aria-hidden="true" style={{ fontSize: 12 }}>
+              *
+            </sup>
+          )}
+          <span>{status || (samples.length ? "metrics-server data" : "Waiting for metrics-server data")}</span>
+        </div>
+      )}
     </section>
   );
 }
