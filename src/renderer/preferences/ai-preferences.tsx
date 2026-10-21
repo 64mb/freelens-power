@@ -48,7 +48,7 @@ export const AiPreferences = observer(() => {
   const rowStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <style>{`.power-ai-section-title { color: var(--textColorAccent); } .power-ai-prompt { width: 100%; min-height: 90px; margin-top: 8px; box-sizing: border-box; padding: 12px; border: 1px solid var(--borderFaintColor, #666); border-radius: 8px; background: var(--mainBackground, #242424); color: var(--textColorPrimary, white); font: inherit; resize: vertical; } .power-ai-prompt:focus { border-color: var(--primary, #5896ff); outline: 1px solid var(--primary, #5896ff); }`}</style>
+      <style>{`.power-ai-section-title { color: var(--textColorAccent); } .power-ai-prompt { width: 100%; min-height: 90px; max-height: 260px; field-sizing: content; overflow-y: auto; margin-top: 8px; box-sizing: border-box; padding: 12px; border: 1px solid var(--borderFaintColor, #666); border-radius: 8px; background: var(--mainBackground, #242424); color: var(--textColorPrimary, white); font: inherit; resize: none; } .power-ai-prompt:focus { border-color: var(--primary, #5896ff); outline: 1px solid var(--primary, #5896ff); }`}</style>
       <div>
         <Switch
           checked={preferences.enabled}

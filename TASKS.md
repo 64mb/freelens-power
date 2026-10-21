@@ -256,3 +256,7 @@ Keep this file in English. Never record secrets, tokens, Secret contents, privat
 - [x] Live follow-up audit confirmed cached settings favicons after restart, three shortcuts, enabled new-card Autorefresh, 560px chat, equal 16px launcher gaps, slash suggestions and Pin/outside dismissal with Read-only retained
 - [x] Live AI read-only API discovery completed successfully on the authorized test cluster without an extension error
 - [ ] Create the requested private GitHub repository and CI for pull-request checks and release packages, following the reference workflow organization
+
+- [x] Describe the welcome feature as AI chat so it remains accurate when more CLI providers are added
+
+- [x] Replace native prompt resize handles with bounded automatic textarea sizing and scrolling

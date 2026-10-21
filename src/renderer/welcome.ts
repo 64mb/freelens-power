@@ -25,7 +25,7 @@ function createWelcomeContent(): HTMLDivElement {
     "📜 Certificate details in Secrets",
     "🎨 Accent themes for Freelens",
     "🔗 Website dashboards with flexible cards and background refresh",
-    "🤖 Context-aware Codex chat with read-only tools and prompt shortcuts",
+    "🤖 Context-aware AI chat with read-only tools and prompt shortcuts",
     "🔒 Read-only UI controls for safer browsing",
   ]) {
     const feature = document.createElement("li");

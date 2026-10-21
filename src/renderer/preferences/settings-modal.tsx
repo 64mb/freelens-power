@@ -27,7 +27,7 @@ export function SettingsModal({
       <style>{`
         .Dialog.power-settings-dialog { background: rgb(0 0 0 / 55%); z-index: 12000; }
         .power-settings-dialog > .box { border-radius: 14px; background: var(--mainBackground, #252a2e); border: 1px solid var(--borderFaintColor, #555); box-shadow: 0 20px 70px rgb(0 0 0 / 45%); overflow: visible; }
-        .power-settings-dialog .power-ai-prompt { width: 100%; min-height: 120px; padding: 12px; box-sizing: border-box; border: 1px solid var(--borderFaintColor); border-radius: 8px; background: var(--contentColor); color: var(--textColorPrimary); font: inherit; resize: vertical; }
+        .power-settings-dialog .power-ai-prompt { width: 100%; min-height: 120px; max-height: 260px; field-sizing: content; overflow-y: auto; padding: 12px; box-sizing: border-box; border: 1px solid var(--borderFaintColor); border-radius: 8px; background: var(--contentColor); color: var(--textColorPrimary); font: inherit; resize: none; }
         .power-settings-dialog .power-ai-prompt:focus { outline: 1px solid var(--primary); border-color: var(--primary); }
         @media (max-width: 600px) { .power-settings-dialog .power-settings-row { align-items: stretch !important; flex-direction: column; gap: 8px !important; } .power-settings-dialog .power-settings-row > div { width: 100% !important; } }
       `}</style>
