@@ -62,8 +62,8 @@ const styles = `
   .freelens-power-dashboard .power-dashboard-card-xs { grid-column: span 1; grid-row: span 1; }
   .freelens-power-dashboard .power-dashboard-card-s { grid-column: span var(--power-small-span, 2); grid-row: span 2; }
   .freelens-power-dashboard .power-dashboard-card-m { grid-column: span var(--power-medium-span, 4); grid-row: span 2; }
-  .freelens-power-dashboard .power-dashboard-card-l { grid-column: span var(--power-large-span, 4); grid-row: span 4; }
-  .freelens-power-dashboard .power-dashboard-card-xl { grid-column: span var(--power-columns, 4); grid-row: span 4; }
+  .freelens-power-dashboard .power-dashboard-card-l { grid-column: span var(--power-large-span, 4); grid-row: span 3; }
+  .freelens-power-dashboard .power-dashboard-card-xl { grid-column: span var(--power-columns, 4); grid-row: span 3; }
   .freelens-power-dashboard .power-dashboard-card-header {
     display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px;
   }
