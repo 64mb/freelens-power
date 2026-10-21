@@ -36,6 +36,10 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
   }
 
   toJSON(): { enabled: boolean; historyEnabled: boolean; trackedHistory: HistoryIdentity[] } {
-    return { enabled: this.enabled, historyEnabled: this.historyEnabled, trackedHistory: this.trackedHistory };
+    return {
+      enabled: this.enabled,
+      historyEnabled: this.historyEnabled,
+      trackedHistory: this.trackedHistory.map(({ clusterId, scope, uid }) => ({ clusterId, scope, uid })),
+    };
   }
 }
