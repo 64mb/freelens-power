@@ -13,6 +13,7 @@ import { AiCopyAnswer } from "./ai-copy-answer";
 import { AiContextPreview, AiResourceReferences } from "./ai-extras";
 import { AiIcon } from "./ai-icon";
 import { AiMessageContent } from "./ai-message";
+import { AiProviderIcon } from "./ai-provider-icon";
 import { AiResizeHandle, clampAiPanelWidth, DEFAULT_AI_PANEL_WIDTH } from "./ai-resize";
 import { AiStarterPrompts } from "./ai-shortcuts";
 
@@ -115,6 +116,7 @@ const styles = `
 @keyframes power-ai-enter { from { transform: translateX(100%); } to { transform: translateX(0); } }
 :root .power-ai-launcher { position: fixed; bottom: 16px; left: auto; right: 16px; z-index: 100; display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 0; height: 34px; border: 1px solid var(--primary, #5896ff); border-radius: 24px; padding: 0 13px; background: var(--contentColor, #242424); color: var(--textColorAccent); box-shadow: 0 3px 12px #0003; font: inherit; font-size: 12px; font-weight: 500; line-height: 1; cursor: pointer; transition: opacity 180ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 180ms ease; }
 .power-ai-overview-actions { position: relative; z-index: 5; height: 0; min-height: 0; flex: 0 0 0; pointer-events: none; }
+.power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-summaries] { --power-monitoring-summary-top: 56px; }
 .power-ai-overview-actions button { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; position: absolute; top: 12px; right: 12px; pointer-events: auto; box-shadow: 0 2px 8px #0002; display: inline-flex; flex: 0 0 auto; width: auto; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px; font: inherit; font-size: 12px; border: 1px solid var(--borderFaintColor); border-radius: 10px; color: var(--textColorPrimary); background: var(--contentColor); cursor: pointer; }
 .power-ai-overview-actions button:hover { border-color: var(--primary); color: var(--textColorAccent); background: var(--contentColor); }
 .power-ai-overview-actions button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -138,6 +140,10 @@ const styles = `
 :root .power-ai-panel button.power-ai-copy-answer { width: 24px; height: 24px; padding: 0; margin-left: auto; flex-shrink: 0; justify-content: center; border: 0; background: transparent; color: var(--textColorSecondary); }
 :root .power-ai-panel button.power-ai-copy-answer:not(:disabled):not(.disabled):hover { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
 :root .power-ai-panel button.power-ai-copy-answer:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.power-ai-cancellation { display: flex; align-items: center; gap: 6px; }
+:root .power-ai-panel button.power-ai-dismiss { width: 24px; height: 24px; padding: 0; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--textColorSecondary); }
+:root .power-ai-panel button.power-ai-dismiss:hover { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+:root .power-ai-panel button.power-ai-dismiss:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .power-ai-panel button:disabled { opacity: 0.5; cursor: default; }
  .power-ai-panel textarea { display: block; width: 100%; box-sizing: border-box; min-width: 0; min-height: 64px; max-height: 180px; field-sizing: content; padding: 12px 16px 6px; border: 0; border-radius: 12px; background: transparent; color: var(--textColorAccent); font: inherit; font-size: var(--power-ai-font-size, 14px); line-height: 1.5; resize: none; }
 .power-ai-panel textarea::placeholder { color: var(--textColorSecondary); opacity: 1; }
@@ -554,7 +560,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           />
           <header>
             <strong className="power-ai-title">
-              <span className="power-ai-brand">
+              <span className="power-ai-brand" title="AI assistant">
                 <AiIcon material="auto_awesome" size={18} /> AI
               </span>{" "}
               Assistant
@@ -563,6 +569,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               type="button"
               disabled={busy}
               aria-label="New chat"
+              title="Clear this conversation and start a new chat"
               onClick={() => {
                 preferences.setMessages(key, []);
                 setStopped((keys) => keys.filter((entry) => entry !== key));
@@ -592,6 +599,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               }}
               className="power-ai-close"
               aria-label="Close AI assistant"
+              title="Close AI assistant"
             >
               <span aria-hidden="true">
                 <AiIcon material="close" size={18} />
@@ -627,13 +635,24 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
             {messages.map((message, index) => (
               <div className={`power-ai-message power-ai-message-${message.role}`} key={index}>
                 <strong>
-                  <AiIcon material={message.role === "user" ? "person_outline" : "auto_awesome"} size={16} />
+                  {message.role === "user" ? (
+                    <span title="You">
+                      <AiIcon material="person_outline" size={16} />
+                    </span>
+                  ) : (
+                    <AiProviderIcon provider={message.provider === "claude" ? "claude" : "codex"} />
+                  )}
                   {message.role === "user" ? "You" : message.provider === "claude" ? "Claude" : "Codex"}
                   {message.role === "assistant" && <AiCopyAnswer text={message.text} />}
                 </strong>
                 <AiMessageContent text={message.text} />
                 {message.role === "assistant" && context.clusterId && (
-                  <AiResourceReferences clusterId={context.clusterId} references={message.references} />
+                  <AiResourceReferences
+                    clusterId={context.clusterId}
+                    references={message.references}
+                    text={message.text}
+                    onOpened={() => setOpen(false)}
+                  />
                 )}
               </div>
             ))}
@@ -643,7 +662,13 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 style={{ fontSize: 11, color: "var(--textColorSecondary)", margin: "8px 16px" }}
               >
                 {readActivity.map((read, index) => (
-                  <span key={index} data-method={read.method} data-status={read.status} style={{ marginRight: 10 }}>
+                  <span
+                    key={index}
+                    title={`${read.method} · ${read.status === "reading" ? "reading" : read.status === "ok" ? "read" : "unavailable"}`}
+                    data-method={read.method}
+                    data-status={read.status}
+                    style={{ marginRight: 10 }}
+                  >
                     <AiIcon
                       material={
                         read.status === "reading"
@@ -671,14 +696,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               </p>
             )}
             {!busy && stopped.includes(key) && (
-              <p role="status">
+              <p className="power-ai-cancellation" role="status">
                 Response stopped{" "}
                 <button
                   type="button"
                   aria-label="Dismiss cancellation"
+                  className="power-ai-dismiss"
+                  title="Dismiss"
                   onClick={() => setStopped((keys) => keys.filter((entry) => entry !== key))}
                 >
-                  Dismiss
+                  <AiIcon material="close" size={14} />
                 </button>
               </p>
             )}
@@ -704,6 +731,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                     id={`power-ai-command-${index}`}
                     aria-selected={index === suggestionIndex % suggestions.length}
                     key={shortcut.id}
+                    title={`Insert /${shortcut.command}: ${shortcut.label}`}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => selectSuggestion(index)}
                   >
@@ -765,14 +793,13 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 <button
                   type="button"
                   aria-label="Stop response"
-                  title="Stop response"
                   disabled={stopped.includes(key)}
                   onClick={stopResponse}
                 >
                   <AiIcon material="stop" size={16} /> Stop
                 </button>
               ) : (
-                <button type="submit" disabled={!draft.trim()} aria-label="Send" title="Send">
+                <button type="submit" disabled={!draft.trim()} aria-label="Send">
                   <AiIcon material="send" size={16} />
                 </button>
               )}
@@ -791,9 +818,21 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
   let mounted = false;
   let overviewActions: HTMLDivElement | undefined;
   let overviewIcon: HTMLSpanElement | undefined;
+  let overviewLabel: HTMLSpanElement | undefined;
+  let overviewResize: ResizeObserver | undefined;
+  const updateOverviewLabel = () => {
+    const overview = overviewActions?.nextElementSibling;
+    const compact = Boolean(overview?.querySelector("[data-freelens-power-monitoring]") && overview.clientWidth > 960);
+    const label = compact ? "Ask AI" : "Ask about cluster";
+    if (overviewLabel && overviewLabel.textContent !== label) overviewLabel.textContent = label;
+    overviewActions?.querySelector("button")?.setAttribute("aria-label", compact ? "Ask AI about cluster" : label);
+  };
   const removeOverview = () => {
+    overviewResize?.disconnect();
+    overviewResize = undefined;
     if (overviewIcon) ReactDOM.unmountComponentAtNode(overviewIcon);
     overviewIcon = undefined;
+    overviewLabel = undefined;
     overviewActions?.remove();
     overviewActions = undefined;
   };
@@ -808,18 +847,29 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
       removeOverview();
       return;
     }
-    if (overviewActions?.isConnected && overviewActions.nextElementSibling === overview) return;
+    if (overviewActions?.isConnected && overviewActions.nextElementSibling === overview) {
+      updateOverviewLabel();
+      return;
+    }
     removeOverview();
     overviewActions = document.createElement("div");
     overviewActions.className = "power-ai-overview-actions";
     const overviewButton = document.createElement("button");
     overviewButton.type = "button";
+    overviewButton.setAttribute("aria-label", "Ask about cluster");
+    overviewButton.title = "Open the AI assistant to ask about this cluster";
     overviewIcon = document.createElement("span");
     overviewIcon.setAttribute("aria-hidden", "true");
-    overviewButton.append(overviewIcon, document.createTextNode("Ask about cluster"));
+    overviewLabel = document.createElement("span");
+    overviewButton.append(overviewIcon, overviewLabel);
     overviewButton.onclick = () => window.dispatchEvent(new Event("power-ai-open"));
     overviewActions.append(overviewButton);
     overview.before(overviewActions);
+    updateOverviewLabel();
+    if (typeof ResizeObserver !== "undefined") {
+      overviewResize = new ResizeObserver(updateOverviewLabel);
+      overviewResize.observe(overview);
+    }
     ReactDOM.render(<AiIcon material="auto_awesome" size={16} />, overviewIcon);
   };
   const observer = new MutationObserver(reconcile);

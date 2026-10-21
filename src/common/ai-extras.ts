@@ -44,6 +44,34 @@ export function normalizeAiReferences(value: unknown): AiResourceReference[] {
   return references;
 }
 
+export function referencedAiResources(text: string, value: unknown): AiResourceReference[] {
+  const candidates = normalizeAiReferences(value);
+  const tokens = new Set((text.match(/[A-Za-z0-9][A-Za-z0-9.-]*/g) ?? []).map((token) => token.replace(/\.+$/, "")));
+  const qualifiedTokens = new Set(
+    (text.match(/[A-Za-z0-9][A-Za-z0-9./-]*/g) ?? []).map((token) => token.replace(/\.+$/, "")),
+  );
+  return candidates
+    .filter((reference) => {
+      if (!tokens.has(reference.name)) return false;
+      const matches = candidates.filter((item) => item.name === reference.name);
+      if (matches.length === 1) {
+        const qualifiedMentions = [...qualifiedTokens].filter((token) => token.endsWith(`/${reference.name}`));
+        return (
+          !qualifiedMentions.length ||
+          qualifiedMentions.some(
+            (token) =>
+              token === `${reference.namespace}/${reference.name}` || token === `${reference.kind}/${reference.name}`,
+          )
+        );
+      }
+      // ambiguous names require an explicit namespace/name pair in the answer
+      const qualified = reference.namespace ? `${reference.namespace}/${reference.name}` : "";
+      if (!qualified || !qualifiedTokens.has(qualified)) return false;
+      return matches.filter((item) => item.namespace === reference.namespace).length === 1;
+    })
+    .slice(0, 5);
+}
+
 export function attachedAiContext(context: AiChatRequest["context"]): AiChatRequest["context"] {
   const result: AiChatRequest["context"] = {};
   if (typeof context.clusterId === "string" && context.clusterId.length <= 256) result.clusterId = context.clusterId;

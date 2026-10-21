@@ -354,7 +354,7 @@ it.each([
       text: "",
       tool: { method: "resources", apiVersion: definition.apiVersion, kind: definition.kind, namespace: "default" },
     },
-    { text: "Resource inspected", tool: null },
+    { text: "Inspected worker", tool: null },
   ]);
   const read = vi.fn().mockResolvedValue({
     items: [

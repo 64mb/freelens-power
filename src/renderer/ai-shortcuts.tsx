@@ -14,7 +14,7 @@ export const AiStarterPrompts = observer(
             style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "6px 10px", minHeight: 32 }}
             key={shortcut.id}
             disabled={disabled}
-            title={`/${shortcut.command}`}
+            title={`Insert /${shortcut.command}: ${shortcut.label}`}
             onClick={() => onSelect(shortcut.prompt)}
           >
             <AiIcon

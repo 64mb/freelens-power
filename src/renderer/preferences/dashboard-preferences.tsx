@@ -83,7 +83,6 @@ function CardEditor({
               onChange={setSelector}
               placeholder="main .chart"
               aria-invalid={selectorInvalid}
-              aria-describedby={`${id}-selector-hint`}
             />
             {selector && (
               <SettingsIconAction
@@ -118,9 +117,6 @@ function CardEditor({
           {selectorInvalid && (
             <div role="alert">Use at most {dashboardSelectorLimit} characters without control characters.</div>
           )}
-          <div id={`${id}-selector-hint`} className="power-settings-hint" style={{ marginTop: 0 }}>
-            Leave empty to show the whole website.
-          </div>
           {pickerError && <div role="alert">Could not select an element. Try again or enter a CSS selector.</div>}
         </div>
       </SettingsField>

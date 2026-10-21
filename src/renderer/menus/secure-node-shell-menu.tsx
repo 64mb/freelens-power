@@ -35,7 +35,7 @@ export const SecureNodeShellMenu = observer(
     return (
       <MenuItem onClick={connect} disabled={!canConnect} style={{ order: -1 }}>
         <Icon
-          material="lock"
+          material="vpn_key"
           interactive={toolbar}
           tooltip={canConnect ? "Secure Node Shell" : "No node IP address available"}
         />

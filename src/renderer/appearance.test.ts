@@ -61,7 +61,7 @@ describe("application accent override", () => {
   it("applies accent variables with priority over inline theme values and preserves status colors", () => {
     dispose = startAppearanceOverride();
 
-    for (const variable of ["--blue", "--primary", "--buttonPrimaryBackground"]) {
+    for (const variable of ["--primary", "--buttonPrimaryBackground", "--icon-focus-color"]) {
       expect(accentRule()?.style.getPropertyValue(variable)).toBe(DEFAULT_ACCENT_COLOR);
       expect(accentRule()?.style.getPropertyPriority(variable)).toBe("important");
     }
@@ -69,6 +69,23 @@ describe("application accent override", () => {
     expect(accentRule()?.selectorText).toBe(":root");
     expect(accentRule()?.style.getPropertyValue("--colorSuccess")).toBe("");
     expect(document.documentElement.style.getPropertyValue("--colorSuccess")).toBe("#43a047");
+  });
+
+  it("preserves the native palette used by CPU and memory utilization fills across theme changes", () => {
+    const nativePalette = { "--blue": "#2196f3", "--magenta": "#ca52ab" };
+    for (const [variable, value] of Object.entries(nativePalette)) {
+      document.documentElement.style.setProperty(variable, value);
+    }
+    dispose = startAppearanceOverride();
+
+    for (const [variable, value] of Object.entries(nativePalette)) {
+      expect(accentRule()?.style.getPropertyValue(variable)).toBe("");
+      expect(getComputedStyle(document.documentElement).getPropertyValue(variable)).toBe(value);
+      document.documentElement.style.setProperty(variable, "#abcdef");
+      expect(getComputedStyle(document.documentElement).getPropertyValue(variable)).toBe("#abcdef");
+    }
+    expect(accentRule()?.style.getPropertyValue("--primary")).toBe(DEFAULT_ACCENT_COLOR);
+    expect(accentRule()?.style.getPropertyValue("--buttonPrimaryBackground")).toBe(DEFAULT_ACCENT_COLOR);
   });
 
   it("accents focused native Select controls globally while excluding disabled controls", () => {
@@ -98,6 +115,58 @@ describe("application accent override", () => {
     });
     expect(focusedRule()).toBeUndefined();
     document.body.innerHTML = "";
+  });
+
+  it("accents native checkboxes and drawer controls without recoloring resource utilization", () => {
+    const hostStyle = document.createElement("style");
+    hostStyle.textContent = `
+      .Checkbox { --checkbox-bgc-active: var(--blue); }
+      .theme-light .Checkbox { --checkbox-color-active: var(--blue); }
+      .Drawer .drawer-title { background: var(--blue); }
+      .DrawerParamToggler .param-link-text, .Nodes .cpu .LineProgress { color: var(--blue); }
+      .Nodes .memory .LineProgress { color: var(--magenta); }
+    `;
+    document.head.append(hostStyle);
+    document.body.innerHTML = `
+      <label class="Checkbox"><input type="checkbox" checked /><i class="box"></i></label>
+      <div class="theme-light"><label class="Checkbox"><input type="checkbox" checked /><i class="box"></i></label></div>
+      <div class="Drawer"><div class="drawer-title">Pod</div><div class="drawer-content">
+        <div class="DrawerParamToggler"><div class="param-link"><span class="param-link-text">Show</span></div></div>
+        <div class="Nodes"><div class="cpu"><div class="LineProgress"></div></div>
+          <div class="memory"><div class="LineProgress"></div></div></div>
+      </div></div>
+    `;
+    try {
+      dispose = startAppearanceOverride();
+      const controlRule = () => rules().find((rule) => rule.style.getPropertyValue("--blue"));
+      const selector = controlRule()!.selectorText;
+      expect(document.querySelectorAll(selector)).toHaveLength(4);
+      expect(controlRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
+      for (const control of document.querySelectorAll(selector)) {
+        expect(getComputedStyle(control).getPropertyValue("--blue")).toBe("var(--primary)");
+      }
+      for (const bar of document.querySelectorAll(".LineProgress")) {
+        expect(bar.matches(selector)).toBe(false);
+        expect(bar.closest(".Checkbox, .drawer-title, .param-link")).toBeNull();
+      }
+      expect(accentRule()?.style.getPropertyValue("--blue")).toBe("");
+
+      runInAction(() => {
+        preferences.accentColor = "default";
+      });
+      expect(controlRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+        preferences.enabled = false;
+      });
+      expect(controlRule()).toBeUndefined();
+      expect(hostStyle.isConnected).toBe(true);
+      for (const control of document.querySelectorAll(selector)) {
+        expect(getComputedStyle(control).getPropertyValue("--blue")).toBe("");
+      }
+    } finally {
+      document.body.innerHTML = "";
+    }
   });
 
   it("updates the color and restores the latest theme on disable", () => {

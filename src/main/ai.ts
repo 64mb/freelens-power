@@ -10,7 +10,12 @@ import {
   type AiReadActivityEvent,
   validAiRequestId,
 } from "../common/ai";
-import { type AiResourceReference, attachedAiContext, normalizeAiReferences } from "../common/ai-extras";
+import {
+  type AiResourceReference,
+  attachedAiContext,
+  normalizeAiReferences,
+  referencedAiResources,
+} from "../common/ai-extras";
 import { verifyClaudeManagedPolicy } from "./ai-claude-policy";
 import { aiLogQuery, summarizeAiLogs } from "./ai-logs";
 import { collectAiReferences } from "./ai-references";
@@ -485,13 +490,15 @@ export async function runAiChat(
       );
       signal?.throwIfAborted();
       const response = provider === "claude" ? parseClaudeAiOutput(output) : parseCodexAiOutput(output);
-      if (!response.tool)
+      if (!response.tool) {
+        const related = referencedAiResources(response.text, references);
         return {
           text: response.text,
           reads,
-          ...(references.length ? { references } : {}),
+          ...(related.length ? { references: related } : {}),
           ...(request.provider === "claude" ? { provider: "claude" as const } : {}),
         };
+      }
       const method = ["pods", "nodes", "resources", "logs"].includes(response.tool.method)
         ? response.tool.method
         : undefined;

@@ -14,15 +14,18 @@ import {
 } from "electron";
 import { reaction } from "mobx";
 import { sanitizeDashboardCards } from "../common/dashboard";
+import { dashboardReadinessScript } from "../common/dashboard-readiness";
 import { dashboardSelectorScript } from "../common/dashboard-selector";
 import {
   DASHBOARD_SITE_ICONS,
+  DASHBOARD_VIEWS_LOADING,
   DASHBOARD_VIEWS_PIN,
   DASHBOARD_VIEWS_PINNED,
   type DashboardSiteIcon,
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 import { boundedDashboardIcons, loadDashboardIcons, saveDashboardIcons } from "./dashboard-icon-cache";
+import { observeDashboardNetwork } from "./dashboard-network";
 
 const syncChannel = "freelens-power:dashboard-views:sync";
 const reloadChannel = "freelens-power:dashboard-views:reload";
@@ -72,6 +75,10 @@ type CardView = {
   view: WebContentsView;
   url: string;
   failed: boolean;
+  loading: boolean;
+  visible: boolean;
+  generation: number;
+  stopPreparation?: () => void;
   selector?: string;
   pending?: Promise<void>;
   favicon?: string;
@@ -91,6 +98,7 @@ export function startDashboardViews(): () => void {
     const card = owner.cards.get(id);
     if (!card) return;
     owner.cards.delete(id);
+    card.stopPreparation?.();
     card.faviconRequest?.abort();
     clearInterval(card.refreshTimer);
     card.floating?.destroy();
@@ -106,7 +114,10 @@ export function startDashboardViews(): () => void {
     owner.cleanup();
   };
   const hide = (sender: WebContents) => {
-    for (const card of owners.get(sender)?.cards.values() ?? []) card.container.setVisible(false);
+    for (const card of owners.get(sender)?.cards.values() ?? []) {
+      card.visible = false;
+      card.container.setVisible(false);
+    }
   };
   const configuredCards = () =>
     sanitizeDashboardCards(DashboardPreferencesStore.getInstanceOrCreate<DashboardPreferencesStore>().cards);
@@ -135,27 +146,113 @@ export function startDashboardViews(): () => void {
       .catch(() => {});
   };
   persistIcons();
-  const reload = (card: CardView, configuredUrl: string) => {
+  const publishLoading = (card: CardView) => {
+    for (const [sender, owner] of owners) {
+      const id = [...owner.cards].find(([, candidate]) => candidate === card)?.[0];
+      if (
+        !id ||
+        sender.isDestroyed() ||
+        !dashboardUrl(sender.mainFrame.url) ||
+        !dashboardUrl(sender.getURL()) ||
+        !configuredCards().some((configured) => configured.id === id && configured.url === card.url)
+      )
+        continue;
+      sender.send(DASHBOARD_VIEWS_LOADING, { id, url: card.url, loading: card.loading, failed: card.failed });
+    }
+  };
+  const reload = (card: CardView, configuredUrl: string, initial = false) => {
     const current = card.view.webContents.getURL();
-    const target = card.url === configuredUrl && webUrl(current) ? current : configuredUrl;
+    const target = !initial && card.url === configuredUrl && webUrl(current) ? current : configuredUrl;
     card.faviconRequest?.abort();
     card.url = configuredUrl;
     card.failed = false;
-    card.pending = card.view.webContents.loadURL(target).then(
-      () => {
-        card.failed = false;
+    card.loading = true;
+    card.stopPreparation?.();
+    const contents = card.view.webContents;
+    const backgroundThrottling = contents.getBackgroundThrottling();
+    if (backgroundThrottling) contents.setBackgroundThrottling(false);
+    const network = observeDashboardNetwork(card.view.webContents);
+    let stopped = false;
+    const stopPreparation = () => {
+      if (stopped) return;
+      stopped = true;
+      network.dispose();
+      contents.removeListener("destroyed", stopPreparation);
+      if (!contents.isDestroyed() && backgroundThrottling && !contents.getBackgroundThrottling())
+        contents.setBackgroundThrottling(backgroundThrottling);
+      if (card.stopPreparation === stopPreparation) card.stopPreparation = undefined;
+    };
+    card.stopPreparation = stopPreparation;
+    contents.once("destroyed", stopPreparation);
+    const generation = ++card.generation;
+    card.container.setVisible(false);
+    publishLoading(card);
+    const settled = (failed: boolean) => {
+      if (card.generation !== generation || card.view.webContents.isDestroyed()) return;
+      card.failed = failed;
+      card.loading = false;
+      for (const [sender, owner] of owners) {
+        if (![...owner.cards.values()].includes(card)) continue;
+        card.container.setVisible(card.visible && !card.floating && !failed && dashboardUrl(sender.getURL()));
+      }
+      publishLoading(card);
+    };
+    const load = () => {
+      if (
+        card.generation !== generation ||
+        card.view.webContents.isDestroyed() ||
+        ![...owners.values()].some((owner) => [...owner.cards.values()].includes(card))
+      )
+        return Promise.resolve();
+      return card.view.webContents.loadURL(target);
+    };
+    card.pending = load().then(
+      async () => {
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        let preparing = true;
+        const current = () =>
+          preparing &&
+          card.generation === generation &&
+          !card.view.webContents.isDestroyed() &&
+          [...owners.values()].some((owner) => [...owner.cards.values()].includes(card));
+        try {
+          await Promise.race([
+            (async () => {
+              if (!current()) return;
+              await network.ready();
+              if (!current()) return;
+              await applySelector(card);
+              do {
+                await network.wait();
+                if (!current()) return;
+                await card.view.webContents.executeJavaScriptInIsolatedWorld(1004, [
+                  { code: dashboardReadinessScript(card.selector) },
+                ]);
+              } while (current() && !network.quiet());
+            })().catch(() => new Promise<void>((resolve) => setTimeout(resolve, 200))),
+            new Promise<void>((resolve) => {
+              deadline = setTimeout(resolve, 8500);
+            }),
+          ]);
+        } finally {
+          clearTimeout(deadline);
+          preparing = false;
+          stopPreparation();
+        }
+        settled(false);
       },
       () => {
-        card.failed = true;
+        stopPreparation();
+        settled(true);
       },
     );
     return card.pending;
   };
   const applySelector = (card: { view: { webContents: WebContents }; selector?: string }) => {
-    if (!card.view.webContents.isDestroyed())
-      void card.view.webContents
-        .executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardSelectorScript(card.selector) }])
-        .catch(() => {});
+    if (card.view.webContents.isDestroyed()) return Promise.resolve();
+    return card.view.webContents
+      .executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardSelectorScript(card.selector) }])
+      .catch(() => {});
   };
   const refreshTimers = () => {
     const configured = configuredCards();
@@ -265,7 +362,7 @@ export function startDashboardViews(): () => void {
       owners.set(sender, owner);
     }
     if (payload && typeof payload === "object" && "hidden" in payload && payload.hidden === true) {
-      for (const card of owner.cards.values()) card.container.setVisible(false);
+      hide(event.sender);
       return { failed: [], pinned: [...owner.cards].filter(([, card]) => card.floating).map(([id]) => id) };
     }
     const visible = new Set<string>();
@@ -287,6 +384,7 @@ export function startDashboardViews(): () => void {
       visible.add(item.id);
       let card = owner.cards.get(item.id);
       if (card?.floating) {
+        card.visible = false;
         card.container.setVisible(false);
         continue;
       }
@@ -322,7 +420,7 @@ export function startDashboardViews(): () => void {
         });
         container.addChildView(view);
         window.contentView.addChildView(container);
-        card = { container, view, url: "", failed: false };
+        card = { container, view, url: "", failed: false, loading: false, visible: false, generation: 0 };
         owner.cards.set(item.id, card);
         const created = card;
         view.webContents.on("before-input-event", (_event, input: Electron.Input) => {
@@ -429,7 +527,8 @@ export function startDashboardViews(): () => void {
             .finally(() => clearTimeout(timeout));
         });
       }
-      card.container.setVisible(true);
+      card.visible = true;
+      card.container.setVisible(!card.loading && !card.failed && card.url === configured.url);
       const zoom = event.sender.getZoomFactor();
       card.container.setBorderRadius(Math.round(12 * zoom));
       card.view.setBorderRadius(Math.round(12 * zoom));
@@ -444,25 +543,19 @@ export function startDashboardViews(): () => void {
         scale({ x: bounds.x - clip.x, y: bounds.y - clip.y, width: bounds.width, height: bounds.height }),
       );
       if (card.url !== configured.url) {
-        card.url = configured.url;
         card.favicon = undefined;
         card.faviconRequest?.abort();
-        const loading = card;
-        loading.failed = false;
-        loading.pending = loading.view.webContents.loadURL(configured.url).then(
-          () => {
-            loading.failed = false;
-          },
-          () => {
-            loading.failed = true;
-          },
-        );
+        void reload(card, configured.url, true);
       }
+      publishLoading(card);
       if (card.favicon) event.sender.send("freelens-power:dashboard-site-icon", { id: item.id, url: card.favicon });
     }
     for (const [id, card] of owner.cards) {
       if (!cards.some((configured) => configured.id === id)) remove(owner, id);
-      else if (!visible.has(id)) card.container.setVisible(false);
+      else if (!visible.has(id)) {
+        card.visible = false;
+        card.container.setVisible(false);
+      }
     }
     refreshTimers();
     await Promise.all([...owner.cards.values()].map((card) => card.pending));
@@ -596,8 +689,7 @@ export function startDashboardViews(): () => void {
           )
         : Promise.resolve(false);
     const [, floatingFailed] = await Promise.all([reload(card, configured.url), floatingReload]);
-    card.failed ||= floatingFailed;
-    return { failed: card.failed ? [payload.id] : [] };
+    return { failed: card.failed || floatingFailed ? [payload.id] : [] };
   });
   return () => {
     stopSettingsReaction();

@@ -44,3 +44,17 @@ it("falls back to the whole page for invalid or missing matches and follows dyna
   expect(document.querySelector("nav")?.hasAttribute(hidden)).toBe(true);
   expect(document.documentElement.textContent).not.toContain("Selected element unavailable");
 });
+
+it("adds one reversible inset around a matched element without changing website inline styles", () => {
+  document.body.innerHTML = '<main><section id="chart">Chart</section></main>';
+  document.body.style.padding = "5px";
+  dashboardSelectorAdapter("#chart");
+  expect(document.body.hasAttribute("data-power-selector-inset")).toBe(true);
+  expect(document.querySelector("style")?.textContent).toContain("padding: 12px !important");
+  dashboardSelectorAdapter("#missing");
+  expect(document.body.hasAttribute("data-power-selector-inset")).toBe(false);
+  expect(document.body.style.padding).toBe("5px");
+  dashboardSelectorAdapter("");
+  expect(document.body.style.padding).toBe("5px");
+  document.body.style.removeProperty("padding");
+});

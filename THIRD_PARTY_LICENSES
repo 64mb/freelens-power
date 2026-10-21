@@ -239,3 +239,44 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Provider product icons
+----------------------
+
+Codex icon: standard OpenAI knot used by Orca, with neutral theme contrast
+Product: https://openai.com/codex/
+Brand guidance: https://openai.com/brand/
+Copyright OpenAI. All rights reserved. Codex and its icon are OpenAI trademarks
+Used solely to identify the user's selected CLI provider
+
+Claude icon: terra-cotta sunburst used by Orca, with fixed #D97757 fill
+Product: https://claude.ai/
+Brand guidance: https://www.anthropic.com/brand
+Copyright Anthropic. All rights reserved. Claude and its icon are Anthropic
+trademarks. Used solely to identify the user's selected CLI provider
+These brand assets are not covered by this project's Apache-2.0 license
+
+Provider glyph definitions adapted from Orca
+https://github.com/stablyai/orca
+
+MIT License
+
+Copyright (c) 2026 Lovecast Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

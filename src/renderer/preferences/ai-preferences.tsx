@@ -4,7 +4,7 @@ import { observer } from "mobx-react";
 import { useEffect, useState } from "react";
 import { AI_MODELS_CHANNEL, type AiModel } from "../../common/ai-models";
 import { AiPreferencesStore } from "../../common/store/ai-preferences-store";
-import { AiIcon } from "../ai-icon";
+import { AiProviderIcon } from "../ai-provider-icon";
 import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
 
 const { Select, Switch } = Renderer.Component;
@@ -82,7 +82,7 @@ export const AiPreferences = observer(() => {
             ]}
             formatOptionLabel={(option) => (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <AiIcon material={option.value === "claude" ? "auto_awesome" : "code"} />
+                <AiProviderIcon provider={option.value === "claude" ? "claude" : "codex"} />
                 {option.label}
               </span>
             )}

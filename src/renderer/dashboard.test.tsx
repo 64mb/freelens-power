@@ -38,6 +38,8 @@ describe("DashboardPage", () => {
   });
   beforeEach(() => {
     mocks.preferences.cards = [];
+    mocks.on.mockClear();
+    mocks.removeListener.mockClear();
     mocks.invoke.mockReset().mockResolvedValue(undefined);
     vi.stubGlobal(
       "ResizeObserver",
@@ -67,6 +69,30 @@ describe("DashboardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add cards" }));
     expect(onOpenPreferences).toHaveBeenCalledTimes(2);
     expect(document.querySelectorAll("iframe")).toHaveLength(0);
+  });
+
+  it("shows skeletons only during actual loading and ignores obsolete card URLs", () => {
+    mocks.preferences.cards = [{ id: "card", title: "Tool", url: "https://example.com", size: "s" }];
+    const page = render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    const update = mocks.on.mock.calls.find(([channel]) => channel === "freelens-power:dashboard-views:loading")![1];
+    expect(screen.queryByRole("status", { name: "Loading Tool" })).toBeNull();
+    act(() => update({}, { id: "card", url: "https://obsolete.example/", loading: true, failed: false }));
+    expect(screen.queryByRole("status", { name: "Loading Tool" })).toBeNull();
+    act(() => update({}, { id: "card", url: "https://example.com/", loading: true, failed: false }));
+    expect(screen.getByRole("status", { name: "Loading Tool" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Tool" }).getAttribute("aria-busy")).toBe("true");
+    act(() => update({}, { id: "card", url: "https://example.com/", loading: false, failed: false }));
+    expect(screen.queryByRole("status", { name: "Loading Tool" })).toBeNull();
+    fireEvent(window, new Event("blur"));
+    fireEvent(window, new Event("focus"));
+    expect(screen.queryByRole("status", { name: "Loading Tool" })).toBeNull();
+    act(() => update({}, { id: "card", url: "https://example.com/", loading: true, failed: false }));
+    expect(screen.getByRole("status", { name: "Loading Tool" })).toBeTruthy();
+    act(() => update({}, { id: "card", url: "https://example.com/", loading: false, failed: true }));
+    expect(screen.queryByRole("status", { name: "Loading Tool" })).toBeNull();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    page.unmount();
+    expect(mocks.removeListener).toHaveBeenCalledWith("freelens-power:dashboard-views:loading", update);
   });
 
   it("renders each size with a native viewport placeholder and an external link", () => {
@@ -172,11 +198,39 @@ describe("DashboardPage", () => {
     dialog.setAttribute("role", "dialog");
     document.body.append(dialog);
     await waitFor(() =>
-      expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:dashboard-views:sync", { cards: [], hidden: true }),
+      expect(mocks.invoke).toHaveBeenCalledWith(
+        "freelens-power:dashboard-views:sync",
+        expect.objectContaining({ cards: [], hidden: true }),
+      ),
     );
     mocks.invoke.mockClear();
     dialog.remove();
     await waitFor(() => expect(mocks.invoke.mock.calls.some(([, payload]) => payload?.cards?.length === 1)).toBe(true));
+  });
+  it("keeps website views visible through native tooltips and focus changes without reloading", async () => {
+    mocks.preferences.cards = [{ id: "card", title: "Tool", url: "https://example.com", size: "s" }];
+    render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalled());
+    mocks.invoke.mockClear();
+    const tooltip = document.createElement("div");
+    tooltip.className = "Tooltip visible";
+    tooltip.setAttribute("role", "tooltip");
+    document.body.append(tooltip);
+    try {
+      fireEvent(window, new Event("blur"));
+      fireEvent(window, new Event("focus"));
+      await waitFor(() =>
+        expect(mocks.invoke.mock.calls.some(([, payload]) => payload?.cards?.length === 1)).toBe(true),
+      );
+      expect(mocks.invoke).not.toHaveBeenCalledWith(
+        "freelens-power:dashboard-views:sync",
+        expect.objectContaining({ hidden: true }),
+      );
+      expect(mocks.invoke).not.toHaveBeenCalledWith("freelens-power:dashboard-views:clear");
+      expect(mocks.invoke).not.toHaveBeenCalledWith("freelens-power:dashboard-views:reload", expect.anything());
+    } finally {
+      tooltip.remove();
+    }
   });
   it("preserves pre-layout scroll despite expansion clamping and restores stable cached viewports without reload", async () => {
     mocks.preferences.cards = ["first", "second"].map((id) => ({

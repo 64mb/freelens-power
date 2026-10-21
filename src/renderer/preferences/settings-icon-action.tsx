@@ -20,7 +20,7 @@ export function SettingsIconAction({
       disabled={disabled}
       onClick={onClick}
     >
-      <Renderer.Component.Icon material={material} size={18} />
+      <Renderer.Component.Icon material={material} size={18} tooltip={label} tooltipOverrideDisabled />
     </button>
   );
 }
