@@ -4,6 +4,7 @@ import { EXTENSION_DISPLAY_NAME, EXTENSION_ID } from "../common/extension-info";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
+import { ClusterIconsStore } from "../common/store/cluster-icons-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { NodeShellPreferencesStore } from "../common/store/node-shell-preferences-store";
@@ -11,9 +12,12 @@ import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { startAiIpc } from "./ai-ipc";
 import { startAiModels } from "./ai-models";
+import { startClusterIcons } from "./cluster-icons";
+import { registerClusterIconsCatalog } from "./cluster-icons-catalog";
 import { registerDashboardCatalog } from "./dashboard-catalog";
 import { startDashboardPicker } from "./dashboard-picker";
 import { startDashboardViews } from "./dashboard-views";
+import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
 import { startMonitoringHistory } from "./monitoring-history";
 import { startSettingsExport } from "./settings-export";
@@ -41,6 +45,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
     MonitoringPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AppearancePreferencesStore.getInstanceOrCreate().loadExtension(this);
     DashboardPreferencesStore.getInstanceOrCreate().loadExtension(this);
+    ClusterIconsStore.getInstanceOrCreate().loadExtension(this);
     this.stopFeatures?.();
     const stopExport = startSettingsExport();
     let disposers: (() => void)[] = [];
@@ -51,12 +56,15 @@ export default class FreelensPowerMain extends Main.LensExtension {
         disposers = enabled
           ? [
               startMonitoringHistory(this),
+              startDiagnosticsMenuOrder(),
               startAiIpc(),
               startAiModels(),
               startDockIconOverride(),
               startDashboardViews(),
               startDashboardPicker(),
               registerDashboardCatalog(this),
+              registerClusterIconsCatalog(this),
+              startClusterIcons(),
             ]
           : [];
       },

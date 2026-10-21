@@ -93,6 +93,48 @@ describe("monitoring history IPC security", () => {
     state.window.mockReturnValue(null);
     await expect(invoke(event(), { operation: "status" })).rejects.toThrow("History unavailable");
   });
+  it("allows registered direct cluster frames while rejecting foreign and nested frames", async () => {
+    const invoke = start();
+    const root = event();
+    const clusterFrame = {
+      url: "https://cluster-id.renderer.freelens.app/",
+      parent: root.sender.mainFrame,
+      top: root.sender.mainFrame,
+    };
+    const child = { ...root, senderFrame: clusterFrame };
+    await expect(invoke(child, { operation: "status" })).resolves.toEqual(expect.objectContaining({ available: true }));
+    await expect(invoke(child, { operation: "append", samples: [sample()] })).resolves.toBe(true);
+    await expect(
+      invoke(child, { operation: "query", query: { ...sample(), from: Date.now() - 30_000, to: Date.now() } }),
+    ).resolves.toBeDefined();
+    for (const frame of [
+      { ...clusterFrame, parent: {} },
+      { ...clusterFrame, top: {} },
+      { ...clusterFrame, url: "https://example.invalid/" },
+      { ...clusterFrame, url: "https://cluster-id.renderer.freelens.app:8443/" },
+      { ...clusterFrame, url: "https://nested.cluster-id.renderer.freelens.app/" },
+    ])
+      await expect(invoke({ ...root, senderFrame: frame }, { operation: "status" })).rejects.toThrow(
+        "History unavailable",
+      );
+    const portRoot = event("https://renderer.freelens.app:54321/");
+    await expect(invoke(portRoot, { operation: "status" })).resolves.toBeDefined();
+    await expect(
+      invoke(
+        {
+          ...portRoot,
+          senderFrame: {
+            url: "https://cluster-id.renderer.freelens.app:54321/",
+            parent: portRoot.sender.mainFrame,
+            top: portRoot.sender.mainFrame,
+          },
+        },
+        { operation: "status" },
+      ),
+    ).resolves.toBeDefined();
+    state.registered.mockReturnValue(undefined);
+    await expect(invoke(child, { operation: "status" })).rejects.toThrow("History unavailable");
+  });
   it("rejects unregistered clusters for writes and reads before worker access", async () => {
     const invoke = start();
     state.registered.mockReturnValue(undefined);

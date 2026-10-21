@@ -132,7 +132,7 @@ it("rejects incompatible or malformed backups instead of silently dropping entri
     { url: "javascript:alert(1)" },
     { url: "file:///private/example" },
     { url: "invalid" },
-    { size: "xl" },
+    { size: "xxl" },
     { id: "" },
     { title: "" },
     { selector: "x".repeat(513) },
@@ -166,4 +166,12 @@ it("rejects an oversized export before it can become an unrestorable backup", ()
   expect(() =>
     createSettingsExport([{ id: "card", title: "x".repeat(1024 * 1024), url: "https://example.com", size: "m" }], []),
   ).toThrow("Settings backup is too large");
+});
+
+it("round-trips all dashboard sizes without remapping persisted size keys", () => {
+  const sizes = ["xs", "s", "m", "l", "xl"];
+  const cards = sizes.map((size) => ({ id: size, title: size, url: `https://example.com/${size}`, size }));
+  const exported = createSettingsExport(cards, []);
+  expect(exported.dashboard.cards.map((card) => card.size)).toEqual(sizes);
+  expect(parseSettingsImport(JSON.parse(JSON.stringify(exported)))).toEqual(exported);
 });

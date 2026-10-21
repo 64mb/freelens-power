@@ -50,9 +50,10 @@ describe("welcome content override", () => {
       "🤖",
       "🔒",
     ]);
-    expect(content?.textContent).toContain("IPv6 and automatic Colima");
+    expect(content?.textContent).toContain("IPv6 and Colima");
+    expect(content?.querySelector("li")?.title).toContain("IPv6 and automatic Colima");
     expect(content?.textContent).toContain("Certificate details in Secrets");
-    expect(content?.textContent).toContain("Accent themes for Freelens");
+    expect(content?.textContent).toContain("Themes and cluster icon studio");
     expect(content?.textContent).not.toContain("macOS");
     expect(content?.textContent).not.toContain("Dock icon");
     const link = content?.querySelector("a");

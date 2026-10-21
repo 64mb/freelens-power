@@ -3,9 +3,9 @@ import { observer } from "mobx-react";
 import { useEffect, useState } from "react";
 import { MAX_SAMPLES, type MonitoringSample } from "../common/monitoring-math";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
-import { MetricChart } from "./monitoring";
 import { getMonitoringSnapshot, getNodeSample, retainMonitoringCollector } from "./monitoring-collector";
-import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
+import { MonitoringDetailsChart } from "./monitoring-details-chart";
+import { useMonitoringHistory } from "./monitoring-history-view";
 
 type NodeProps = Renderer.Component.KubeObjectDetailsProps<Renderer.K8sApi.Node>;
 
@@ -14,6 +14,7 @@ const NodeMonitoringCharts = observer(({ object }: NodeProps) => {
   const name = object.metadata.name;
   const uid = object.metadata.uid;
   const identity = JSON.stringify([clusterId, name, uid]);
+  const [metric, setMetric] = useState<"cpu" | "memory">("cpu");
   const [state, setState] = useState<{ identity: string; samples: MonitoringSample[]; status: string }>({
     identity,
     samples: [],
@@ -89,11 +90,22 @@ const NodeMonitoringCharts = observer(({ object }: NodeProps) => {
           display: none !important;
         }
       `}</style>
-      <MonitoringHistoryRange native range={history.range} onChange={history.setRange} />
-      {history.status && <div role="status">{history.status}</div>}
-      {(["cpu", "memory"] as const).map((metric) => (
-        <MetricChart key={`${identity}:${metric}`} metric={metric} samples={history.samples} status={status} />
-      ))}
+      <div style={{ marginBottom: 16 }}>
+        <Renderer.Component.RadioGroup value={metric} onChange={setMetric} asButtons>
+          <Renderer.Component.Radio value="cpu" label="CPU" />
+          <Renderer.Component.Radio value="memory" label="Memory" />
+        </Renderer.Component.RadioGroup>
+      </div>
+      <MonitoringDetailsChart
+        key={`${identity}:${metric}`}
+        metric={metric}
+        samples={history.samples}
+        status={status}
+        native
+        range={history.range}
+        onRangeChange={history.setRange}
+        historyStatus={history.status}
+      />
     </div>
   );
 });

@@ -31,15 +31,18 @@ vi.mock("@freelensapp/extensions", () => ({
       Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
       Button: ({
         label,
+        children,
         onClick,
         "aria-label": ariaLabel,
       }: {
-        label: string;
+        label?: string;
+        children?: ReactNode;
         onClick: () => void;
         "aria-label"?: string;
       }) => (
         <button type="button" aria-label={ariaLabel} onClick={onClick}>
           {label}
+          {children}
         </button>
       ),
       Input: ({ onChange, ...props }: { onChange: (value: string) => void }) => (
@@ -50,12 +53,47 @@ vi.mock("@freelensapp/extensions", () => ({
           <input id={id} type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} />
         </label>
       ),
-      Select: () => <select aria-label="Card size" />,
+      Select: ({
+        options,
+        value,
+        onChange,
+      }: {
+        options: { value: string; label: string }[];
+        value: string;
+        onChange: (option: { value: string; label: string } | undefined) => void;
+      }) => (
+        <select
+          aria-label="Card size"
+          value={value}
+          onChange={(event) => onChange(options.find((option) => option.value === event.target.value))}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ),
     },
   },
 }));
 
 describe("dashboard preferences", () => {
+  it.each(["xs", "s", "m", "l", "xl"])("saves size %s from the native size picker", (size) => {
+    render(<DashboardPreferences />);
+    expect(screen.getByLabelText("Card size M").style.fontFamily).toContain("monospace");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Example" }));
+    expect(screen.getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual([
+      "xs",
+      "s",
+      "m",
+      "l",
+      "xl",
+    ]);
+    fireEvent.change(screen.getByRole("combobox", { name: "Card size" }), { target: { value: size } });
+    fireEvent.click(screen.getByRole("button", { name: "Save card" }));
+    expect(mocks.preferences.upsertCard).toHaveBeenCalledWith(expect.objectContaining({ size }));
+  });
   afterEach(cleanup);
   beforeEach(() => {
     vi.clearAllMocks();

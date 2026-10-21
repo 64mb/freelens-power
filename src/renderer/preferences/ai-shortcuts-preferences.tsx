@@ -50,10 +50,13 @@ export const AiShortcutsPreferences = observer(({ disabled = false }: { disabled
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
         <Button
           primary
-          label="Add shortcut"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           disabled={disabled}
           onClick={() => edit({ id: globalThis.crypto.randomUUID(), label: "", command: "", prompt: "" })}
-        />
+        >
+          <Renderer.Component.Icon material="add" size={16} />
+          <span>Add shortcut</span>
+        </Button>
       </div>
       {editing && !disabled && (
         <SettingsModal

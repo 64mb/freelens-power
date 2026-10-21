@@ -15,6 +15,20 @@ const state = vi.hoisted(() => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      RadioGroup: ({ value, onChange, children }: any) => (
+        <div>
+          {children.map((child: any) => (
+            <button
+              key={child.props.value}
+              aria-pressed={value === child.props.value}
+              onClick={() => onChange(child.props.value)}
+            >
+              {child.props.label}
+            </button>
+          ))}
+        </div>
+      ),
+      Radio: () => null,
       Select: ({ value, options, onChange, ...props }: any) => (
         <select
           aria-label={props["aria-label"]}
@@ -44,11 +58,12 @@ vi.mock("./monitoring-history", () => ({
   monitoringHistory: { query: state.historyQuery },
 }));
 vi.mock("./monitoring", () => ({
-  MetricChart: ({ metric, samples, status }: any) => (
+  MetricChart: ({ metric, samples, status, headerAction }: any) => (
     <div data-metric={metric}>
+      {headerAction && <div className="power-monitoring-period-action">{headerAction}</div>}
       {status}
       {samples.map((sample: any) => (
-        <span key={sample.time}>
+        <span data-sample="" key={sample.time}>
           {sample.cpu}:{sample.resourceStatus}
         </span>
       ))}
@@ -96,7 +111,7 @@ it("uses the shared snapshot for the selected node and restores native controls 
     "worker",
     "worker-uid",
   );
-  expect(host.querySelectorAll("[data-metric]")).toHaveLength(2);
+  expect(host.querySelectorAll("[data-metric]")).toHaveLength(1);
   const metrics = drawer.querySelector<HTMLElement>(".ResourceMetrics")!;
   const range = drawer.querySelector<HTMLElement>("[data-time-range]")!;
   expect(getComputedStyle(metrics).display).toBe("none");
@@ -133,13 +148,13 @@ it("keeps requests coverage warnings and reports sanitized collection failures",
   await tick(1000);
   expect(view.container.textContent).toContain("Node metrics unavailable");
   expect(view.container.textContent).not.toContain("private server error");
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(2);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(1);
 });
 
 it("clears old samples across node UID and cluster changes and ignores late responses", async () => {
   const view = render(<NodeMonitoringDetails object={node} />);
   await tick();
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(2);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(1);
   let finish!: (value: unknown) => void;
   state.snapshot.mockImplementationOnce(
     () =>
@@ -152,18 +167,18 @@ it("clears old samples across node UID and cluster changes and ignores late resp
   state.sample.mockReturnValue(undefined);
   view.rerender(<NodeMonitoringDetails object={replacement} />);
   await tick();
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(0);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(0);
   await act(async () => {
     finish(data());
   });
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(0);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(0);
   act(() => {
     runInAction(() => {
       state.cluster.uid = "next-cluster";
     });
   });
   await tick();
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(0);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(0);
   expect(state.retain).toHaveBeenCalledTimes(3);
   expect(state.release).toHaveBeenCalledTimes(2);
 });
@@ -191,10 +206,10 @@ it("discards outstanding results after unmount", async () => {
 it("clears samples when inventory reports a recreated node with the same name", async () => {
   const view = render(<NodeMonitoringDetails object={node} />);
   await tick();
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(2);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(1);
   state.snapshot.mockResolvedValue({ ...data(), nodes: [{ metadata: { name: "worker", uid: "replacement" } }] });
   await tick(1000);
-  expect(view.container.querySelectorAll("[data-metric] span")).toHaveLength(0);
+  expect(view.container.querySelectorAll("[data-metric] [data-sample]")).toHaveLength(0);
   expect(view.container.textContent).toContain("Node metrics unavailable");
 });
 
@@ -209,9 +224,28 @@ it("queries node history by UID and updates the selected history range", async (
     }),
   );
   const range = view.getByRole("combobox", { name: "History range" });
+  expect(range.closest(".power-monitoring-period-action")).not.toBeNull();
+  expect(range.closest(".power-history-compact")).not.toBeNull();
+  expect(view.queryByText("Period")).toBeNull();
   fireEvent.change(range, { target: { value: "24h" } });
   await tick();
   expect((range as HTMLSelectElement).value).toBe("24h");
   const query = state.historyQuery.mock.lastCall![0];
   expect(query.to - query.from).toBe(24 * 60 * 60_000 - 1000);
+});
+
+it("switches node CPU and Memory without resetting history range or restarting collection", async () => {
+  const view = render(<NodeMonitoringDetails object={node} />);
+  await tick();
+  expect(view.container.querySelector("[data-metric]")?.getAttribute("data-metric")).toBe("cpu");
+  fireEvent.change(view.getByRole("combobox", { name: "History range" }), { target: { value: "24h" } });
+  await tick();
+  fireEvent.click(view.getByRole("button", { name: "Memory" }));
+  expect(view.container.querySelectorAll("[data-metric]")).toHaveLength(1);
+  expect(view.container.querySelector("[data-metric]")?.getAttribute("data-metric")).toBe("memory");
+  expect((view.getByRole("combobox", { name: "History range" }) as HTMLSelectElement).value).toBe("24h");
+  expect(state.retain).toHaveBeenCalledOnce();
+  expect(state.release).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole("button", { name: "CPU" }));
+  expect(view.container.querySelector("[data-metric]")?.getAttribute("data-metric")).toBe("cpu");
 });

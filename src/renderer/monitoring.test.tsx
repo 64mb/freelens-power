@@ -85,13 +85,14 @@ describe("metrics-server overview", () => {
     document.body.innerHTML = '<div data-testid="cluster-overview-page"></div>';
     startMonitoring();
     await vi.advanceTimersByTimeAsync(60_001);
-    const chart = document.querySelector("svg")!;
+    const chart = document.querySelector("[data-monitoring-trend]")!;
     expect(chart.getAttribute("viewBox")).toBe("0 0 1000 250");
     const points = chart.querySelectorAll("circle");
     expect(points[2].getAttribute("cx")).toBe("976");
     fireEvent.mouseMove(chart, { clientX: 100 + 88 + (976 - 88) * 0.7 });
     expect(document.querySelector("[data-monitoring-crosshair]")?.getAttribute("x1")).toBe("532");
     const latestTitle = points[1].querySelector("title")!.textContent!.split(": 1.00")[0];
+    expect(latestTitle).toMatch(/^\d{2}\.\d{2}\.\d{4} {2}\d{2}:\d{2}:\d{2}$/);
     expect(document.querySelector("[role=tooltip]")?.textContent).toContain(latestTitle);
     const tooltip = document.querySelector("[role=tooltip]");
     fireEvent.mouseMove(chart, { clientX: 1076 });
@@ -317,7 +318,7 @@ describe("metrics-server overview", () => {
     expect(document.querySelector('[data-monitoring-series="limits"]')).toBeNull();
     expect(allocationTooltip()).not.toContain("Limits");
     expect(document.querySelector('[aria-label="node metrics status"]')?.textContent).toContain("metrics-server data");
-    fireEvent.focus(document.querySelector("svg")!);
+    fireEvent.focus(document.querySelector("[data-monitoring-trend]")!);
     expect(document.querySelector("[role=tooltip]")?.textContent).toContain("Requests: 5.00 cores");
     expect(document.querySelector("[role=tooltip]")?.textContent).not.toContain("Limits");
     state.pods.mockResolvedValue([{ spec: { nodeName: "node-a", containers: [{}] }, status: { phase: "Running" } }]);
@@ -385,7 +386,7 @@ describe("metrics-server overview", () => {
     expect(document.querySelector<HTMLElement>("#pies")?.style.display).toBe("");
     expect(document.querySelector<HTMLElement>("#pods")?.style.display).toBe("");
     expect(document.querySelector<HTMLElement>("[data-freelens-power-monitoring]")?.style.gridColumn).toBe("1 / -1");
-    const chart = document.querySelector("svg")!;
+    const chart = document.querySelector("[data-monitoring-trend]")!;
     fireEvent.focus(chart);
     expect(document.querySelector("[role=tooltip]")?.textContent).toContain("0.50 cores");
     expect(document.querySelector("[data-monitoring-crosshair]")).not.toBeNull();
@@ -421,6 +422,13 @@ describe("metrics-server overview", () => {
     document.body.innerHTML = '<div data-testid="cluster-overview-page"></div>';
     const stop = startMonitoring();
     await vi.advanceTimersByTimeAsync(31 * 60_000);
+    const range = document.querySelector<HTMLElement>('[aria-label="History range"]')!;
+    expect(document.querySelector(".power-history-compact")?.textContent).toContain("5 min");
+    expect(document.querySelectorAll("[data-monitoring-trend] circle")).toHaveLength(22);
+    fireEvent.keyDown(range, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.click(
+      [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent === "30 min")!,
+    );
     expect(document.querySelectorAll("[data-monitoring-trend] circle")).toHaveLength(120);
     state.list.mockRejectedValue(new Error("Forbidden"));
     await vi.advanceTimersByTimeAsync(30_000);
@@ -428,7 +436,7 @@ describe("metrics-server overview", () => {
     expect(document.body.textContent).toContain("access denied");
     expect(document.querySelectorAll("[data-monitoring-donut]")).toHaveLength(2);
     expect(document.querySelectorAll('[data-monitoring-ring="Requests"]')).toHaveLength(0);
-    expect(document.querySelector("section > div")?.textContent).toContain("CPUUnavailable");
+    expect(document.querySelector("[data-monitoring-heading]")?.textContent).toContain("CPUUnavailable");
     stop();
     vi.useRealTimers();
   });
@@ -476,4 +484,24 @@ describe("metrics-server overview", () => {
     stop();
     expect(document.body.innerHTML).toBe(original);
   });
+});
+
+it("connects missing intervals with dashed segments without inventing measured points", () => {
+  const view = render(
+    <MetricChart
+      metric="cpu"
+      status=""
+      samples={[
+        { time: 1000, cpu: 1, memory: 1024, resources: { cpu: { requests: 2 }, memory: {} } },
+        { time: 31000, cpu: 2, memory: 2048 },
+        { time: 121000, cpu: 3, memory: 3072, breakBefore: true, resources: { cpu: { requests: 4 }, memory: {} } },
+      ]}
+    />,
+  );
+  const usage = view.container.querySelector('[data-monitoring-series="usage"]')!;
+  expect(usage.getAttribute("d")).toMatch(/M[^M]+L[^M]+M/);
+  expect(view.container.querySelector('[data-monitoring-gap="usage"]')?.getAttribute("stroke-dasharray")).toBe("3 4");
+  expect(view.container.querySelector('[data-monitoring-gap="requests"]')).not.toBeNull();
+  expect(view.container.querySelectorAll("[data-monitoring-trend] circle")).toHaveLength(3);
+  view.unmount();
 });

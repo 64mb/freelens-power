@@ -34,7 +34,7 @@ export function parseSettingsImport(value: unknown) {
       typeof card.title !== "string" ||
       !card.title.trim() ||
       typeof card.url !== "string" ||
-      !["s", "m", "l"].includes(card.size) ||
+      !["xs", "s", "m", "l", "xl"].includes(card.size) ||
       (card.autoRefresh !== undefined && typeof card.autoRefresh !== "boolean") ||
       (card.selector !== undefined &&
         (typeof card.selector !== "string" || (card.selector.trim() && !normalizeDashboardSelector(card.selector))))

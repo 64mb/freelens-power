@@ -20,19 +20,30 @@ function createWelcomeContent(): HTMLDivElement {
   features.className = "freelens-power-features";
   features.setAttribute("role", "list");
 
-  for (const text of [
+  const labels = [
+    "🔐 Secure Node Shell with IPv6 and Colima",
+    "📜 Certificate details in Secrets",
+    "🎨 Themes and cluster icon studio",
+    "🔗 Website cards with pinning and refresh",
+    "📈 CPU/RAM metrics with local history",
+    "🔎 Resource usage, timelines and Pending",
+    "🤖 AI chat with context and read-only tools",
+    "🔒 Read-only controls for Kubernetes",
+  ];
+  for (const [index, text] of [
     "🔐 Secure Node Shell with custom commands, IPv6 and automatic Colima support",
     "📜 Certificate details in Secrets",
-    "🎨 Accent themes for Freelens",
+    "🎨 Accent themes and matching custom cluster icons",
     "🔗 Website dashboards with flexible cards, pinned windows and background refresh",
     "📈 Cluster, node and pod metrics with optional local history",
     "🔎 Resource consumers, application timelines and Pending diagnostics",
     "🤖 Context-aware AI chat with read-only tools and prompt shortcuts",
     "🔒 Read-only UI controls for safer browsing",
-  ]) {
+  ].entries()) {
     const feature = document.createElement("li");
     feature.setAttribute("role", "listitem");
-    feature.textContent = text;
+    feature.textContent = labels[index];
+    feature.title = text;
     features.append(feature);
   }
 
@@ -59,8 +70,19 @@ export function startWelcomeOverride(): () => void {
     .Welcome [${HOST_ATTRIBUTE}] > p { display: none; }
     .Welcome [${CONTENT_ATTRIBUTE}] { color: var(--textColorSecondary); }
     .Welcome [${CONTENT_ATTRIBUTE}] h2 { color: var(--textColorPrimary); margin: 15px 0 16px; }
-    .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features { display: flex; flex-direction: column; gap: 12px; list-style: none; padding: 16px 0; margin: 16px 0; border-top: 1px solid var(--borderColor); border-bottom: 1px solid var(--borderColor); text-align: left; line-height: 1.5; }
-    .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features > li, .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features > li:hover { margin: 0; padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; cursor: default; color: inherit; text-decoration: none; transform: none; transition: none; }
+    .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: center; gap: 14px 48px; list-style: none; padding: 16px 0; margin: 16px 0; border-top: 1px solid var(--borderColor); border-bottom: 1px solid var(--borderColor); text-align: left; line-height: 1.5; }
+    .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features > li, .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features > li:hover { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; cursor: default; color: inherit; text-decoration: none; transform: none; transition: none; }
+    .Welcome [data-testid="welcome-banner-container"]:has([${HOST_ATTRIBUTE}]) { width: min(960px, calc(100% - 48px)) !important; }
+    .Welcome [${HOST_ATTRIBUTE}] { width: 100% !important; max-width: 100%; }
+    .Welcome [data-testid="no-welcome-banners-icon"] { display: inline-flex; width: 120px; height: 120px; }
+    .Welcome [data-testid="no-welcome-banners-icon"] svg { width: 100%; height: 100%; }
+    .Welcome [${HOST_ATTRIBUTE}] [data-testid="welcome-menu-container"] { width: fit-content !important; margin-inline: auto; max-width: 100%; }
+    .Welcome [${HOST_ATTRIBUTE}] [data-testid="welcome-menu-container"] > li { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+    .Welcome [${HOST_ATTRIBUTE}] [data-testid="welcome-menu-container"] .box { flex: 0 0 auto; width: auto; padding: 0; }
+    .Welcome [${HOST_ATTRIBUTE}] [data-testid="welcome-menu-container"] a { margin-left: 0; }
+    @media (max-width: 640px) {
+      .Welcome [${CONTENT_ATTRIBUTE}] .freelens-power-features { grid-template-columns: 1fr; }
+    }
     .Welcome [${CONTENT_ATTRIBUTE}] p { margin-top: 14px; }
   `;
   document.head.append(style);

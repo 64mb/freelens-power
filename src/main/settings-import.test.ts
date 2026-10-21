@@ -154,7 +154,7 @@ it("rejects malformed, incompatible and unsafe backups without mutation or leaki
   const before = snapshot();
   const valid = fixture();
   const invalid: unknown[] = ['{"private-detail":', { ...valid, version: 2 }];
-  for (const patch of [{ url: "javascript:alert(1)" }, { size: "xl" }, { selector: "a".repeat(513) }])
+  for (const patch of [{ url: "javascript:alert(1)" }, { size: "xxl" }, { selector: "a".repeat(513) }])
     invalid.push({ ...valid, dashboard: { cards: [{ ...valid.dashboard.cards[0], ...patch }] } });
   for (const value of invalid) {
     content(value);

@@ -2,6 +2,7 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
+import { formatDateTime } from "../../common/date-time";
 import { parseSecretCertificates } from "../../common/secret-certificates";
 
 const { DrawerTitle, DrawerItem } = Renderer.Component;
@@ -29,10 +30,12 @@ export const SecretCertificateDetails = observer(
               <DrawerItem name="SAN">{certificate.subjectAltName ?? "—"}</DrawerItem>
               <DrawerItem name="Serial Number">{certificate.serialNumber}</DrawerItem>
               <DrawerItem name="Issuer">{certificate.issuer}</DrawerItem>
-              <DrawerItem name="Not before">{certificate.validFrom}</DrawerItem>
+              <DrawerItem name="Not before">
+                <span style={{ whiteSpace: "pre-wrap" }}>{formatDateTime(certificate.validFrom)}</span>
+              </DrawerItem>
               <DrawerItem name="Expires">
                 <span style={expired ? { color: "red" } : undefined}>
-                  {certificate.validTo} (
+                  <span style={{ whiteSpace: "pre-wrap" }}>{formatDateTime(certificate.validTo)}</span> (
                   {expired ? `Expired ${Math.ceil(-remaining / 86_400_000)} days ago` : `${days} days remaining`})
                 </span>
               </DrawerItem>

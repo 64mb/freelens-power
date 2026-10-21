@@ -8,6 +8,8 @@ import { aiLauncherBottom, aiLauncherLeft, readAiContext, startAiChat } from "./
 
 const mocks = vi.hoisted(() => ({
   clusterId: "cluster-a",
+  terminalOutput: "initial output",
+  sendCommand: vi.fn(),
   on: vi.fn(),
   removeListener: vi.fn(),
   invoke: vi.fn(async (..._args: unknown[]) => ({ text: "Ready" })),
@@ -43,7 +45,26 @@ vi.mock("../common/store/ai-preferences-store", () => ({
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
-    Component: {},
+    Component: {
+      terminalStore: {
+        isConnected: () => true,
+        getTerminalApi: () => ({ isReady: true, isConnected: () => true }),
+        getTerminal: () => ({
+          xterm: {
+            buffer: {
+              active: {
+                length: 1,
+                baseY: 0,
+                cursorY: 0,
+                getLine: (index: number) =>
+                  index === 0 ? { translateToString: () => mocks.terminalOutput } : undefined,
+              },
+            },
+          },
+        }),
+        sendCommand: mocks.sendCommand,
+      },
+    },
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: mocks.clusterId } }) } },
   },
 }));
@@ -56,6 +77,95 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("AI chat", () => {
+  it("preserves attachment across panel close and refreshes its preview and send-time output", async () => {
+    document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+    mocks.invoke.mockResolvedValue({ text: "Ready" });
+    stop = startAiChat(() => true);
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    const attach = screen.getByLabelText("Attach terminal output");
+    expect(attach.textContent?.trim()).toBe("terminal");
+    expect(attach.style.position).toBe("absolute");
+    expect(attach.style.right).toBe(attach.style.top);
+    expect(attach.style.borderColor).toBe("var(--borderFaintColor)");
+    expect(attach.style.color).toBe("var(--textColorSecondary)");
+    expect(attach.title).toBe("Attach terminal output to this question");
+    fireEvent.click(attach);
+    expect(attach.getAttribute("aria-pressed")).toBe("true");
+    expect(attach.title).toBe("Detach terminal output from this question");
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    mocks.terminalOutput = "fresh reopened output";
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("fresh reopened output")).toBeTruthy();
+    const terminalSummary = screen.getByText(/^Terminal · \d+ rows/);
+    expect(terminalSummary.parentElement?.style.paddingLeft).toBe("16px");
+    expect(screen.queryByText(/^Preview ·/)).toBeNull();
+    mocks.terminalOutput = "fresh send-time output";
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+    expect(mocks.invoke.mock.calls.at(-1)?.[1]).toHaveProperty("terminalSnapshot.text", "fresh send-time output");
+    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("fresh ");
+  });
+  it("preserves attachment through a host overlay and refreshes the preview when it disappears", async () => {
+    document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+    stop = startAiChat(() => true);
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    fireEvent.click(screen.getByLabelText("Attach terminal output"));
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.append(dialog);
+    await waitFor(() => expect(screen.queryByLabelText("AI assistant")).toBeNull());
+    mocks.terminalOutput = "fresh post-overlay output";
+    dialog.remove();
+    await waitFor(() => expect(screen.getByLabelText("AI assistant")).toBeTruthy());
+    expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("fresh post-overlay output")).toBeTruthy();
+    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("fresh post-overlay output");
+  });
+  it("clears a hidden panel attachment when its terminal changes", async () => {
+    document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+    stop = startAiChat(() => true);
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    fireEvent.click(screen.getByLabelText("Attach terminal output"));
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    document.querySelector('[data-testid="dock-tab-content-for-terminal-a"]')?.remove();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    document.body.insertAdjacentHTML("beforeend", '<div data-testid="dock-tab-content-for-terminal-a"></div>');
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
+  });
+  it("recaptures explicitly attached output for one request without storing it in history", async () => {
+    document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+    mocks.terminalOutput = "preview output";
+    mocks.invoke.mockResolvedValue({ text: "Ready" });
+    stop = startAiChat(() => true);
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByLabelText("Attach terminal output"));
+    expect(screen.getByText("preview output")).toBeTruthy();
+    mocks.terminalOutput = "current output\nEXAMPLE=sensitive";
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect terminal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+    expect(mocks.invoke).toHaveBeenLastCalledWith(
+      "freelens-power:ai-chat",
+      expect.objectContaining({
+        terminalSnapshot: expect.objectContaining({ text: "current output\nEXAMPLE=[REDACTED]" }),
+      }),
+    );
+    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("current output");
+    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("preview output");
+    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("sensitive");
+    expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Continue" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(4));
+    expect(mocks.invoke.mock.calls.at(-1)?.[1]).not.toHaveProperty("terminalSnapshot");
+    expect(mocks.sendCommand).not.toHaveBeenCalled();
+  });
   it("removes all AI entry points when disabled and preserves conversation history", async () => {
     const previous = mocks.preferences;
     const preferences = observable({
@@ -464,41 +574,109 @@ it("previews the exact attached metadata before sending and persists safe relate
   });
 });
 
-it("toggles the assistant with Mod+Shift+Y even while typing and ignores IME, repeats, and other chords", () => {
+function tapShift(target: Window | Element = window, options = {}) {
+  fireEvent.keyDown(target, { key: "Shift", code: "ShiftLeft", shiftKey: true, ...options });
+  fireEvent.keyUp(target, { key: "Shift", code: "ShiftLeft", ...options });
+}
+
+it("toggles the assistant with double Shift while typing and preserves the draft", () => {
   window.history.replaceState({}, "", "/overview");
-  stop = startAiChat(() => true);
-  const modifiers = /Mac|iPhone|iPad/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
-  const shortcut = { key: "Y", code: "KeyY", shiftKey: true, ...modifiers };
-  expect(screen.getByLabelText("Open AI assistant").getAttribute("title")).toContain("Y");
-  fireEvent.keyDown(window, { ...shortcut, isComposing: true });
-  fireEvent.keyDown(window, { ...shortcut, repeat: true });
-  fireEvent.keyDown(window, { ...shortcut, altKey: true });
-  fireEvent.keyDown(window, { ...shortcut, shiftKey: false });
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  expect(screen.getByLabelText("Open AI assistant").getAttribute("title")).toContain("Shift, Shift");
+  tapShift();
   expect(screen.queryByLabelText("AI assistant")).toBeNull();
-  fireEvent.keyDown(window, shortcut);
+  tapShift();
   expect(screen.getByLabelText("AI assistant")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Unsent draft" } });
-  fireEvent.keyDown(screen.getByLabelText("Message"), shortcut);
+  tapShift(screen.getByLabelText("Message"));
+  tapShift(screen.getByLabelText("Message"));
   expect(screen.queryByLabelText("AI assistant")).toBeNull();
-  fireEvent.keyDown(window, shortcut);
+  tapShift();
+  tapShift();
   expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Unsent draft");
   expect(mocks.invoke).not.toHaveBeenCalled();
 });
 
-it("ignores the toggle shortcut behind an overlay and outside cluster documents", async () => {
+it("ignores slow taps, held Shift, chords, repeats, composition and focus changes", () => {
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const clock = vi.spyOn(performance, "now");
+  let now = 1000;
+  clock.mockImplementation(() => now);
+  try {
+    tapShift();
+    now += 401;
+    tapShift();
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    fireEvent.blur(window);
+    fireEvent.keyDown(window, { key: "Shift" });
+    now += 401;
+    fireEvent.keyUp(window, { key: "Shift" });
+    tapShift();
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    for (const options of [
+      { repeat: true },
+      { isComposing: true },
+      { altKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+    ]) {
+      tapShift(window, options);
+      tapShift();
+      expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    }
+    fireEvent.keyDown(window, { key: "Shift" });
+    fireEvent.keyDown(window, { key: "A", shiftKey: true });
+    fireEvent.keyUp(window, { key: "Shift" });
+    tapShift();
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    fireEvent.keyUp(window, { key: "A" });
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    tapShift();
+    tapShift();
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    fireEvent.keyUp(window, { key: "ArrowRight" });
+    fireEvent.blur(window);
+    tapShift();
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it("recovers after macOS omits a character keyup inside a Command chord", () => {
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  fireEvent.keyDown(window, { key: "Meta", code: "MetaLeft", metaKey: true });
+  fireEvent.keyDown(window, { key: "a", code: "KeyA", metaKey: true });
+  fireEvent.keyUp(window, { key: "Meta", code: "MetaLeft" });
+  tapShift();
+  tapShift();
+  expect(screen.getByLabelText("AI assistant")).toBeTruthy();
+});
+
+it("ignores double Shift behind an overlay and outside cluster documents", () => {
   window.history.replaceState({}, "", "/overview");
-  const modifiers = /Mac|iPhone|iPad/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
-  const shortcut = { key: "Y", code: "KeyY", shiftKey: true, ...modifiers };
-  stop = startAiChat(() => true);
+  act(() => {
+    stop = startAiChat(() => true);
+  });
   const dialog = document.createElement("div");
   dialog.setAttribute("role", "dialog");
   document.body.append(dialog);
-  fireEvent.keyDown(window, shortcut);
+  tapShift();
+  tapShift();
   expect(screen.queryByLabelText("AI assistant")).toBeNull();
   dialog.remove();
-  stop();
-  stop = startAiChat(() => false);
-  fireEvent.keyDown(window, shortcut);
+  stop?.();
+  act(() => {
+    stop = startAiChat(() => false);
+  });
+  tapShift();
+  tapShift();
   expect(screen.queryByLabelText("AI assistant")).toBeNull();
   expect(mocks.invoke).not.toHaveBeenCalled();
 });

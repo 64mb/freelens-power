@@ -169,6 +169,46 @@ describe("application accent override", () => {
     }
   });
 
+  it("accents only selected native Catalog tree items and restores the host palette", () => {
+    const selector = ':root [role="treeitem"][class*="catalog-tree-module__selected--"]';
+    document.body.innerHTML = `
+      <ul role="tree">
+        <li role="treeitem" class="catalog-tree-module__root--native catalog-tree-module__selected--native tree-view-module__selected--native">Web Links</li>
+        <li role="treeitem" class="catalog-tree-module__root--native">Clusters</li>
+        <li role="treeitem" class="tree-view-module__selected--native">Other tree</li>
+      </ul>
+    `;
+    try {
+      dispose = startAppearanceOverride();
+      const catalogRule = () => rules().find((rule) => rule.selectorText === selector);
+      expect(catalogRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
+      expect(document.querySelectorAll(selector)).toHaveLength(1);
+      expect(document.querySelector(selector)?.textContent).toBe("Web Links");
+
+      const selected = document.querySelector(selector)!;
+      const next = document.querySelectorAll('[role="treeitem"]')[1]!;
+      selected.classList.remove("catalog-tree-module__selected--native");
+      next.classList.add("catalog-tree-module__selected--native");
+      expect(document.querySelectorAll(selector)).toHaveLength(1);
+      expect(document.querySelector(selector)?.textContent).toBe("Clusters");
+
+      runInAction(() => {
+        preferences.accentColor = "default";
+      });
+      expect(catalogRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+      });
+      expect(catalogRule()).toBeDefined();
+      runInAction(() => {
+        preferences.enabled = false;
+      });
+      expect(catalogRule()).toBeUndefined();
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
   it("updates the color and restores the latest theme on disable", () => {
     dispose = startAppearanceOverride();
     runInAction(() => {

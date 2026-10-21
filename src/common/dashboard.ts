@@ -1,6 +1,6 @@
 import { normalizeDashboardSelector } from "./dashboard-selector";
 
-export type DashboardCardSize = "s" | "m" | "l";
+export type DashboardCardSize = "xs" | "s" | "m" | "l" | "xl";
 
 export interface DashboardCard {
   id: string;
@@ -38,7 +38,7 @@ export function sanitizeDashboardCards(value: unknown): DashboardCard[] {
         id,
         title: typeof card.title === "string" && card.title.trim() ? card.title.trim() : new URL(url).hostname,
         url,
-        size: card.size === "s" || card.size === "l" ? card.size : "m",
+        size: card.size === "xs" || card.size === "s" || card.size === "l" || card.size === "xl" ? card.size : "m",
         autoRefresh: card.autoRefresh === true,
         ...(normalizeDashboardSelector(card.selector) ? { selector: normalizeDashboardSelector(card.selector) } : {}),
       } satisfies DashboardCard,
