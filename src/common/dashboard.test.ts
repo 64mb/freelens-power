@@ -122,7 +122,16 @@ describe("dashboard automatic refresh preferences", () => {
   it("persists refresh metadata through edits, reordering and reload", () => {
     const store = new DashboardPreferencesStore();
     store.fromStore({
-      cards: [{ id: "one", title: "Example", url: "https://example.com", size: "m", autoRefresh: true }],
+      cards: [
+        {
+          id: "one",
+          title: "Example",
+          url: "https://example.com",
+          size: "m",
+          autoRefresh: true,
+          refreshEvery10Seconds: true,
+        },
+      ],
     });
     store.upsertCard({ ...store.cards[0], title: "Updated" });
     store.upsertCard({ id: "two", title: "Other", url: "https://example.com/other", size: "s" });
@@ -133,5 +142,6 @@ describe("dashboard automatic refresh preferences", () => {
       ["two", false],
       ["one", true],
     ]);
+    expect(restored.cards.map((card) => card.refreshEvery10Seconds)).toEqual([undefined, true]);
   });
 });

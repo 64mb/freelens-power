@@ -50,6 +50,7 @@ function CardEditor({
       url: normalizedUrl,
       size,
       autoRefresh,
+      ...(card?.refreshEvery10Seconds ? { refreshEvery10Seconds: true } : {}),
       selector: normalizeDashboardSelector(selector),
     });
     onClose();
@@ -136,8 +137,19 @@ function CardEditor({
           }}
         />
       </SettingsField>
-      <SettingsField id={`${id}-autorefresh`} label="Autorefresh">
-        <Checkbox {...{ id: `${id}-autorefresh` }} value={autoRefresh} onChange={setAutoRefresh} />
+      <SettingsField id={`${id}-autorefresh`} label="Background refresh">
+        <Checkbox {...{ id: `${id}-autorefresh` }} value={autoRefresh} onChange={setAutoRefresh}>
+          <span style={{ display: "inline-flex", marginLeft: 6 }}>
+            <Icon
+              material="info_outline"
+              size={14}
+              tooltip={{
+                children: "Refresh cached pages every 10 minutes while the dashboard is closed",
+                style: { zIndex: 12020 },
+              }}
+            />
+          </span>
+        </Checkbox>
       </SettingsField>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
         <Button label="Cancel" onClick={onClose} />

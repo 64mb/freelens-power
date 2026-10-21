@@ -6,7 +6,7 @@ import { DashboardPage } from "./dashboard";
 import type { DashboardCard } from "../common/dashboard";
 
 const mocks = vi.hoisted(() => ({
-  preferences: { cards: [] as DashboardCard[] },
+  preferences: { cards: [] as DashboardCard[], upsertCard: vi.fn() },
   invoke: vi.fn(),
   on: vi.fn(),
   removeListener: vi.fn(),
@@ -16,7 +16,20 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
-      Icon: ({ material, tooltip }: { material: string; tooltip: string }) => <span title={tooltip}>{material}</span>,
+      Icon: ({
+        material,
+        tooltip,
+      }: {
+        material: string;
+        tooltip: string | { children: string; className: string };
+      }) => (
+        <span
+          title={typeof tooltip === "string" ? tooltip : tooltip?.children}
+          data-tooltip-class={typeof tooltip === "object" ? tooltip.className : undefined}
+        >
+          {material}
+        </span>
+      ),
     },
   },
 }));
@@ -38,6 +51,9 @@ describe("DashboardPage", () => {
   });
   beforeEach(() => {
     mocks.preferences.cards = [];
+    mocks.preferences.upsertCard.mockReset().mockImplementation((card: DashboardCard) => {
+      mocks.preferences.cards = mocks.preferences.cards.map((item) => (item.id === card.id ? card : item));
+    });
     mocks.on.mockClear();
     mocks.removeListener.mockClear();
     mocks.invoke.mockReset().mockResolvedValue(undefined);
@@ -59,6 +75,30 @@ describe("DashboardPage", () => {
       height: 300,
       toJSON() {},
     });
+  });
+
+  it("toggles ten-second refresh independently per card without reloading immediately", () => {
+    mocks.preferences.cards = [
+      { id: "one", title: "First", url: "https://example.com/one", size: "s" },
+      { id: "two", title: "Second", url: "https://example.com/two", size: "s" },
+    ];
+    const view = render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    const toggle = () => screen.getByRole("button", { name: "Auto-refresh First every 10 seconds" });
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(toggle().querySelector("span[title]")?.getAttribute("title")).toContain("(10s)");
+    for (const action of screen
+      .getByRole("region", { name: "First" })
+      .parentElement!.querySelectorAll("header button, header a"))
+      expect(action.querySelector("span[title]")?.getAttribute("title")).toBeTruthy();
+    fireEvent.click(toggle());
+    view.rerender(<DashboardPage onOpenPreferences={vi.fn()} />);
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(toggle().querySelector("span[title]")?.getAttribute("title")).toBe("Disable refresh");
+    expect(mocks.preferences.cards[1].refreshEvery10Seconds).toBeUndefined();
+    expect(mocks.invoke.mock.calls.some(([channel]) => channel.endsWith(":reload"))).toBe(false);
+    fireEvent.click(toggle());
+    view.rerender(<DashboardPage onOpenPreferences={vi.fn()} />);
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
   });
 
   it("opens preferences from the header and empty state", () => {

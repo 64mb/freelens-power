@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
         url: "https://example.com",
         size: "M",
         autoRefresh: false,
+        refreshEvery10Seconds: false,
         selector: undefined as string | undefined,
       },
     ],
@@ -142,10 +143,12 @@ beforeEach(() => {
           url: "https://example.com",
           size: "M",
           autoRefresh: false,
+          refreshEvery10Seconds: false,
           selector: undefined,
         },
       ];
     mocks.store.cards[0].autoRefresh = false;
+    mocks.store.cards[0].refreshEvery10Seconds = false;
     mocks.store.cards[0].selector = undefined;
   });
   mocks.views.length = 0;
@@ -629,6 +632,7 @@ it("refreshes enabled cached pages every ten minutes and applies settings while 
             url: "https://example.com",
             size: "M",
             autoRefresh: false,
+            refreshEvery10Seconds: false,
             selector: undefined,
           },
         ];
@@ -1052,6 +1056,155 @@ it("waits for pinned SPA requests and releases network observation after readine
     expect(protocol.detach).toHaveBeenCalledTimes(2);
     expect(contents.getBackgroundThrottling()).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("refreshes visible widgets at ten-second boundaries and stops when the widget toggle is disabled", async () => {
+  vi.useFakeTimers();
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = true;
+    });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(contents.loadURL).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    expect(contents.loadURL).toHaveBeenLastCalledWith("https://example.com/current");
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = false;
+    });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = true;
+    });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(contents.loadURL).toHaveBeenCalledTimes(3);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("skips ten-second ticks while cached preparation is still pending without queuing reloads", async () => {
+  vi.useFakeTimers();
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    let complete!: () => void;
+    contents.loadURL.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = true;
+    });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    complete();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(contents.loadURL).toHaveBeenCalledTimes(3);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("refreshes the actual pinned page every ten seconds away from the dashboard without overlapping its preparation", async () => {
+  vi.useFakeTimers();
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = true;
+    });
+    await mocks.handlers.get(sync)(owner, payload);
+    const cached = mocks.views[0].webContents;
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const floating = mocks.floating[0].webContents;
+    floating.getURL.mockReturnValue("https://example.com/pinned-page");
+    await vi.advanceTimersByTimeAsync(0);
+    owner.sender.mainFrame.url = "https://renderer.freelens.app/other";
+    owner.sender.getURL = () => owner.sender.mainFrame.url;
+    owner.sender.emit("did-navigate-in-page", {}, owner.sender.mainFrame.url);
+    let complete!: () => void;
+    floating.loadURL.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(floating.loadURL).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(floating.loadURL).toHaveBeenCalledTimes(2);
+    expect(floating.loadURL).toHaveBeenLastCalledWith("https://example.com/pinned-page");
+    expect(cached.loadURL).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(floating.loadURL).toHaveBeenCalledTimes(2);
+    expect(cached.loadURL).toHaveBeenCalledTimes(2);
+    complete();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(floating.loadURL).toHaveBeenCalledTimes(3);
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = false;
+    });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(floating.loadURL).toHaveBeenCalledTimes(3);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("restores a fresh ten-minute background interval after disabling the ten-second override", async () => {
+  vi.useFakeTimers();
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    runInAction(() => {
+      mocks.store.cards[0].autoRefresh = true;
+      mocks.store.cards[0].refreshEvery10Seconds = true;
+    });
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    await vi.advanceTimersByTimeAsync(5000);
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = false;
+    });
+    owner.sender.mainFrame.url = "https://renderer.freelens.app/other";
+    owner.sender.getURL = () => owner.sender.mainFrame.url;
+    owner.sender.emit("did-navigate-in-page", {}, owner.sender.mainFrame.url);
+    await vi.advanceTimersByTimeAsync(599999);
+    expect(contents.loadURL).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    runInAction(() => {
+      mocks.store.cards[0].refreshEvery10Seconds = true;
+    });
+    await vi.advanceTimersByTimeAsync(600000);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    dispose();
+    await vi.advanceTimersByTimeAsync(600000);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
   } finally {
     dispose();
     vi.useRealTimers();

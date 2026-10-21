@@ -47,12 +47,13 @@ export class DashboardPreferencesStore extends Common.Store.ExtensionStore<Dashb
 
   toJSON(): DashboardPreferencesModel {
     return {
-      cards: this.cards.map(({ id, title, url, size, autoRefresh, selector }) => ({
+      cards: this.cards.map(({ id, title, url, size, autoRefresh, refreshEvery10Seconds, selector }) => ({
         id,
         title,
         url,
         size,
         autoRefresh: autoRefresh === true,
+        ...(refreshEvery10Seconds === true ? { refreshEvery10Seconds: true } : {}),
         ...(selector ? { selector } : {}),
       })),
     };
