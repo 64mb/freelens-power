@@ -35,6 +35,9 @@ const dashboardPath = "/extension/freelens-power/dashboard";
 const websiteStyles =
   "* { scrollbar-width: none !important; } *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }";
 
+const expandedWebsiteStyles =
+  "* { scrollbar-width: auto !important; } *::-webkit-scrollbar { display: revert !important; width: revert !important; height: revert !important; }";
+
 function rendererUrl(value: string, dashboardOnly = false): boolean {
   try {
     const url = new URL(value);
@@ -71,8 +74,42 @@ function rectangle(value: unknown): Rectangle | undefined {
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 }
 
+function createDashboardSkeleton() {
+  const view = new View();
+  view.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#202124" : "#ffffff");
+  const bars = Array.from({ length: 4 }, () => {
+    const bar = new View();
+    bar.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#393b40" : "#e8e9eb");
+    bar.setBorderRadius(6);
+    view.addChildView(bar);
+    return bar;
+  });
+  return {
+    view,
+    layout: (width: number, height: number) => {
+      view.setBounds({ x: 0, y: 0, width, height });
+      bars.forEach((bar, index) => {
+        bar.setBounds({
+          x: 20,
+          y: index === 0 ? 20 : 60 + (index - 1) * 24,
+          width: Math.max(1, Math.round((width - 40) * (index === 0 ? 0.45 : 1))),
+          height: index === 0 ? 20 : index === 3 ? Math.max(30, height - 128) : 12,
+        });
+      });
+    },
+  };
+}
+
+type WebsiteStyleState = {
+  view: { webContents: WebContents };
+  scrollbars?: boolean;
+  websiteStylesKey?: string;
+  websiteStylesGeneration?: number;
+};
+
 type CardView = {
   container: View;
+  skeleton: ReturnType<typeof createDashboardSkeleton>;
   view: WebContentsView;
   url: string;
   failed: boolean;
@@ -81,12 +118,19 @@ type CardView = {
   generation: number;
   stopPreparation?: () => void;
   selector?: string;
+  scrollbars?: boolean;
+  websiteStylesKey?: string;
+  websiteStylesGeneration?: number;
   pending?: Promise<void>;
+  requestedNavigation?: boolean;
+  nativeNavigation?: { finish: () => void; fail: () => void };
   favicon?: string;
   faviconRequest?: AbortController;
-  refreshTimer?: ReturnType<typeof setInterval>;
+  refreshTimer?: ReturnType<typeof setTimeout>;
   refreshInterval?: number;
+  refreshGeneration?: number;
   floating?: BrowserWindow;
+  floatingStyles?: WebsiteStyleState;
   floatingPreparation?: {
     refresh: () => Promise<boolean>;
     selectorChanged: () => void;
@@ -96,9 +140,26 @@ type CardView = {
 };
 type Owner = { window: BrowserWindow; cards: Map<string, CardView>; cleanup: () => void };
 
+async function applyWebsiteStyles(card: WebsiteStyleState): Promise<void> {
+  const contents = card.view.webContents;
+  const generation = (card.websiteStylesGeneration ?? 0) + 1;
+  card.websiteStylesGeneration = generation;
+  const previous = card.websiteStylesKey;
+  card.websiteStylesKey = undefined;
+  if (contents.isDestroyed()) return;
+  if (previous) await contents.removeInsertedCSS(previous).catch(() => {});
+  if (card.websiteStylesGeneration !== generation || contents.isDestroyed()) return;
+  const key = await contents
+    .insertCSS(card.scrollbars ? expandedWebsiteStyles : websiteStyles, { cssOrigin: "user" })
+    .catch(() => undefined);
+  if (!key) return;
+  if (card.websiteStylesGeneration === generation && !contents.isDestroyed()) card.websiteStylesKey = key;
+  else if (!contents.isDestroyed()) await contents.removeInsertedCSS(key).catch(() => {});
+}
+
 async function waitForReadiness(
   contents: WebContents,
-  network: ReturnType<typeof observeDashboardNetwork>,
+  _network: ReturnType<typeof observeDashboardNetwork>,
   selector: () => string | undefined,
   current: () => boolean,
 ): Promise<void> {
@@ -107,16 +168,9 @@ async function waitForReadiness(
     await Promise.race([
       (async () => {
         if (!current()) return;
-        await network.ready();
+        await contents.mainFrame.executeJavaScript(dashboardSelectorScript(selector())).catch(() => {});
         if (!current()) return;
-        await contents
-          .executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardSelectorScript(selector()) }])
-          .catch(() => {});
-        do {
-          await network.wait();
-          if (!current()) return;
-          await contents.executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardReadinessScript(selector()) }]);
-        } while (current() && !network.quiet());
+        await contents.mainFrame.executeJavaScript(dashboardReadinessScript(selector()));
       })().catch(() => new Promise<void>((resolve) => setTimeout(resolve, 200))),
       new Promise<void>((resolve) => {
         deadline = setTimeout(resolve, 8500);
@@ -125,6 +179,30 @@ async function waitForReadiness(
   } finally {
     clearTimeout(deadline);
   }
+}
+
+async function prepareDashboardPage(contents: WebContents): Promise<void> {
+  if (contents.isDestroyed()) return;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      contents.mainFrame
+        .executeJavaScript('document.dispatchEvent(new Event("freelens-power:dashboard:preparing"))')
+        .catch(() => {}),
+      new Promise<void>((resolve) => {
+        deadline = setTimeout(resolve, 250);
+      }),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
+function releaseDashboardPage(contents: WebContents): Promise<unknown> {
+  if (contents.isDestroyed()) return Promise.resolve();
+  return contents.mainFrame
+    .executeJavaScript('document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))')
+    .catch(() => {});
 }
 
 export function startDashboardViews(): () => void {
@@ -137,9 +215,11 @@ export function startDashboardViews(): () => void {
     const card = owner.cards.get(id);
     if (!card) return;
     owner.cards.delete(id);
+    card.nativeNavigation?.fail();
     card.stopPreparation?.();
+    card.websiteStylesGeneration = (card.websiteStylesGeneration ?? 0) + 1;
     card.faviconRequest?.abort();
-    clearInterval(card.refreshTimer);
+    clearTimeout(card.refreshTimer);
     card.floatingPreparation?.stop();
     card.floating?.destroy();
     card.floating = undefined;
@@ -200,10 +280,12 @@ export function startDashboardViews(): () => void {
       sender.send(DASHBOARD_VIEWS_LOADING, { id, url: card.url, loading: card.loading, failed: card.failed });
     }
   };
-  const reload = (card: CardView, configuredUrl: string, initial = false) => {
+  const reload = (card: CardView, configuredUrl: string, initial = false, navigation?: Promise<void>) => {
     const current = card.view.webContents.getURL();
     const target = !initial && card.url === configuredUrl && webUrl(current) ? current : configuredUrl;
+    const prepareExisting = !initial && !navigation && !card.loading && !card.failed && webUrl(current);
     card.faviconRequest?.abort();
+    if (!navigation) card.nativeNavigation?.fail();
     card.url = configuredUrl;
     card.failed = false;
     card.loading = true;
@@ -213,11 +295,13 @@ export function startDashboardViews(): () => void {
     if (backgroundThrottling) contents.setBackgroundThrottling(false);
     const network = observeDashboardNetwork(card.view.webContents);
     let stopped = false;
+    let documentReady: (() => void) | undefined;
     const stopPreparation = () => {
       if (stopped) return;
       stopped = true;
       network.dispose();
       contents.removeListener("destroyed", stopPreparation);
+      if (documentReady) contents.removeListener("dom-ready", documentReady);
       if (!contents.isDestroyed() && backgroundThrottling && !contents.getBackgroundThrottling())
         contents.setBackgroundThrottling(backgroundThrottling);
       if (card.stopPreparation === stopPreparation) card.stopPreparation = undefined;
@@ -225,12 +309,14 @@ export function startDashboardViews(): () => void {
     card.stopPreparation = stopPreparation;
     contents.once("destroyed", stopPreparation);
     const generation = ++card.generation;
-    card.container.setVisible(false);
+    card.skeleton.view.setVisible(true);
+    card.container.setVisible(card.visible && !card.floating);
     publishLoading(card);
     const settled = (failed: boolean) => {
       if (card.generation !== generation || card.view.webContents.isDestroyed()) return;
       card.failed = failed;
       card.loading = false;
+      card.skeleton.view.setVisible(false);
       for (const [sender, owner] of owners) {
         if (![...owner.cards.values()].includes(card)) continue;
         card.container.setVisible(card.visible && !card.floating && !failed && dashboardUrl(sender.getURL()));
@@ -244,9 +330,21 @@ export function startDashboardViews(): () => void {
         ![...owners.values()].some((owner) => [...owner.cards.values()].includes(card))
       )
         return Promise.resolve();
-      return card.view.webContents.loadURL(target);
+      if (navigation) return navigation;
+      const navigate = () => {
+        if (card.generation !== generation || contents.isDestroyed()) return Promise.resolve();
+        card.requestedNavigation = true;
+        return contents.loadURL(target).finally(() => {
+          if (card.generation === generation) card.requestedNavigation = false;
+        });
+      };
+      return prepareExisting ? prepareDashboardPage(contents).then(navigate) : navigate();
     };
-    card.pending = load().then(
+    const ready = new Promise<void>((resolve) => {
+      documentReady = resolve;
+      contents.once("dom-ready", documentReady);
+    });
+    card.pending = Promise.race([load(), ready]).then(
       async () => {
         let preparing = true;
         const current = () =>
@@ -256,6 +354,7 @@ export function startDashboardViews(): () => void {
           [...owners.values()].some((owner) => [...owner.cards.values()].includes(card));
         try {
           await waitForReadiness(contents, network, () => card.selector, current);
+          if (current()) await releaseDashboardPage(contents);
         } finally {
           preparing = false;
           stopPreparation();
@@ -263,6 +362,7 @@ export function startDashboardViews(): () => void {
         settled(false);
       },
       () => {
+        if (card.generation === generation) void releaseDashboardPage(contents);
         stopPreparation();
         settled(true);
       },
@@ -271,9 +371,7 @@ export function startDashboardViews(): () => void {
   };
   const applySelector = (card: { view: { webContents: WebContents }; selector?: string }) => {
     if (card.view.webContents.isDestroyed()) return Promise.resolve();
-    return card.view.webContents
-      .executeJavaScriptInIsolatedWorld(1004, [{ code: dashboardSelectorScript(card.selector) }])
-      .catch(() => {});
+    return card.view.webContents.mainFrame.executeJavaScript(dashboardSelectorScript(card.selector)).catch(() => {});
   };
   const refreshTimers = () => {
     const configured = configuredCards();
@@ -296,47 +394,72 @@ export function startDashboardViews(): () => void {
           card.floatingPreparation?.selectorChanged();
         }
         if (card.floating && !card.floating.isDestroyed()) card.floating.setTitle(setting.title);
+        if (card.floatingStyles) {
+          const scrollbars = setting.size === "l" || setting.size === "xl";
+          if (card.floatingStyles.scrollbars !== scrollbars) {
+            card.floatingStyles.scrollbars = scrollbars;
+            void applyWebsiteStyles(card.floatingStyles);
+          }
+        }
         const interval = setting.refreshEvery10Seconds ? 10000 : setting.autoRefresh ? 600000 : undefined;
         if (card.refreshInterval === interval) continue;
-        clearInterval(card.refreshTimer);
+        clearTimeout(card.refreshTimer);
         card.refreshTimer = undefined;
         card.refreshInterval = interval;
+        const refreshGeneration = (card.refreshGeneration ?? 0) + 1;
+        card.refreshGeneration = refreshGeneration;
         if (!interval) continue;
-        card.refreshTimer = setInterval(() => {
-          const latest = configuredCards().find((item) => item.id === id);
+        const schedule = () => {
           if (
             owners.get(sender) !== owner ||
             owner.cards.get(id) !== card ||
-            !latest ||
-            latest.url !== card.url ||
-            (latest.refreshEvery10Seconds ? 10000 : latest.autoRefresh ? 600000 : undefined) !== interval ||
-            card.view.webContents.isDestroyed() ||
-            card.loading ||
-            card.view.webContents.isLoading()
+            card.refreshGeneration !== refreshGeneration
           )
             return;
-          if (latest.refreshEvery10Seconds) {
-            if (card.floating) {
-              if (
-                card.floating.isDestroyed() ||
-                card.floating.webContents.isLoading() ||
-                card.floatingPreparation?.isPreparing()
-              )
-                return;
-              void Promise.all([reload(card, latest.url), card.floatingPreparation?.refresh()]);
-            } else if (card.visible && dashboardUrl(sender.getURL())) void reload(card, latest.url);
-          } else if (!card.floating && !dashboardUrl(sender.getURL())) void reload(card, latest.url);
-        }, interval);
+          if (card.loading && card.pending) {
+            void card.pending.then(schedule);
+            return;
+          }
+          card.refreshTimer = setTimeout(tick, interval);
+        };
+        const tick = async () => {
+          try {
+            const latest = configuredCards().find((item) => item.id === id);
+            if (
+              owners.get(sender) !== owner ||
+              owner.cards.get(id) !== card ||
+              !latest ||
+              latest.url !== card.url ||
+              (latest.refreshEvery10Seconds ? 10000 : latest.autoRefresh ? 600000 : undefined) !== interval ||
+              card.view.webContents.isDestroyed()
+            )
+              return;
+            if (card.loading) {
+              await card.pending;
+              return;
+            }
+            if (latest.refreshEvery10Seconds) {
+              if (card.floating) {
+                if (card.floating.isDestroyed() || card.floatingPreparation?.isPreparing()) return;
+                await Promise.all([reload(card, latest.url), card.floatingPreparation?.refresh()]);
+              } else if (card.visible && dashboardUrl(sender.getURL())) await reload(card, latest.url);
+            } else if (!card.floating && !dashboardUrl(sender.getURL())) await reload(card, latest.url);
+          } finally {
+            schedule();
+          }
+        };
+        schedule();
       }
     }
   };
   const stopSettingsReaction = reaction(
     () =>
       JSON.stringify(
-        configuredCards().map(({ id, title, url, autoRefresh, refreshEvery10Seconds, selector }) => ({
+        configuredCards().map(({ id, title, url, size, autoRefresh, refreshEvery10Seconds, selector }) => ({
           id,
           title,
           url,
+          size,
           autoRefresh,
           refreshEvery10Seconds,
           selector,
@@ -430,13 +553,10 @@ export function startDashboardViews(): () => void {
             sandbox: true,
             webSecurity: true,
             partition: "persist:freelens-power-websites",
+            preload: join(__dirname, "dashboard-preload.js"),
           },
         });
         view.setBackgroundColor("#00000000");
-        view.webContents.on("did-finish-load", () => {
-          if (!view.webContents.isDestroyed())
-            void view.webContents.insertCSS(websiteStyles, { cssOrigin: "user" }).catch(() => {});
-        });
         view.webContents.setWindowOpenHandler(({ url }) => {
           if (webUrl(url)) void shell.openExternal(url).catch(() => {});
           return { action: "deny" };
@@ -450,8 +570,10 @@ export function startDashboardViews(): () => void {
           if (!webUrl(event.url)) event.preventDefault();
         });
         container.addChildView(view);
+        const skeleton = createDashboardSkeleton();
+        container.addChildView(skeleton.view);
         window.contentView.addChildView(container);
-        card = { container, view, url: "", failed: false, loading: false, visible: false, generation: 0 };
+        card = { container, skeleton, view, url: "", failed: false, loading: false, visible: false, generation: 0 };
         owner.cards.set(item.id, card);
         const created = card;
         view.webContents.on("before-input-event", (_event, input: Electron.Input) => {
@@ -466,7 +588,41 @@ export function startDashboardViews(): () => void {
           event.sender.send("freelens-power:dashboard-escape");
         });
         created.selector = configured.selector;
-        view.webContents.on("did-finish-load", () => applySelector(created));
+        view.webContents.on("did-start-navigation", (_event, _url, inPlace, mainFrame) => {
+          if (!mainFrame) return;
+          if (created.requestedNavigation) {
+            created.requestedNavigation = false;
+            return;
+          }
+          created.nativeNavigation?.fail();
+          const navigation = new Promise<void>((resolve, reject) => {
+            created.nativeNavigation = {
+              finish: () => {
+                created.nativeNavigation = undefined;
+                resolve();
+              },
+              fail: () => {
+                created.nativeNavigation = undefined;
+                reject(new Error("dashboard navigation failed"));
+              },
+            };
+          });
+          if (inPlace)
+            void view.webContents.mainFrame
+              .executeJavaScript('document.dispatchEvent(new Event("freelens-power:dashboard:preparing"))')
+              .catch(() => {});
+          void reload(created, created.url, false, navigation);
+          if (inPlace) created.nativeNavigation?.finish();
+        });
+        view.webContents.on("did-finish-load", () => {
+          void applyWebsiteStyles(created);
+          void applySelector(created);
+          created.nativeNavigation?.finish();
+        });
+        view.webContents.on("did-fail-load", (_event, code, _description, _url, mainFrame) => {
+          if (!mainFrame || (code === -3 && view.webContents.isLoading())) return;
+          created.nativeNavigation?.fail();
+        });
         view.webContents.on("page-favicon-updated", (_event, favicons: string[]) => {
           const favicon = favicons.find((value) => {
             if (!webUrl(value)) return false;
@@ -558,8 +714,12 @@ export function startDashboardViews(): () => void {
             .finally(() => clearTimeout(timeout));
         });
       }
+      if (card.scrollbars !== (item.scrollbars === true)) {
+        card.scrollbars = item.scrollbars === true;
+        void applyWebsiteStyles(card);
+      }
       card.visible = true;
-      card.container.setVisible(!card.loading && !card.failed && card.url === configured.url);
+      card.container.setVisible(!card.failed && (card.loading || card.url === configured.url));
       const zoom = event.sender.getZoomFactor();
       card.container.setBorderRadius(Math.round(12 * zoom));
       card.view.setBorderRadius(Math.round(12 * zoom));
@@ -570,6 +730,7 @@ export function startDashboardViews(): () => void {
         height: Math.round(rect.height * zoom),
       });
       card.container.setBounds(scale(clip));
+      card.skeleton.layout(Math.round(clip.width * zoom), Math.round(clip.height * zoom));
       card.view.setBounds(
         scale({ x: bounds.x - clip.x, y: bounds.y - clip.y, width: bounds.width, height: bounds.height }),
       );
@@ -649,6 +810,7 @@ export function startDashboardViews(): () => void {
           sandbox: true,
           webSecurity: true,
           partition: "persist:freelens-power-websites",
+          preload: join(__dirname, "dashboard-preload.js"),
         },
       });
       floating.setMenu(null);
@@ -657,6 +819,11 @@ export function startDashboardViews(): () => void {
       card.floating = floating;
       card.container.setVisible(false);
       const contents = floating.webContents;
+      const floatingStyles: WebsiteStyleState = {
+        view: { webContents: contents },
+        scrollbars: configured.size === "l" || configured.size === "xl",
+      };
+      card.floatingStyles = floatingStyles;
       contents.setWindowOpenHandler(({ url }) => {
         if (webUrl(url)) void shell.openExternal(url).catch(() => {});
         return { action: "deny" };
@@ -671,26 +838,11 @@ export function startDashboardViews(): () => void {
       });
       contents.on("page-title-updated", (event) => event.preventDefault());
       contents.on("will-prevent-unload", (event) => event.preventDefault());
-      const skeleton = new View();
-      skeleton.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#202124" : "#ffffff");
-      const bars = Array.from({ length: 4 }, () => {
-        const bar = new View();
-        bar.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#393b40" : "#e8e9eb");
-        bar.setBorderRadius(6);
-        skeleton.addChildView(bar);
-        return bar;
-      });
+      const loadingSkeleton = createDashboardSkeleton();
+      const skeleton = loadingSkeleton.view;
       const layoutSkeleton = () => {
         const { width, height } = floating.getContentBounds();
-        skeleton.setBounds({ x: 0, y: 0, width, height });
-        bars.forEach((bar, index) => {
-          bar.setBounds({
-            x: 20,
-            y: index === 0 ? 20 : 60 + (index - 1) * 24,
-            width: Math.max(1, Math.round((width - 40) * (index === 0 ? 0.45 : 1))),
-            height: index === 0 ? 20 : index === 3 ? Math.max(30, height - 128) : 12,
-          });
-        });
+        loadingSkeleton.layout(width, height);
       };
       floating.contentView.addChildView(skeleton);
       floating.on("resize", layoutSkeleton);
@@ -722,6 +874,8 @@ export function startDashboardViews(): () => void {
           finishing ??= (async () => {
             await waitForReadiness(contents, network, () => card.selector, current);
             if (!current()) return false;
+            await releaseDashboardPage(contents);
+            if (!current()) return false;
             skeleton.setVisible(false);
             stop();
             return false;
@@ -733,6 +887,7 @@ export function startDashboardViews(): () => void {
           finish,
           fail: () => {
             if (current()) {
+              void releaseDashboardPage(contents);
               skeleton.setVisible(false);
               stop();
             }
@@ -742,20 +897,32 @@ export function startDashboardViews(): () => void {
       const refresh = () => {
         const preparation = begin();
         const current = contents.getURL();
-        return contents.loadURL(webUrl(current) ? current : configured.url).then(
-          () => finishLoad?.() ?? false,
-          () => {
-            preparation.fail();
-            return !contents.isDestroyed();
-          },
-        );
+        let documentReady: () => void;
+        const ready = new Promise<boolean>((resolve) => {
+          documentReady = () => {
+            void (finishLoad?.() ?? Promise.resolve(false)).then(resolve);
+          };
+          contents.once("dom-ready", documentReady);
+        });
+        const loading = prepareDashboardPage(contents)
+          .then(() => contents.loadURL(webUrl(current) ? current : configured.url))
+          .then(
+            () => finishLoad?.() ?? false,
+            () => {
+              preparation.fail();
+              return !contents.isDestroyed();
+            },
+          );
+        return Promise.race([loading, ready]).finally(() => {
+          contents.removeListener("dom-ready", documentReady);
+        });
       };
       card.floatingPreparation = {
         refresh,
         isPreparing: () => floatingPreparing,
         selectorChanged: () => {
           const preparation = begin();
-          if (!contents.isLoading()) void preparation.finish();
+          void preparation.finish();
         },
         stop: () => {
           ++generation;
@@ -767,14 +934,18 @@ export function startDashboardViews(): () => void {
         const preparation = begin();
         if (inPlace) void preparation.finish();
       });
+      contents.on("dom-ready", () => {
+        void applyWebsiteStyles(floatingStyles);
+        if (!contents.isDestroyed()) void finishLoad?.();
+      });
       contents.on("did-finish-load", () => {
-        if (contents.isDestroyed()) return;
-        void contents.insertCSS(websiteStyles, { cssOrigin: "user" }).catch(() => {});
-        void finishLoad?.();
+        void applyWebsiteStyles(floatingStyles);
+        if (!contents.isDestroyed()) void finishLoad?.();
       });
       contents.on("did-fail-load", (_event, code, _description, _url, mainFrame) => {
         if (!mainFrame || code === -3) return;
         stopPreparation();
+        void releaseDashboardPage(contents);
         skeleton.setVisible(false);
       });
       contents.once("destroyed", () => {
@@ -785,6 +956,8 @@ export function startDashboardViews(): () => void {
         if (card.floating !== floating) return;
         card.floatingPreparation?.stop();
         card.floatingPreparation = undefined;
+        floatingStyles.websiteStylesGeneration = (floatingStyles.websiteStylesGeneration ?? 0) + 1;
+        card.floatingStyles = undefined;
         card.floating = undefined;
         if (owner.cards.get(id) === card) publishPinned(event.sender, owner);
       });

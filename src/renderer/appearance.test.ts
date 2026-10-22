@@ -266,6 +266,15 @@ describe("application accent override", () => {
     document.body.innerHTML = `<div class="Welcome"><span data-testid="no-welcome-banners-icon"><svg><path fill="#fbfbfb"/><path fill="#23a49c"/></svg></span><svg><path fill="#23a49c"/></svg></div>`;
     expect(document.querySelectorAll(logoRule?.selectorText ?? "path")).toHaveLength(1);
     expect(document.querySelector(logoRule?.selectorText ?? "path")?.getAttribute("fill")).toBe("#23a49c");
+    runInAction(() => {
+      preferences.recolorAppIcon = false;
+    });
+    expect(rules().some((rule) => rule.style.getPropertyValue("fill"))).toBe(false);
+    expect(accentRule()?.style.getPropertyValue("--primary")).toBe(DEFAULT_ACCENT_COLOR);
+    runInAction(() => {
+      preferences.recolorAppIcon = true;
+    });
+    expect(rules().some((rule) => rule.style.getPropertyValue("fill"))).toBe(true);
     document.body.innerHTML = "";
   });
 

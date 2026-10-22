@@ -21,6 +21,7 @@ import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
 import { startMonitoringHistory } from "./monitoring-history";
 import { startSettingsExport } from "./settings-export";
+import { startSplashAccentOverride } from "./splash-accent";
 
 export default class FreelensPowerMain extends Main.LensExtension {
   private stopFeatures?: () => void;
@@ -60,6 +61,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
               startAiIpc(),
               startAiModels(),
               startDockIconOverride(),
+              startSplashAccentOverride(),
               startDashboardViews(),
               startDashboardPicker(),
               registerDashboardCatalog(this),

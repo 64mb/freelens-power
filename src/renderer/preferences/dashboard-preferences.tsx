@@ -137,9 +137,11 @@ function CardEditor({
           }}
         />
       </SettingsField>
-      <SettingsField id={`${id}-autorefresh`} label="Background refresh">
-        <Checkbox {...{ id: `${id}-autorefresh` }} value={autoRefresh} onChange={setAutoRefresh}>
-          <span style={{ display: "inline-flex", marginLeft: 6 }}>
+      <SettingsField
+        id={`${id}-autorefresh`}
+        label={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Background refresh
             <Icon
               material="info_outline"
               size={14}
@@ -149,7 +151,9 @@ function CardEditor({
               }}
             />
           </span>
-        </Checkbox>
+        }
+      >
+        <Checkbox {...{ id: `${id}-autorefresh` }} value={autoRefresh} onChange={setAutoRefresh} />
       </SettingsField>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
         <Button label="Cancel" onClick={onClose} />

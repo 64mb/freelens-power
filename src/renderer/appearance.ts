@@ -8,8 +8,8 @@ export function startAppearanceOverride(): () => void {
   style.dataset.freelensPower = "accent-color";
 
   const stop = reaction(
-    () => [preferences.enabled, preferences.accentColor] as const,
-    ([enabled, color]) => {
+    () => [preferences.enabled, preferences.accentColor, preferences.recolorAppIcon] as const,
+    ([enabled, color, recolorAppIcon]) => {
       if (!enabled || !isAccentSelection(color)) {
         style.remove();
         return;
@@ -30,7 +30,7 @@ export function startAppearanceOverride(): () => void {
         :root .NamespaceSelectMenu .Select__option--is-selected.Select__option--is-focused { background: color-mix(in srgb, var(--primary) 24%, var(--contentColor)) !important; }
         :root .NamespaceSelectMenu .Select__option--is-selected .Icon { color: var(--primary); }
         :root a.link { color: var(--primary); }
-        .Welcome [data-testid="no-welcome-banners-icon"] svg path[fill="#23a49c"] { fill: var(--primary); }
+        ${recolorAppIcon ? '.Welcome [data-testid="no-welcome-banners-icon"] svg path[fill="#23a49c"] { fill: var(--primary); }' : ""}
       `;
       style.textContent = `${accent}\ninput[role="switch"] { --track-color-active: var(--primary) !important; }`;
 

@@ -2,14 +2,15 @@ export const DASHBOARD_PICK_ELEMENT = "freelens-power:dashboard:pick-element";
 export type DashboardPickerResult = { status: "selected"; selector: string } | { status: "canceled" | "error" };
 
 // this function runs only in an isolated website world with no extension bridge
-export function dashboardPickerAdapter(accent: string): Promise<string | null> {
+export function dashboardPickerAdapter(): Promise<string | null> {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.style.cssText =
       "all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:auto!important";
     const shadow = overlay.attachShadow({ mode: "open" });
     const outline = document.createElement("div");
-    outline.style.cssText = `position:fixed;box-sizing:border-box;border:2px solid ${accent};pointer-events:none;display:none`;
+    outline.style.cssText =
+      "position:fixed;box-sizing:border-box;border:2px solid #00e5ff;border-radius:6px;box-shadow:0 0 0 1px #111,inset 0 0 0 1px #111;background:rgba(0,229,255,0.08);pointer-events:none;display:none";
     const toolbar = document.createElement("div");
     toolbar.style.cssText =
       "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:12px 16px;background:#202124;color:#fff;border-radius:8px;font:13px system-ui;pointer-events:auto;display:flex;gap:16px;align-items:center";
@@ -133,6 +134,6 @@ export function dashboardPickerAdapter(accent: string): Promise<string | null> {
   });
 }
 
-export function dashboardPickerScript(accent: string): string {
-  return `(${dashboardPickerAdapter.toString()})(${JSON.stringify(/^#[0-9a-f]{6}$/i.test(accent) ? accent : "#00a7a0")})`;
+export function dashboardPickerScript(): string {
+  return `(${dashboardPickerAdapter.toString()})()`;
 }

@@ -8,17 +8,26 @@ export function normalizeDashboardSelector(value: unknown): string | undefined {
     : undefined;
 }
 
-// this function runs only inside the isolated website world
+// this function runs inside the website document
 export function dashboardSelectorAdapter(selector: string): void {
-  const state = globalThis as typeof globalThis & { powerSelectorCleanup?: () => void };
+  const state = globalThis as typeof globalThis & {
+    powerSelectorCleanup?: () => void;
+    powerSelectorState?: { selector: string; target: Element | null; isApplied: () => boolean };
+  };
   state.powerSelectorCleanup?.();
-  if (!selector) return;
+  if (!selector) {
+    state.powerSelectorState = { selector, target: null, isApplied: () => true };
+    state.powerSelectorCleanup = () => {
+      delete state.powerSelectorState;
+      delete state.powerSelectorCleanup;
+    };
+    return;
+  }
   const hidden = "data-power-selector-hidden";
   const path = "data-power-selector-path";
   const inset = "data-power-selector-inset";
   let insetRoot: HTMLElement | undefined;
   let marked: Element[] = [];
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const style = document.createElement("style");
   style.textContent = `[${hidden}] { display: none !important; } [${path}] { display: block !important; position: static !important; width: auto !important; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; transform: none !important; } body[${inset}] { padding: 12px !important; box-sizing: border-box !important; }`;
   const notice = document.createElement("div");
@@ -27,7 +36,7 @@ export function dashboardSelectorAdapter(selector: string): void {
   notice.style.cssText =
     "position:fixed;top:0;left:0;right:0;z-index:2147483647;padding:8px;background:#292929;color:white;font:12px sans-serif";
   const observer = new MutationObserver(() => {
-    if (!timer) timer = setTimeout(update, 200);
+    if (!projection.isApplied()) update();
   });
   function restore() {
     for (const element of marked) {
@@ -40,8 +49,40 @@ export function dashboardSelectorAdapter(selector: string): void {
     style.remove();
     notice.remove();
   }
+  const projection = {
+    selector,
+    target: null as Element | null,
+    isApplied: () => {
+      const target = projection.target;
+      if (!target || !style.isConnected) return false;
+      try {
+        if (document.querySelector(selector) !== target) return false;
+      } catch {
+        return false;
+      }
+      if (target === document.documentElement || target === document.body)
+        return document.body?.hasAttribute(inset) ?? false;
+      let child = target;
+      let depth = 0;
+      while (child.parentElement) {
+        const parent = child.parentElement;
+        if (!parent.hasAttribute(path) || ++depth >= 128) return false;
+        for (const sibling of parent.children) {
+          if (
+            sibling !== child &&
+            sibling !== style &&
+            sibling.localName !== "freelens-power-loading" &&
+            !sibling.hasAttribute(hidden)
+          )
+            return false;
+        }
+        child = parent;
+      }
+      return document.body?.hasAttribute(inset) ?? false;
+    },
+  };
+  state.powerSelectorState = projection;
   function update() {
-    timer = undefined;
     observer.disconnect();
     restore();
     let target: Element | null = null;
@@ -56,7 +97,7 @@ export function dashboardSelectorAdapter(selector: string): void {
         const parent = child.parentElement;
         ancestors.push(parent);
         for (const sibling of parent.children) {
-          if (sibling !== child) branches.push(sibling);
+          if (sibling !== child && sibling.localName !== "freelens-power-loading") branches.push(sibling);
           if (branches.length >= 2000) break;
         }
         child = parent;
@@ -75,13 +116,14 @@ export function dashboardSelectorAdapter(selector: string): void {
     } else {
       document.documentElement.append(notice);
     }
+    projection.target = target;
     observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
   }
   state.powerSelectorCleanup = () => {
     observer.disconnect();
-    clearTimeout(timer);
     restore();
     delete state.powerSelectorCleanup;
+    delete state.powerSelectorState;
   };
   update();
 }

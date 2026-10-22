@@ -47,10 +47,6 @@ vi.mock("electron", async () => {
     },
   };
 });
-vi.mock("../common/store/appearance-preferences-store", () => ({
-  ACCENT_COLOR_OPTIONS: [{ value: "default", color: "#00a7a0" }],
-  AppearancePreferencesStore: { getInstanceOrCreate: () => ({ enabled: true, accentColor: "default" }) },
-}));
 
 import { DASHBOARD_PICK_ELEMENT } from "../common/dashboard-picker";
 import { startDashboardPicker } from "./dashboard-picker";

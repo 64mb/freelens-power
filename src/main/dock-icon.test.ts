@@ -7,9 +7,16 @@ const mocks = vi.hoisted(() => ({
   createFromPath: vi.fn(),
   createFromBitmap: vi.fn(),
   getStore: vi.fn(),
+  execFile: vi.fn(),
+  rm: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("node:child_process", () => ({ execFile: mocks.execFile }));
+vi.mock("node:fs/promises", () => ({ mkdtemp: vi.fn().mockResolvedValue("/test/temp/icon"), rm: mocks.rm }));
 vi.mock("electron", () => ({
-  app: { dock: { setIcon: mocks.setIcon } },
+  app: {
+    dock: { setIcon: mocks.setIcon },
+    getPath: (name: string) => (name === "exe" ? "/test/Example.app/Contents/MacOS/Example" : "/test/temp"),
+  },
   nativeImage: { createFromPath: mocks.createFromPath, createFromBitmap: mocks.createFromBitmap },
 }));
 vi.mock("../common/store/appearance-preferences-store", () => ({
@@ -17,7 +24,11 @@ vi.mock("../common/store/appearance-preferences-store", () => ({
   isAccentSelection: (color: string) => ["default", "#7060e8", "#0273ee"].includes(color),
 }));
 
-import { recolorIconBitmap, startDockIconOverride } from "./dock-icon";
+import { loadOriginalIcon, recolorIconBitmap, startDockIconOverride } from "./dock-icon";
+
+const flush = async () => {
+  for (let index = 0; index < 20; index++) await Promise.resolve();
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -40,6 +51,27 @@ describe("Dock icon recoloring", () => {
     expect(result).toEqual(Buffer.from([119, 58, 1, 128]));
   });
 
+  it("preserves a padded rounded tile, white logo and antialiased alpha byte for byte", () => {
+    const pixels = [
+      [0, 0, 0, 0],
+      [28, 28, 28, 255],
+      [90, 90, 90, 180],
+      [251, 251, 251, 255],
+      [156, 164, 35, 255],
+      [78, 82, 18, 128],
+      [28, 28, 28, 255],
+      [0, 0, 0, 0],
+    ];
+    const source = Buffer.from(pixels.flat());
+    const tinted = recolorIconBitmap(source, "#7060e8");
+    expect(tinted.length).toBe(source.length);
+    for (let pixel = 0; pixel < pixels.length; pixel++) {
+      expect(tinted[pixel * 4 + 3]).toBe(source[pixel * 4 + 3]);
+      if (pixel !== 4 && pixel !== 5)
+        expect(tinted.subarray(pixel * 4, pixel * 4 + 4)).toEqual(source.subarray(pixel * 4, pixel * 4 + 4));
+    }
+  });
+
   it("does nothing when the Dock API is unavailable", () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     expect(startDockIconOverride()).toBeTypeOf("function");
@@ -53,6 +85,7 @@ describe("Dock icon lifecycle", () => {
     vi.stubGlobal("process", Object.assign(Object.create(process), { resourcesPath: "/test/resources" }));
     const preferences = observable({ enabled: true, accentColor: "#7060e8", recolorAppIcon: true });
     mocks.getStore.mockReturnValue(preferences);
+    mocks.execFile.mockImplementation((_file, _args, _options, callback) => callback(null, "", ""));
     const original = {
       isEmpty: () => false,
       getSize: () => ({ width: 1, height: 1 }),
@@ -63,18 +96,42 @@ describe("Dock icon lifecycle", () => {
     return { preferences, original };
   }
 
+  it("loads the system-composed bundle icon instead of bare ICNS and cleans temporary output", async () => {
+    const { original } = setup();
+    expect(await loadOriginalIcon()).toBe(original);
+    expect(mocks.execFile).toHaveBeenCalledWith(
+      "/usr/bin/osascript",
+      expect.arrayContaining(["/test/Example.app", "/test/temp/icon/icon.png"]),
+      { timeout: 10_000 },
+      expect.any(Function),
+    );
+    expect(mocks.createFromPath).toHaveBeenCalledWith("/test/temp/icon/icon.png");
+    expect(mocks.rm).toHaveBeenCalledWith("/test/temp/icon", { recursive: true, force: true });
+  });
+
+  it("leaves the Dock untouched when macOS cannot render the colored icon", async () => {
+    setup();
+    mocks.createFromPath.mockReturnValue({ isEmpty: () => false, toBitmap: () => Buffer.from([0, 0, 0, 255]) });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const dispose = startDockIconOverride();
+    await flush();
+    expect(mocks.setIcon).not.toHaveBeenCalled();
+    dispose();
+    expect(mocks.rm).toHaveBeenCalled();
+  });
+
   it("restores the icon independently of interface accents and ignores a pending tint when disabled", async () => {
     const { preferences, original } = setup();
     const dispose = startDockIconOverride();
     runInAction(() => {
       preferences.recolorAppIcon = false;
     });
-    await Promise.resolve();
+    await flush();
     expect(mocks.setIcon).not.toHaveBeenCalled();
     runInAction(() => {
       preferences.recolorAppIcon = true;
     });
-    await Promise.resolve();
+    await flush();
     expect(mocks.setIcon).toHaveBeenLastCalledWith({ tinted: true });
     runInAction(() => {
       preferences.recolorAppIcon = false;
@@ -88,14 +145,14 @@ describe("Dock icon lifecycle", () => {
   it("restores the original and stops observing on disposal", async () => {
     const { preferences, original } = setup();
     const dispose = startDockIconOverride();
-    await Promise.resolve();
+    await flush();
     expect(mocks.setIcon).toHaveBeenCalledWith({ tinted: true });
     dispose();
     expect(mocks.setIcon).toHaveBeenLastCalledWith(original);
     runInAction(() => {
       preferences.accentColor = "#0273ee";
     });
-    await Promise.resolve();
+    await flush();
     expect(mocks.setIcon).toHaveBeenCalledTimes(2);
   });
 
@@ -105,13 +162,13 @@ describe("Dock icon lifecycle", () => {
     runInAction(() => {
       preferences.accentColor = "default";
     });
-    await Promise.resolve();
+    await flush();
     expect(mocks.setIcon).not.toHaveBeenCalled();
     runInAction(() => {
       preferences.accentColor = "#0273ee";
     });
     dispose();
-    await Promise.resolve();
+    await flush();
     expect(mocks.setIcon).not.toHaveBeenCalled();
   });
 });

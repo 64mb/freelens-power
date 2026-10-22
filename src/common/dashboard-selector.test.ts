@@ -58,3 +58,60 @@ it("adds one reversible inset around a matched element without changing website 
   expect(document.body.style.padding).toBe("5px");
   document.body.style.removeProperty("padding");
 });
+
+it("publishes projection readiness only for the current applied target and restores it after replacement", async () => {
+  vi.useFakeTimers();
+  document.body.innerHTML = '<nav>Menu</nav><main id="chart">Chart</main>';
+  dashboardSelectorAdapter("#chart");
+  const state = globalThis as typeof globalThis & {
+    powerSelectorState?: { selector: string; target: Element | null; isApplied: () => boolean };
+  };
+  const projection = state.powerSelectorState!;
+  expect(projection.selector).toBe("#chart");
+  expect(projection.isApplied()).toBe(true);
+  const original = projection.target;
+  document.querySelector("#chart")!.outerHTML = '<section id="chart">Replacement</section>';
+  expect(projection.isApplied()).toBe(false);
+  await vi.advanceTimersByTimeAsync(250);
+  expect(projection.target).not.toBe(original);
+  expect(projection.isApplied()).toBe(true);
+  dashboardSelectorAdapter("");
+  expect(state.powerSelectorState?.selector).toBe("");
+  expect(state.powerSelectorState?.isApplied()).toBe(true);
+});
+
+it("isolates newly added outside branches during mutation delivery before the next paint", async () => {
+  document.body.innerHTML = '<main id="chart">Chart</main>';
+  dashboardSelectorAdapter("#chart");
+  const navigation = document.createElement("nav");
+  navigation.textContent = "New menu";
+  document.body.prepend(navigation);
+  await Promise.resolve();
+  expect(navigation.hasAttribute(hidden)).toBe(true);
+});
+
+it("does not rebuild an applied projection for unrelated clock updates", async () => {
+  document.body.innerHTML = '<main id="chart">Chart</main><aside id="clock">0</aside>';
+  dashboardSelectorAdapter("#chart");
+  const style = document.querySelector("style")!;
+  const remove = vi.spyOn(style, "remove");
+  document.querySelector("#clock")!.textContent = "1";
+  await Promise.resolve();
+  expect(remove).not.toHaveBeenCalled();
+  remove.mockRestore();
+});
+
+it("preserves the in-document loading overlay without changing positional div selectors", () => {
+  document.body.innerHTML = '<main><div>First</div><div id="chart">Chart</div></main>';
+  const overlay = document.createElement("freelens-power-loading");
+  document.documentElement.append(overlay);
+  dashboardSelectorAdapter("main > div:nth-child(2)");
+  const state = globalThis as typeof globalThis & {
+    powerSelectorState?: { target: Element | null; isApplied: () => boolean };
+  };
+  expect(state.powerSelectorState?.target?.id).toBe("chart");
+  expect(state.powerSelectorState?.isApplied()).toBe(true);
+  expect(overlay.hasAttribute(hidden)).toBe(false);
+  dashboardSelectorAdapter("");
+  overlay.remove();
+});
