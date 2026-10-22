@@ -14,7 +14,7 @@ describe("isolated dashboard element picker", () => {
     const target = document.querySelector("button")!;
     const clicked = vi.fn();
     target.addEventListener("click", clicked);
-    const picked = dashboardPickerAdapter("#00a7a0");
+    const picked = dashboardPickerAdapter();
     target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true }));
     const selector = await picked;
     expect(selector).toBeTruthy();
@@ -30,10 +30,10 @@ describe("isolated dashboard element picker", () => {
   it("escapes IDs and removes all overlays and listeners after Escape", async () => {
     vi.stubGlobal("CSS", { escape: (value: string) => value.replace(/[^a-z0-9_-]/gi, (char) => `\\${char}`) });
     document.body.innerHTML = '<div id="chart:main"></div>';
-    const selection = dashboardPickerAdapter("#0273ee");
+    const selection = dashboardPickerAdapter();
     document.querySelector("#chart\\:main")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(await selection).toBe("#chart\\:main");
-    const canceled = dashboardPickerAdapter("#0273ee");
+    const canceled = dashboardPickerAdapter();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
     expect(await canceled).toBeNull();
     expect(document.documentElement.children).toHaveLength(2);
@@ -45,19 +45,27 @@ describe("isolated dashboard element picker", () => {
     const clicked = vi.fn();
     target.addEventListener("click", clicked);
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => target });
-    const pending = dashboardPickerAdapter("#00a7a0");
+    const pending = dashboardPickerAdapter();
     const overlay = document.documentElement.lastElementChild!;
+    overlay.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, composed: true, clientX: 20, clientY: 20 }));
+    const outline = overlay.shadowRoot!.firstElementChild as HTMLElement;
+    expect(outline.style.display).toBe("block");
+    expect(outline.style.borderColor).toBe("rgb(0, 229, 255)");
+    expect(outline.style.borderRadius).toBe("6px");
+    expect(outline.style.boxShadow).toBe("0 0 0 1px #111,inset 0 0 0 1px #111");
+    expect(outline.style.pointerEvents).toBe("none");
     overlay.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, clientX: 20, clientY: 20 }));
     expect(document.querySelector((await pending)!)).toBe(target);
     expect(clicked).not.toHaveBeenCalled();
-    const canceled = dashboardPickerAdapter("#00a7a0");
+    const canceled = dashboardPickerAdapter();
     document.documentElement
       .lastElementChild!.shadowRoot!.querySelector("button")!
       .dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
     expect(await canceled).toBeNull();
     expect(document.documentElement.children).toHaveLength(2);
   });
-  it("validates injected accent colors", () => {
-    expect(dashboardPickerScript('red; background:url("https://invalid.example")')).toContain('("#00a7a0")');
+  it("serializes the picker without appearance-dependent arguments", () => {
+    expect(dashboardPickerScript()).toContain("border:2px solid #00e5ff");
+    expect(dashboardPickerScript()).toMatch(/\)\(\)$/);
   });
 });

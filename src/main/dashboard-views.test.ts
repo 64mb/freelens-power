@@ -45,17 +45,27 @@ vi.mock("electron", async () => {
         this.backgroundThrottling = value;
       }),
       debugger: mocks.nextDebugger,
+      mainFrame: {} as any,
       isDestroyed: () => false,
       isLoading: vi.fn(() => false),
       getURL: vi.fn(() => "https://example.com/current"),
       close: vi.fn(),
       loadURL: vi.fn(() => mocks.nextLoad ?? Promise.resolve()),
       executeJavaScriptInIsolatedWorld: vi.fn().mockResolvedValue(undefined),
+      executeJavaScript: vi.fn().mockResolvedValue(undefined),
       insertCSS: vi.fn().mockResolvedValue("styles"),
+      removeInsertedCSS: vi.fn().mockResolvedValue(undefined),
       setWindowOpenHandler: vi.fn(),
     });
     constructor(public options: unknown) {
       super();
+      this.webContents.mainFrame = {
+        executeJavaScript: vi.fn((code: string) =>
+          code.includes("function dashboardSelectorAdapter") || code.includes("function dashboardReadinessAdapter")
+            ? this.webContents.executeJavaScriptInIsolatedWorld(1004, [{ code }])
+            : this.webContents.executeJavaScript(code),
+        ),
+      };
       mocks.views.push(this);
     }
   }
@@ -148,6 +158,7 @@ beforeEach(() => {
         },
       ];
     mocks.store.cards[0].autoRefresh = false;
+    mocks.store.cards[0].size = "m";
     mocks.store.cards[0].refreshEvery10Seconds = false;
     mocks.store.cards[0].selector = undefined;
   });
@@ -173,7 +184,11 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   const contents = mocks.views[0].webContents;
   const container = mocks.window.contentView.addChildView.mock.calls[0][0];
   expect(contents.getBackgroundThrottling()).toBe(false);
-  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  const skeleton = container.addChildView.mock.calls[1][0];
+  expect(container.addChildView.mock.calls[0][0]).toBe(mocks.views[0]);
+  expect(skeleton.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 300, height: 190 });
+  expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  expect(container.addChildView.mock.calls[1][0].setVisible).toHaveBeenLastCalledWith(true);
   expect(owner.sender.send).toHaveBeenCalledWith("freelens-power:dashboard-views:loading", {
     id: "site",
     url: "https://example.com/",
@@ -183,6 +198,7 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   await handler(owner, { cards: [], hidden: true });
   finish();
   await loading;
+  expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
   expect(contents.getBackgroundThrottling()).toBe(true);
   expect(container.setVisible).toHaveBeenLastCalledWith(false);
   expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-views:loading", {
@@ -207,11 +223,13 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
       }),
   );
   const refresh = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
-  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  expect(container.addChildView.mock.calls[1][0].setVisible).toHaveBeenLastCalledWith(true);
   expect(owner.sender.send).toHaveBeenLastCalledWith(
     "freelens-power:dashboard-views:loading",
     expect.objectContaining({ loading: true }),
   );
+  await vi.waitFor(() => expect(fail).toBeTypeOf("function"));
   fail(new Error("unreachable"));
   expect(await refresh).toEqual({ failed: ["site"] });
   expect(contents.getBackgroundThrottling()).toBe(true);
@@ -222,63 +240,31 @@ it("masks actual loading, preserves loaded caches and ends skeleton state on fai
   expect(container.setVisible).toHaveBeenLastCalledWith(false);
   dispose();
 });
-it("keeps skeletons over a slow SPA fetch after document load and releases its owned debugger", async () => {
+it("does not wait for pending network requests before releasing basic page drawing", async () => {
   vi.useFakeTimers();
   let attached = false;
-  let enable!: () => void;
   const protocol = Object.assign(new EventEmitter(), {
-    isAttached: vi.fn(() => attached),
-    attach: vi.fn(() => {
+    isAttached: () => attached,
+    attach: () => {
       attached = true;
-    }),
+    },
     detach: vi.fn(() => {
       attached = false;
     }),
-    sendCommand: vi
-      .fn()
-      .mockResolvedValue({})
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            enable = () => resolve({});
-          }),
-      ),
+    sendCommand: vi.fn(() => new Promise(() => {})),
   });
   mocks.nextDebugger = protocol;
   const dispose = startDashboardViews();
-  const owner = event();
   try {
+    const owner = event();
     const loading = mocks.handlers.get(sync)(owner, payload);
-    expect(protocol.attach).toHaveBeenCalledOnce();
-    expect(mocks.views[0].webContents.loadURL).toHaveBeenCalledOnce();
     protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "data", type: "Fetch" });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(mocks.views[0].webContents.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
-    enable();
-    await vi.advanceTimersByTimeAsync(2900);
-    const container = mocks.window.contentView.addChildView.mock.calls[0][0];
-    expect(container.setVisible).toHaveBeenLastCalledWith(false);
-    expect(owner.sender.send).not.toHaveBeenCalledWith(
-      "freelens-power:dashboard-views:loading",
-      expect.objectContaining({ loading: false }),
-    );
-    protocol.emit("message", {}, "Network.loadingFinished", { requestId: "data" });
-    await vi.advanceTimersByTimeAsync(350);
+    await vi.advanceTimersByTimeAsync(0);
     await loading;
-    expect(mocks.views[0].webContents.getBackgroundThrottling()).toBe(true);
-    expect(container.setVisible).toHaveBeenLastCalledWith(true);
     expect(protocol.detach).toHaveBeenCalledOnce();
-    expect(protocol.listenerCount("message")).toBe(0);
-    const scripts = mocks.views[0].webContents.executeJavaScriptInIsolatedWorld;
-    const previousScripts = scripts.mock.calls.length;
-    const capped = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
-    protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "poll", type: "Fetch" });
-    await vi.advanceTimersByTimeAsync(8500);
-    await capped;
-    expect(mocks.views[0].webContents.getBackgroundThrottling()).toBe(true);
-    expect(container.setVisible).toHaveBeenLastCalledWith(true);
-    expect(protocol.detach).toHaveBeenCalledTimes(2);
-    expect(scripts).toHaveBeenCalledTimes(previousScripts + 1);
+    expect(mocks.views[0].webContents.executeJavaScript).toHaveBeenCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+    );
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     dispose();
@@ -313,16 +299,23 @@ it("keeps skeleton state until selector application and actual page readiness fi
     );
   finishLoad();
   await vi.waitFor(() => expect(finishSelector).toBeTypeOf("function"));
-  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  expect(container.addChildView.mock.calls[1][0].setVisible).toHaveBeenLastCalledWith(true);
   expect(owner.sender.send).not.toHaveBeenCalledWith(
     "freelens-power:dashboard-views:loading",
     expect.objectContaining({ loading: false }),
   );
+  expect(contents.executeJavaScript).not.toHaveBeenCalled();
   finishSelector();
   await vi.waitFor(() => expect(finishReady).toBeTypeOf("function"));
-  expect(container.setVisible).toHaveBeenLastCalledWith(false);
+  expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  expect(container.addChildView.mock.calls[1][0].setVisible).toHaveBeenLastCalledWith(true);
+  expect(contents.executeJavaScript).not.toHaveBeenCalled();
   finishReady();
   await loading;
+  expect(contents.executeJavaScript).toHaveBeenCalledWith(
+    'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+  );
   expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true]);
   expect(container.setVisible).toHaveBeenLastCalledWith(true);
   expect(owner.sender.send).toHaveBeenLastCalledWith(
@@ -419,6 +412,7 @@ it("accepts only the dashboard top frame and configured card URLs", () => {
     sandbox: true,
     webSecurity: true,
     partition: "persist:freelens-power-websites",
+    preload: expect.stringMatching(/dashboard-preload\.js$/),
   });
   expect(view.webContents.loadURL).toHaveBeenCalledWith("https://example.com/");
   expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: -10, width: 300, height: 200 });
@@ -621,7 +615,7 @@ it("refreshes enabled cached pages every ten minutes and applies settings while 
     owner.sender.mainFrame.url = "https://renderer.freelens.app/other";
     contents.isLoading.mockReturnValue(true);
     await vi.advanceTimersByTimeAsync(600000);
-    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    expect(contents.loadURL).toHaveBeenCalledTimes(3);
     contents.isLoading.mockReturnValue(false);
     runInAction(() => {
       if (!mocks.store.cards.length)
@@ -640,13 +634,13 @@ it("refreshes enabled cached pages every ten minutes and applies settings while 
       mocks.store.cards[0].selector = undefined;
     });
     await vi.advanceTimersByTimeAsync(600000);
-    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    expect(contents.loadURL).toHaveBeenCalledTimes(3);
     runInAction(() => {
       mocks.store.cards[0].autoRefresh = true;
     });
     dispose();
     await vi.advanceTimersByTimeAsync(600000);
-    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    expect(contents.loadURL).toHaveBeenCalledTimes(3);
   } finally {
     dispose();
     vi.useRealTimers();
@@ -800,6 +794,7 @@ it("pins one hardened duplicate, preserves the cached grid view and focuses with
         sandbox: true,
         webSecurity: true,
         partition: "persist:freelens-power-websites",
+        preload: expect.stringMatching(/dashboard-preload\.js$/),
       },
     });
     expect(floating.setMenu).toHaveBeenCalledWith(null);
@@ -992,6 +987,7 @@ it("keeps pinned skeletons through selector readiness, navigation and refresh an
     );
     const refresh = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
     expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    await vi.waitFor(() => expect(finishRefresh).toBeTypeOf("function"));
     finishRefresh();
     expect(await refresh).toEqual({ failed: [] });
     expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
@@ -1016,7 +1012,7 @@ it("keeps pinned skeletons through selector readiness, navigation and refresh an
   }
 });
 
-it("waits for pinned SPA requests and releases network observation after readiness and navigation failure", async () => {
+it("releases pinned pages after basic readiness despite pending SPA requests and handles navigation failure", async () => {
   vi.useFakeTimers();
   const dispose = startDashboardViews();
   const owner = event();
@@ -1040,7 +1036,7 @@ it("waits for pinned SPA requests and releases network observation after readine
     const skeleton = floating.contentView.addChildView.mock.calls[0][0];
     protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "data", type: "Fetch" });
     await vi.advanceTimersByTimeAsync(1000);
-    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
     protocol.emit("message", {}, "Network.loadingFinished", { requestId: "data" });
     await vi.advanceTimersByTimeAsync(350);
     expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
@@ -1095,7 +1091,7 @@ it("refreshes visible widgets at ten-second boundaries and stops when the widget
   }
 });
 
-it("skips ten-second ticks while cached preparation is still pending without queuing reloads", async () => {
+it("waits ten seconds after preparation completes before refreshing again", async () => {
   vi.useFakeTimers();
   const dispose = startDashboardViews();
   try {
@@ -1114,12 +1110,14 @@ it("skips ten-second ticks while cached preparation is still pending without que
     });
     await vi.advanceTimersByTimeAsync(10000);
     expect(contents.loadURL).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(33500);
     expect(contents.loadURL).toHaveBeenCalledTimes(2);
     complete();
     await vi.advanceTimersByTimeAsync(0);
     expect(contents.loadURL).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(10000);
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
     expect(contents.loadURL).toHaveBeenCalledTimes(3);
   } finally {
     dispose();
@@ -1208,5 +1206,345 @@ it("restores a fresh ten-minute background interval after disabling the ten-seco
   } finally {
     dispose();
     vi.useRealTimers();
+  }
+});
+
+it("uses a short fallback if DOM readiness evaluation fails despite pending requests", async () => {
+  vi.useFakeTimers();
+  const protocol = Object.assign(new EventEmitter(), {
+    isAttached: vi.fn(() => false),
+    attach: vi.fn(),
+    detach: vi.fn(),
+    sendCommand: vi.fn().mockResolvedValue({}),
+  });
+  mocks.nextDebugger = protocol;
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    const loading = mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    contents.executeJavaScriptInIsolatedWorld
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("readiness unavailable"));
+    protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "data", type: "Fetch" });
+    await vi.advanceTimersByTimeAsync(1000);
+    const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+    expect(container.setVisible).toHaveBeenLastCalledWith(true);
+    expect(container.addChildView.mock.calls[1][0].setVisible).toHaveBeenLastCalledWith(false);
+    protocol.emit("message", {}, "Network.loadingFinished", { requestId: "data" });
+    await vi.advanceTimersByTimeAsync(550);
+    await loading;
+    expect(container.setVisible).toHaveBeenLastCalledWith(true);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("starts the first automatic refresh interval after a slow initial page is ready", async () => {
+  vi.useFakeTimers();
+  let complete!: () => void;
+  mocks.nextLoad = new Promise<void>((resolve) => {
+    complete = resolve;
+  });
+  runInAction(() => {
+    mocks.store.cards[0].refreshEvery10Seconds = true;
+  });
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    const loading = mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    await vi.advanceTimersByTimeAsync(9500);
+    complete();
+    await loading;
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(contents.loadURL).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("reveals prepared selected content without waiting for unrelated ongoing page requests", async () => {
+  vi.useFakeTimers();
+  runInAction(() => {
+    mocks.store.cards[0].selector = "#chart";
+  });
+  const protocol = Object.assign(new EventEmitter(), {
+    isAttached: vi.fn(() => false),
+    attach: vi.fn(),
+    detach: vi.fn(),
+    sendCommand: vi.fn().mockResolvedValue({}),
+  });
+  mocks.nextDebugger = protocol;
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    const loading = mocks.handlers.get(sync)(owner, payload);
+    protocol.emit("message", {}, "Network.requestWillBeSent", { requestId: "unrelated", type: "Fetch" });
+    await vi.advanceTimersByTimeAsync(0);
+    await loading;
+    expect(protocol.attach).toHaveBeenCalledOnce();
+    expect(protocol.listenerCount("message")).toBe(0);
+    const contents = mocks.views[0].webContents;
+    expect(contents.executeJavaScript).toHaveBeenCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+    );
+    expect(owner.sender.send).toHaveBeenCalledWith(
+      "freelens-power:dashboard-views:loading",
+      expect.objectContaining({ loading: false }),
+    );
+  } finally {
+    dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("shows scrollbars only for expanded cards and removes stale asynchronous style insertions", async () => {
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    const syncCards = mocks.handlers.get(sync);
+    await syncCards(owner, payload);
+    const contents = mocks.views[0].webContents;
+    expect(contents.insertCSS).toHaveBeenCalledWith(expect.stringContaining("scrollbar-width"), { cssOrigin: "user" });
+    await syncCards(owner, { cards: [{ ...payload.cards[0], scrollbars: true }] });
+    expect(contents.removeInsertedCSS).toHaveBeenCalledWith("styles");
+    expect(contents.insertCSS).toHaveBeenLastCalledWith(expect.stringContaining("scrollbar-width: auto !important"), {
+      cssOrigin: "user",
+    });
+    contents.insertCSS.mockClear();
+    contents.emit("did-finish-load");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(contents.insertCSS).toHaveBeenLastCalledWith(expect.stringContaining("display: revert !important"), {
+      cssOrigin: "user",
+    });
+    contents.insertCSS.mockClear();
+    let inserted!: (key: string) => void;
+    contents.insertCSS.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          inserted = resolve;
+        }),
+    );
+    await syncCards(owner, payload);
+    await syncCards(owner, { cards: [{ ...payload.cards[0], scrollbars: true }] });
+    inserted("stale-styles");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(contents.removeInsertedCSS).toHaveBeenCalledWith("stale-styles");
+    await syncCards(owner, payload);
+    expect(contents.insertCSS).toHaveBeenLastCalledWith(expect.stringContaining("scrollbar-width: none !important"), {
+      cssOrigin: "user",
+    });
+  } finally {
+    dispose();
+  }
+});
+
+it("prepares and releases cached self-navigation without issuing a second loadURL", async () => {
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    contents.executeJavaScript.mockClear();
+    let finishReady!: () => void;
+    contents.executeJavaScriptInIsolatedWorld.mockImplementation((_world, scripts) =>
+      scripts[0].code.includes("dashboardReadinessAdapter")
+        ? new Promise<void>((resolve) => {
+            finishReady = resolve;
+          })
+        : Promise.resolve(),
+    );
+    contents.emit("did-start-navigation", {}, "https://example.com/next", false, true);
+    expect(contents.loadURL).toHaveBeenCalledOnce();
+    expect(owner.sender.send).toHaveBeenLastCalledWith(
+      "freelens-power:dashboard-views:loading",
+      expect.objectContaining({ loading: true }),
+    );
+    contents.emit("did-finish-load");
+    await vi.waitFor(() => expect(finishReady).toBeTypeOf("function"));
+    expect(contents.executeJavaScript).not.toHaveBeenCalled();
+    finishReady();
+    await vi.waitFor(() =>
+      expect(contents.executeJavaScript).toHaveBeenCalledWith(
+        'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+      ),
+    );
+    expect(owner.sender.send).toHaveBeenLastCalledWith(
+      "freelens-power:dashboard-views:loading",
+      expect.objectContaining({ loading: false, failed: false }),
+    );
+  } finally {
+    dispose();
+  }
+});
+
+it.each([-2, -3])("ends preparation after cached self-navigation fails with code [%s]", async (code) => {
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    contents.executeJavaScript.mockClear();
+    contents.emit("did-start-navigation", {}, "https://example.com/next", false, true);
+    contents.emit("did-fail-load", {}, code, "Failed", "https://example.com/next", true);
+    await vi.waitFor(() =>
+      expect(owner.sender.send).toHaveBeenLastCalledWith(
+        "freelens-power:dashboard-views:loading",
+        expect.objectContaining({ loading: false, failed: true }),
+      ),
+    );
+    expect(contents.executeJavaScript).toHaveBeenCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+    );
+  } finally {
+    dispose();
+  }
+});
+
+it("releases cached page drawing at dom-ready while the original navigation remains unfinished", async () => {
+  let fail!: (error: Error) => void;
+  mocks.nextLoad = new Promise<void>((_resolve, reject) => {
+    fail = reject;
+  });
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    const loading = mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    contents.emit("dom-ready");
+    await loading;
+    expect(contents.executeJavaScript).toHaveBeenCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+    );
+    fail(new Error("late resource failure"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(owner.sender.send).toHaveBeenLastCalledWith(
+      "freelens-power:dashboard-views:loading",
+      expect.objectContaining({ loading: false, failed: false }),
+    );
+  } finally {
+    dispose();
+  }
+});
+
+it("shows the existing document skeleton before beginning a manual reload", async () => {
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    let prepared!: () => void;
+    contents.executeJavaScript.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          prepared = resolve;
+        }),
+    );
+    const refresh = mocks.handlers.get("freelens-power:dashboard-views:reload")(owner, { id: "site" });
+    expect(contents.executeJavaScript).toHaveBeenLastCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:preparing"))',
+    );
+    expect(contents.loadURL).toHaveBeenCalledOnce();
+    prepared();
+    await refresh;
+    expect(contents.loadURL).toHaveBeenCalledTimes(2);
+  } finally {
+    dispose();
+  }
+});
+
+it("uses the direct main frame for all DOM preparation while WebContents script wrappers remain blocked", async () => {
+  mocks.nextLoad = new Promise<void>(() => {});
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    const loading = mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    contents.executeJavaScript.mockImplementation(() => new Promise(() => {}));
+    contents.executeJavaScriptInIsolatedWorld.mockImplementation(() => new Promise(() => {}));
+    contents.mainFrame.executeJavaScript.mockImplementation(() => Promise.resolve());
+    contents.emit("dom-ready");
+    await loading;
+    expect(contents.executeJavaScript).not.toHaveBeenCalled();
+    expect(contents.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+    expect(contents.mainFrame.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining("function dashboardSelectorAdapter"),
+    );
+    expect(contents.mainFrame.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining("function dashboardReadinessAdapter"),
+    );
+    expect(contents.mainFrame.executeJavaScript).toHaveBeenCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+    );
+  } finally {
+    dispose();
+  }
+});
+
+it.each([
+  "xs",
+  "s",
+  "m",
+  "l",
+  "xl",
+])("uses size [%s] to control pinned website scrollbars and reacts to size updates", async (size) => {
+  runInAction(() => {
+    mocks.store.cards[0].size = size;
+  });
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const contents = mocks.floating[0].webContents;
+    contents.emit("dom-ready");
+    await Promise.resolve();
+    const visible = size === "l" || size === "xl";
+    expect(contents.insertCSS).toHaveBeenLastCalledWith(
+      expect.stringContaining(visible ? "scrollbar-width: auto" : "scrollbar-width: none"),
+      { cssOrigin: "user" },
+    );
+    runInAction(() => {
+      mocks.store.cards[0].size = visible ? "m" : "l";
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(contents.insertCSS).toHaveBeenLastCalledWith(
+      expect.stringContaining(visible ? "scrollbar-width: none" : "scrollbar-width: auto"),
+      { cssOrigin: "user" },
+    );
+  } finally {
+    dispose();
+  }
+});
+
+it("releases changed pinned selectors while unrelated resources keep the page loading", async () => {
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const contents = mocks.floating[0].webContents;
+    await vi.waitFor(() => expect(contents.executeJavaScript).toHaveBeenCalled());
+    contents.executeJavaScript.mockClear();
+    contents.isLoading.mockReturnValue(true);
+    runInAction(() => {
+      mocks.store.cards[0].selector = "#chart";
+    });
+    await vi.waitFor(() =>
+      expect(contents.executeJavaScript).toHaveBeenCalledWith(
+        'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+      ),
+    );
+  } finally {
+    dispose();
   }
 });

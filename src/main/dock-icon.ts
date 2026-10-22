@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { app, type NativeImage, nativeImage } from "electron";
 import { reaction } from "mobx";
@@ -29,17 +29,42 @@ export function recolorIconBitmap(bitmap: Buffer, color: string): Buffer {
   return result;
 }
 
-async function loadOriginalIcon(): Promise<NativeImage> {
-  const path = join(process.resourcesPath, "icon.icns");
-  const direct = nativeImage.createFromPath(path);
-  if (!direct.isEmpty()) return direct;
-
+export async function loadOriginalIcon(): Promise<NativeImage> {
+  // macOS composes the app's frame and padding outside the raw [icon.icns] artwork
+  const bundle = join(dirname(app.getPath("exe")), "..", "..");
+  if (!bundle.endsWith(".app")) throw new Error("app bundle unavailable");
   const directory = await mkdtemp(join(app.getPath("temp"), "freelens-power-icon-"));
   try {
     const converted = join(directory, "icon.png");
-    await promisify(execFile)("/usr/bin/sips", ["-s", "format", "png", path, "--out", converted]);
+    await promisify(execFile)(
+      "/usr/bin/osascript",
+      [
+        "-l",
+        "JavaScript",
+        "-e",
+        `
+      ObjC.import("AppKit");
+      function run(argv) {
+        var icon = $.NSWorkspace.sharedWorkspace.iconForFile(argv[0]);
+        var rendered = $.NSImage.alloc.initWithSize($.NSMakeSize(512, 512));
+        rendered.lockFocus;
+        icon.drawInRectFromRectOperationFraction($.NSMakeRect(0, 0, 512, 512), $.NSZeroRect, $.NSCompositingOperationCopy, 1);
+        rendered.unlockFocus;
+        var bitmap = $.NSBitmapImageRep.imageRepWithData(rendered.TIFFRepresentation);
+        if (!bitmap.representationUsingTypeProperties($.NSPNGFileType, $({})).writeToFileAtomically(argv[1], true)) {
+          throw new Error("could not render app icon");
+        }
+      }
+    `,
+        bundle,
+        converted,
+      ],
+      { timeout: 10_000 },
+    );
     const original = nativeImage.createFromPath(converted);
     if (original.isEmpty()) throw new Error("empty app icon");
+    const bitmap = original.toBitmap();
+    if (recolorIconBitmap(bitmap, "#7060e8").equals(bitmap)) throw new Error("app icon colors unavailable");
     return original;
   } finally {
     await rm(directory, { recursive: true, force: true });

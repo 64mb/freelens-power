@@ -48,6 +48,7 @@ describe("DashboardPage", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
   beforeEach(() => {
     mocks.preferences.cards = [];
@@ -75,6 +76,70 @@ describe("DashboardPage", () => {
       height: 300,
       toJSON() {},
     });
+  });
+
+  it("allows restarting a pending refresh after one second and ignores stale completions", async () => {
+    vi.useFakeTimers();
+    mocks.preferences.cards = [{ id: "site", title: "Example", url: "https://example.com", size: "m" }];
+    const completions: Array<(value: unknown) => void> = [];
+    mocks.invoke.mockImplementation((channel) =>
+      channel === "freelens-power:dashboard-views:reload"
+        ? new Promise((resolve) => completions.push(resolve))
+        : Promise.resolve(undefined),
+    );
+    const view = render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    await act(async () => {});
+    const refresh = screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement;
+    fireEvent.click(refresh);
+    expect(refresh.disabled).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(999);
+    });
+    expect(refresh.disabled).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(refresh.disabled).toBe(false);
+    fireEvent.click(refresh);
+    expect(completions).toHaveLength(2);
+    await act(async () => completions[0]({ failed: ["site"] }));
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => completions[1]({ failed: [] }));
+    expect(refresh.disabled).toBe(false);
+    expect(refresh.getAttribute("aria-busy")).toBe("false");
+    fireEvent.click(refresh);
+    expect(completions).toHaveLength(3);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => completions[2]({ failed: [] }));
+  });
+
+  it("unlocks refresh immediately when its request finishes before the cooldown", async () => {
+    vi.useFakeTimers();
+    mocks.preferences.cards = [{ id: "site", title: "Example", url: "https://example.com", size: "m" }];
+    let complete!: (value: unknown) => void;
+    mocks.invoke.mockImplementation((channel) =>
+      channel === "freelens-power:dashboard-views:reload"
+        ? new Promise((resolve) => {
+            complete = resolve;
+          })
+        : Promise.resolve(undefined),
+    );
+    render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    await act(async () => {});
+    const refresh = screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement;
+    fireEvent.click(refresh);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(refresh.disabled).toBe(true);
+    await act(async () => complete({ failed: [] }));
+    expect(refresh.disabled).toBe(false);
+    fireEvent.click(refresh);
+    expect(refresh.disabled).toBe(true);
+    expect(mocks.invoke.mock.calls.filter(([channel]) => channel.endsWith(":reload"))).toHaveLength(2);
   });
 
   it("toggles ten-second refresh independently per card without reloading immediately", () => {
@@ -317,7 +382,10 @@ describe("DashboardPage", () => {
       expect(
         mocks.invoke.mock.calls.some(
           ([, payload]) =>
-            payload?.cards?.length === 1 && payload.cards[0].id === "first" && payload.cards[0].bounds.width === 280,
+            payload?.cards?.length === 1 &&
+            payload.cards[0].id === "first" &&
+            payload.cards[0].bounds.width === 280 &&
+            payload.cards[0].scrollbars === true,
         ),
       ).toBe(true),
     );
@@ -329,7 +397,14 @@ describe("DashboardPage", () => {
     expect(root.scrollTop).toBe(100);
     expect(second.parentElement?.hidden).toBe(false);
     expect(screen.getByRole("region", { name: "first" })).toBe(first);
-    await waitFor(() => expect(mocks.invoke.mock.calls.some(([, payload]) => payload?.cards?.length === 2)).toBe(true));
+    await waitFor(() =>
+      expect(
+        mocks.invoke.mock.calls.some(
+          ([, payload]) =>
+            payload?.cards?.length === 2 && payload.cards.every((card: { scrollbars?: boolean }) => !card.scrollbars),
+        ),
+      ).toBe(true),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Expand second" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore second" }));
     expect(second.parentElement?.hidden).toBe(false);

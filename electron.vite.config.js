@@ -13,7 +13,10 @@ export default defineConfig({
   main: {
     build: {
       lib: {
-        entry: resolve(__dirname, "src/main/index.ts"),
+        entry: {
+          index: resolve(__dirname, "src/main/index.ts"),
+          "dashboard-preload": resolve(__dirname, "src/main/dashboard-preload.ts"),
+        },
         // freelens 1.xx extensions are CommonJS modules
         formats: ["cjs"],
       },

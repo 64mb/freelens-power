@@ -56,7 +56,7 @@ export function SettingsModal({
   );
 }
 
-export function SettingsField({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+export function SettingsField({ id, label, children }: { id: string; label: ReactNode; children: ReactNode }) {
   return (
     <div
       className="power-settings-row"

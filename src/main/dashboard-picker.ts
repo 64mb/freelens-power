@@ -2,7 +2,6 @@ import { BrowserWindow, type IpcMainInvokeEvent, ipcMain, session } from "electr
 import { normalizeDashboardUrl } from "../common/dashboard";
 import { DASHBOARD_PICK_ELEMENT, type DashboardPickerResult, dashboardPickerScript } from "../common/dashboard-picker";
 import { normalizeDashboardSelector } from "../common/dashboard-selector";
-import { ACCENT_COLOR_OPTIONS, AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
 
 export function trustedPickerSender(event: IpcMainInvokeEvent): boolean {
   const trusted = (value: string) => {
@@ -108,14 +107,10 @@ export function startDashboardPicker(): () => void {
             cancel();
             return;
           }
-          const preferences = AppearancePreferencesStore.getInstanceOrCreate<AppearancePreferencesStore>();
-          const accent = preferences.enabled
-            ? ACCENT_COLOR_OPTIONS.find((option) => option.value === preferences.accentColor)?.color
-            : undefined;
           void picker.webContents
             .executeJavaScriptInIsolatedWorld(1007, [
               {
-                code: `globalThis.powerDashboardPickerSelection = ${dashboardPickerScript(accent ?? "#00a7a0")}; true`,
+                code: `globalThis.powerDashboardPickerSelection = ${dashboardPickerScript()}; true`,
               },
             ])
             .then((installed: unknown) => {

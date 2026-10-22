@@ -198,16 +198,37 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
     };
   }, [preferences]);
   const [reloading, setReloading] = useState(false);
+  const [reloadBlocked, setReloadBlocked] = useState(false);
+  const reloadRequest = useRef(0);
+  const reloadCooldown = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(
+    () => () => {
+      ++reloadRequest.current;
+      clearTimeout(reloadCooldown.current);
+    },
+    [],
+  );
   const reloadCards = async () => {
-    if (reloading) return;
+    if (reloadCooldown.current) return;
+    const request = ++reloadRequest.current;
     setReloading(true);
+    setReloadBlocked(true);
+    reloadCooldown.current = setTimeout(() => {
+      reloadCooldown.current = undefined;
+      setReloadBlocked(false);
+    }, 1000);
     try {
       const results = await Promise.all(cards.map(({ id }) => ipcRenderer.invoke(DASHBOARD_VIEWS_RELOAD, { id })));
-      setLoadFailed(results.some((result) => result?.failed?.length));
+      if (reloadRequest.current === request) setLoadFailed(results.some((result) => result?.failed?.length));
     } catch {
-      setLoadFailed(true);
+      if (reloadRequest.current === request) setLoadFailed(true);
     } finally {
-      setReloading(false);
+      if (reloadRequest.current === request) {
+        clearTimeout(reloadCooldown.current);
+        reloadCooldown.current = undefined;
+        setReloadBlocked(false);
+        setReloading(false);
+      }
     }
   };
   const focusPinned = (id: string) => {
@@ -309,7 +330,14 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
               clip.height <= 0
             )
               return [];
-            return [{ id: element.dataset.cardId, bounds, clip }];
+            return [
+              {
+                id: element.dataset.cardId,
+                bounds,
+                clip,
+                ...(expandedRef.current === element.dataset.cardId ? { scrollbars: true } : {}),
+              },
+            ];
           });
       void ipcRenderer
         .invoke(DASHBOARD_VIEWS_SYNC, {
@@ -368,7 +396,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
             className="power-dashboard-action power-dashboard-refresh"
             aria-label="Refresh"
             aria-busy={reloading}
-            disabled={reloading || cards.length === 0}
+            disabled={reloadBlocked || cards.length === 0}
             onClick={() => {
               void reloadCards();
             }}

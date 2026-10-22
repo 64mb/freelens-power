@@ -232,6 +232,7 @@ it("enables automatic refresh for new cards and aligns its native checkbox with 
   const checkbox = screen.getByRole("checkbox", { name: "Background refresh" }) as HTMLInputElement;
   expect(checkbox.checked).toBe(true);
   expect(checkbox.closest(".power-settings-row")?.querySelector("label")?.textContent).toBe("Background refresh");
+  expect(checkbox.closest(".power-settings-row")?.querySelector("label [aria-hidden=true]")).not.toBeNull();
   expect(checkbox.parentElement?.parentElement?.style.width).toBe("340px");
   fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.org" } });
   fireEvent.click(screen.getAllByRole("button", { name: "Add card" })[0]);
