@@ -1,6 +1,6 @@
 {
   "name": "@64mb/freelens-power",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Power tools for Freelens Kubernetes IDE",
   "main": "out/main/index.js",
   "renderer": "out/renderer/index.js",
