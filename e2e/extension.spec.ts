@@ -259,6 +259,8 @@ extensionTest("Settings jumps and stable pointer geometry", async (session, fram
     expect(box.width).toBeGreaterThan(0);
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(session.window.viewportSize()!.width);
+    const textFits = await button.evaluate((element) => element.scrollWidth <= element.clientWidth);
+    expect(textFits, `Settings section text fits: ${await button.innerText()}`).toBe(true);
     for (const other of boxes) {
       const overlapWidth = Math.min(box.x + box.width, other.x + other.width) - Math.max(box.x, other.x);
       const overlapHeight = Math.min(box.y + box.height, other.y + other.height) - Math.max(box.y, other.y);
