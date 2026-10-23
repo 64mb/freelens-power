@@ -107,15 +107,17 @@ describe("AI chat", () => {
     expect(mocks.invoke.mock.calls.at(-1)?.[1]).toHaveProperty("terminalSnapshot.text", "fresh send-time output");
     expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("fresh ");
   });
-  it("preserves attachment through a host overlay and refreshes the preview when it disappears", async () => {
+  it("preserves attachment through search overlay clicks and refreshes the preview when it disappears", async () => {
     document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
     stop = startAiChat(() => true);
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
     fireEvent.click(screen.getByLabelText("Attach terminal output"));
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("data-freelens-power-ai-overlay", "");
     document.body.append(dialog);
     await waitFor(() => expect(screen.queryByLabelText("AI assistant")).toBeNull());
+    fireEvent.click(dialog);
     mocks.terminalOutput = "fresh post-overlay output";
     dialog.remove();
     await waitFor(() => expect(screen.getByLabelText("AI assistant")).toBeTruthy());
@@ -574,110 +576,23 @@ it("previews the exact attached metadata before sending and persists safe relate
   });
 });
 
-function tapShift(target: Window | Element = window, options = {}) {
-  fireEvent.keyDown(target, { key: "Shift", code: "ShiftLeft", shiftKey: true, ...options });
-  fireEvent.keyUp(target, { key: "Shift", code: "ShiftLeft", ...options });
-}
-
-it("toggles the assistant with double Shift while typing and preserves the draft", () => {
-  window.history.replaceState({}, "", "/overview");
-  act(() => {
-    stop = startAiChat(() => true);
-  });
-  expect(screen.getByLabelText("Open AI assistant").getAttribute("title")).toContain("Shift, Shift");
-  tapShift();
+it("leaves double Shift to resource search and preserves the chat draft", () => {
+  stop = startAiChat(() => true);
+  const tap = (target: Window | Element) => {
+    fireEvent.keyDown(target, { key: "Shift", code: "ShiftLeft", shiftKey: true });
+    fireEvent.keyUp(target, { key: "Shift", code: "ShiftLeft" });
+  };
+  tap(window);
+  tap(window);
   expect(screen.queryByLabelText("AI assistant")).toBeNull();
-  tapShift();
+  expect(screen.getByLabelText("Open AI assistant").title).not.toContain("Shift");
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  const input = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "Unsent draft" } });
+  tap(input);
+  tap(input);
+  expect(input.value).toBe("Unsent draft");
   expect(screen.getByLabelText("AI assistant")).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Unsent draft" } });
-  tapShift(screen.getByLabelText("Message"));
-  tapShift(screen.getByLabelText("Message"));
-  expect(screen.queryByLabelText("AI assistant")).toBeNull();
-  tapShift();
-  tapShift();
-  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Unsent draft");
-  expect(mocks.invoke).not.toHaveBeenCalled();
-});
-
-it("ignores slow taps, held Shift, chords, repeats, composition and focus changes", () => {
-  act(() => {
-    stop = startAiChat(() => true);
-  });
-  const clock = vi.spyOn(performance, "now");
-  let now = 1000;
-  clock.mockImplementation(() => now);
-  try {
-    tapShift();
-    now += 401;
-    tapShift();
-    expect(screen.queryByLabelText("AI assistant")).toBeNull();
-    fireEvent.blur(window);
-    fireEvent.keyDown(window, { key: "Shift" });
-    now += 401;
-    fireEvent.keyUp(window, { key: "Shift" });
-    tapShift();
-    expect(screen.queryByLabelText("AI assistant")).toBeNull();
-    for (const options of [
-      { repeat: true },
-      { isComposing: true },
-      { altKey: true },
-      { ctrlKey: true },
-      { metaKey: true },
-    ]) {
-      tapShift(window, options);
-      tapShift();
-      expect(screen.queryByLabelText("AI assistant")).toBeNull();
-    }
-    fireEvent.keyDown(window, { key: "Shift" });
-    fireEvent.keyDown(window, { key: "A", shiftKey: true });
-    fireEvent.keyUp(window, { key: "Shift" });
-    tapShift();
-    expect(screen.queryByLabelText("AI assistant")).toBeNull();
-    fireEvent.keyUp(window, { key: "A" });
-    fireEvent.keyDown(window, { key: "ArrowRight" });
-    tapShift();
-    tapShift();
-    expect(screen.queryByLabelText("AI assistant")).toBeNull();
-    fireEvent.keyUp(window, { key: "ArrowRight" });
-    fireEvent.blur(window);
-    tapShift();
-    expect(screen.queryByLabelText("AI assistant")).toBeNull();
-  } finally {
-    clock.mockRestore();
-  }
-});
-
-it("recovers after macOS omits a character keyup inside a Command chord", () => {
-  act(() => {
-    stop = startAiChat(() => true);
-  });
-  fireEvent.keyDown(window, { key: "Meta", code: "MetaLeft", metaKey: true });
-  fireEvent.keyDown(window, { key: "a", code: "KeyA", metaKey: true });
-  fireEvent.keyUp(window, { key: "Meta", code: "MetaLeft" });
-  tapShift();
-  tapShift();
-  expect(screen.getByLabelText("AI assistant")).toBeTruthy();
-});
-
-it("ignores double Shift behind an overlay and outside cluster documents", () => {
-  window.history.replaceState({}, "", "/overview");
-  act(() => {
-    stop = startAiChat(() => true);
-  });
-  const dialog = document.createElement("div");
-  dialog.setAttribute("role", "dialog");
-  document.body.append(dialog);
-  tapShift();
-  tapShift();
-  expect(screen.queryByLabelText("AI assistant")).toBeNull();
-  dialog.remove();
-  stop?.();
-  act(() => {
-    stop = startAiChat(() => false);
-  });
-  tapShift();
-  tapShift();
-  expect(screen.queryByLabelText("AI assistant")).toBeNull();
   expect(mocks.invoke).not.toHaveBeenCalled();
 });
 
@@ -829,4 +744,89 @@ it("shortens the overview action only beside horizontal custom metrics and track
     stop = undefined;
     vi.unstubAllGlobals();
   }
+});
+
+describe("selected diagnostic findings", () => {
+  const finding = () => ({
+    clusterId: "cluster-a",
+    title: "Pending workload",
+    summary: "Insufficient CPU on available nodes",
+    resource: { kind: "Pod", namespace: "sample", name: "worker" },
+  });
+  const attach = async (value = finding()) => {
+    const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+    act(() => {
+      explainDiagnosticFinding(value);
+    });
+  };
+  it("opens a reviewable finding without sending and preserves the current draft", async () => {
+    mocks.clusterId = "cluster-a";
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "My investigation question" } });
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    await attach();
+    expect(screen.getByLabelText("Selected diagnostic finding").textContent).toContain("Insufficient CPU");
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("My investigation question");
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.preferences.conversations).toEqual({});
+  });
+  it("sends bounded selected evidence and context while persisting plain conversation only", async () => {
+    mocks.clusterId = "cluster-a";
+    mocks.invoke.mockResolvedValue({ text: "Ready" });
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    await attach({ ...finding(), summary: "evidence ".repeat(1000) });
+    const preview = screen.getByLabelText("Selected diagnostic finding").querySelector("pre")!.textContent!;
+    expect(preview).toHaveLength(6000);
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect this pod" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+    const payload = mocks.invoke.mock.calls.at(-1)?.[1] as { messages: { text: string }[]; context: unknown };
+    expect(payload.messages.at(-1)?.text).toContain(preview);
+    expect(payload.context).toMatchObject({ clusterId: "cluster-a", resource: finding().resource });
+    expect(mocks.preferences.conversations["cluster-a"][0]).toEqual({ role: "user", text: "Inspect this pod" });
+    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("evidence ");
+    expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  });
+  it("removing the preview excludes evidence and resource from the next request", async () => {
+    mocks.clusterId = "cluster-a";
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    await attach();
+    fireEvent.click(screen.getByLabelText("Remove diagnostic finding"));
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "General question" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalled());
+    const payload = mocks.invoke.mock.calls.at(-1)?.[1] as {
+      messages: { text: string }[];
+      context: { resource?: unknown };
+    };
+    expect(payload.messages.at(-1)?.text).toBe("General question");
+    expect(payload.context.resource).toBeUndefined();
+  });
+  it("ignores findings for another cluster and clears an attachment on cluster navigation", async () => {
+    mocks.clusterId = "cluster-a";
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    await attach({ ...finding(), clusterId: "cluster-b" });
+    expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+    await attach();
+    expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
+    act(() => {
+      mocks.clusterId = "cluster-b";
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+    act(() => {
+      mocks.clusterId = "cluster-a";
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  });
 });

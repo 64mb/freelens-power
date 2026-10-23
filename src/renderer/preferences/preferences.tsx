@@ -16,6 +16,29 @@ const styles = `
   #freelens-power-settings > .hint,
   #freelens-power-settings + hr { display: none; }
   .freelens-power-preferences { display: grid; gap: 24px; max-width: 760px; }
+  .freelens-power-preferences .power-preferences-section-links {
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; gap: 8px;
+  }
+  :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; min-width: 0; min-height: 32px; padding: 4px 2px;
+    border: 0; border-radius: 4px; background: transparent; box-shadow: none;
+    color: var(--textColorSecondary); text-transform: none; white-space: nowrap; cursor: pointer;
+  }
+  :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link:hover {
+    color: var(--primary); background: transparent; box-shadow: none;
+  }
+  :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link:focus-visible {
+    color: var(--primary); background: transparent; box-shadow: none;
+    outline: 2px solid var(--primary); outline-offset: 2px;
+  }
+  @media (max-width: 600px) {
+    .freelens-power-preferences .power-preferences-section-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 360px) {
+    .freelens-power-preferences .power-preferences-section-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .freelens-power-preferences section[id] { scroll-margin-top: 16px; }
   .freelens-power-preferences section {
     padding: 24px; border: 1px solid var(--borderFaintColor);
     border-radius: 12px; background: var(--contentColor);
@@ -51,6 +74,15 @@ const styles = `
   }
 `;
 
+const sectionLinks = [
+  { id: "safety", title: "Safety", icon: "lock_outline" },
+  { id: "appearance", title: "Appearance", icon: "palette" },
+  { id: "monitoring", title: "Monitoring", icon: "show_chart" },
+  { id: "shell", title: "Node shell", icon: "vpn_key" },
+  { id: "ai", title: "AI", icon: "chat_bubble_outline" },
+  { id: "dashboard", title: "Dashboard", icon: "dashboard" },
+];
+
 export const PowerPreferences = () => (
   <div className="freelens-power-preferences">
     <style>{styles}</style>
@@ -58,13 +90,29 @@ export const PowerPreferences = () => (
     <section aria-label="Freelens Power">
       <PowerPreferencesToggle />
     </section>
-    <section aria-labelledby="freelens-power-safety-title">
+    <nav className="power-preferences-section-links" aria-label="Settings sections">
+      {sectionLinks.map(({ id, title, icon }) => (
+        <Renderer.Component.Button
+          key={id}
+          className="power-settings-section-link"
+          title={`Jump to ${title} settings`}
+          onClick={() => {
+            const section = document.getElementById(`freelens-power-${id}-section`);
+            section?.focus({ preventScroll: true });
+            section?.scrollIntoView({ block: "start" });
+          }}
+        >
+          <Renderer.Component.Icon material={icon} size={16} /> {title}
+        </Renderer.Component.Button>
+      ))}
+    </nav>
+    <section id="freelens-power-safety-section" tabIndex={-1} aria-labelledby="freelens-power-safety-title">
       <h3 id="freelens-power-safety-title">
         <Renderer.Component.Icon material="lock_outline" size={20} /> Read-only mode
       </h3>
       <ReadOnlyPreferences />
     </section>
-    <section aria-labelledby="freelens-power-appearance-title">
+    <section id="freelens-power-appearance-section" tabIndex={-1} aria-labelledby="freelens-power-appearance-title">
       <h3 id="freelens-power-appearance-title">
         <Renderer.Component.Icon material="palette" size={20} /> Appearance
       </h3>
@@ -79,25 +127,25 @@ export const PowerPreferences = () => (
         </Renderer.Component.Button>
       </div>
     </section>
-    <section aria-labelledby="freelens-power-monitoring-title">
+    <section id="freelens-power-monitoring-section" tabIndex={-1} aria-labelledby="freelens-power-monitoring-title">
       <h3 id="freelens-power-monitoring-title">
         <Renderer.Component.Icon material="show_chart" size={20} /> Monitoring
       </h3>
       <MonitoringPreferences />
     </section>
-    <section aria-labelledby="freelens-power-shell-title">
+    <section id="freelens-power-shell-section" tabIndex={-1} aria-labelledby="freelens-power-shell-title">
       <h3 id="freelens-power-shell-title">
         <Renderer.Component.Icon material="vpn_key" size={20} /> Secure Node Shell
       </h3>
       <NodeShellPreferences />
     </section>
-    <section aria-labelledby="freelens-power-ai-title">
+    <section id="freelens-power-ai-section" tabIndex={-1} aria-labelledby="freelens-power-ai-title">
       <h3 id="freelens-power-ai-title">
         <Renderer.Component.Icon material="chat_bubble_outline" size={20} /> AI assistant
       </h3>
       <AiPreferences />
     </section>
-    <section aria-labelledby="freelens-power-dashboard-title">
+    <section id="freelens-power-dashboard-section" tabIndex={-1} aria-labelledby="freelens-power-dashboard-title">
       <h3 id="freelens-power-dashboard-title">
         <Renderer.Component.Icon material="dashboard" size={20} /> Dashboard
       </h3>

@@ -38,6 +38,19 @@ export const MonitoringPreferences = observer(() => {
       </div>
       <div>
         <Renderer.Component.Switch
+          checked={preferences.relationshipsVisible}
+          onChange={(value) => {
+            preferences.relationshipsVisible = value;
+          }}
+        >
+          Show resource relationships
+        </Renderer.Component.Switch>
+        <div className="power-settings-hint">
+          Focused resource connections from API evidence, with links to related objects.
+        </div>
+      </div>
+      <div>
+        <Renderer.Component.Switch
           checked={preferences.enabled}
           onChange={(value) => {
             preferences.enabled = value;

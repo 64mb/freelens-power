@@ -11,7 +11,9 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **macOS Dock icon:** optionally follows your accent, with a separate toggle to restore the original
 - **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, per-card 10-second refresh including pinned windows, and optional background refresh
 - **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts using metrics-server and Kubernetes APIs
-- **Resource diagnostics:** CPU/memory consumers grouped by namespace and workload, application event timelines, and evidence-based Pending pod diagnostics
+- **Resource diagnostics:** CPU/memory consumers, grouped warning timelines, Pending evidence, Service/HPA checks, operational resource and namespace summaries, scoped AI handoff, and incident-summary copying
+- **Resource relationships:** a focused Service graph connects Ingress, selected Pods, published endpoints, owners and node references, with resource links and an optional menu switch
+- **Fast resource search:** double Shift opens an indexed cross-kind search over names, namespaces, labels and safe status fields, with name-part and typo matching, keyboard navigation, resource links and explicit AI attachment; inventory is bounded and excludes Secrets, ConfigMaps and custom resources
 - **Local metric history:** opt-in SQLite storage, up to seven days within a 100 MiB budget, with aggregated ranges and explicit collection gaps
 - **AI assistant:** native Codex or Claude CLI, per-cluster conversations, read-only API discovery and resource summaries, model/effort/speed selection, editable prompts, quick-start commands, Markdown, cancellable replies, context preview, optional terminal attachments, resource links, resizable pinned chat, and a switch to disable all AI features
 - **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
