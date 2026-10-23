@@ -37,6 +37,7 @@ const viewDescriptions = {
     "What changed in this workload?",
     "Follow related Kubernetes events and changes observed while this view is open.",
   ],
+  "Not ready": ["Why is this pod not ready?", "Inspect running pod readiness, conditions and retained events."],
   Pending: [
     "Why is this pod waiting?",
     "Inspect scheduling evidence and resource requests before opening the pod for investigation.",
@@ -184,7 +185,7 @@ function ConsumerStatus({ pods }: { pods: DiagnosticsObject[] }) {
     </span>
   );
 }
-type Tab = "Consumers" | "Timeline" | "Pending";
+type Tab = "Consumers" | "Timeline" | "Pending" | "Not ready";
 const hidden = () => document.visibilityState === "hidden";
 const activeId = () => Renderer.Catalog.activeCluster.get()?.metadata.uid;
 const groupKey = (group: ConsumerGroup) => `${group.namespace}/${group.identity}`;
@@ -216,7 +217,14 @@ const plurals: Record<string, string> = {
 function openResource(object: DiagnosticsObject, clusterId: string, event: MouseEvent): void {
   event.stopPropagation();
   const kind = object.kind ?? "Pod";
-  if (activeId() !== clusterId || !object.metadata.name || !object.metadata.namespace || !resources[kind]) return;
+  if (activeId() !== clusterId || !object.metadata.name) return;
+  if (kind === "Namespace") {
+    void Promise.resolve(
+      Renderer.Navigation.showDetails(`/api/v1/namespaces/${encodeURIComponent(object.metadata.name)}`),
+    ).catch(() => {});
+    return;
+  }
+  if (!object.metadata.namespace || !resources[kind]) return;
   const path = `${resources[kind]}/namespaces/${encodeURIComponent(object.metadata.namespace)}/${plurals[kind]}/${encodeURIComponent(object.metadata.name)}`;
   void Promise.resolve(Renderer.Navigation.showDetails(path)).catch(() => {});
 }
@@ -271,6 +279,7 @@ export function DiagnosticsPage() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState(initial.filter);
   const [namespaceScope, setNamespaceScope] = useState(initial.namespaceScope);
+  const [resourceScope, setResourceScope] = useState(initial.resourceScope);
   const pendingScroll = useRef<{ clusterId: string; top: number } | undefined>({
     clusterId: stateCluster.current,
     top: initial.scrollTop,
@@ -283,6 +292,7 @@ export function DiagnosticsPage() {
   const [expanded, setExpanded] = useState<string[]>(initial.expanded);
   const [selected, setSelected] = useState(initial.selected);
   const [pendingUid, setPendingUid] = useState(initial.pendingUid);
+  const [notReadyUid, setNotReadyUid] = useState(initial.notReadyUid ?? "");
   const [reason, setReason] = useState(initial.reason);
   const [warningOnly, setWarningOnly] = useState(initial.warningOnly);
   const [groupedTimeline, setGroupedTimeline] = useState(initial.groupedTimeline);
@@ -292,6 +302,7 @@ export function DiagnosticsPage() {
     tab,
     filter,
     namespaceScope,
+    resourceScope,
     needsAttention,
     groupMode,
     namespacesOpen,
@@ -299,6 +310,7 @@ export function DiagnosticsPage() {
     expanded,
     selected,
     pendingUid,
+    notReadyUid,
     reason,
     warningOnly,
     groupedTimeline,
@@ -310,21 +322,27 @@ export function DiagnosticsPage() {
   }, [initial]);
   useEffect(() => {
     const focusNamespace = (event: Event) => {
-      const detail = (event as CustomEvent<{ clusterId: string; namespace: string }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          clusterId: string;
+          namespace?: string;
+          resourceScope?: { kind: string; name: string; uid?: string };
+        }>
+      ).detail;
       if (
         !detail ||
         detail.clusterId !== stateCluster.current ||
         detail.clusterId !== activeId() ||
-        typeof detail.namespace !== "string" ||
-        !detail.namespace
+        (!detail.namespace && !detail.resourceScope)
       )
         return;
       setTab("Consumers");
       setNamespaceScope(detail.namespace);
+      setResourceScope(detail.resourceScope);
       setFilter("");
       setNeedsAttention(false);
-      setGroupMode("namespace");
-      setNamespacesOpen([detail.namespace]);
+      setGroupMode(detail.namespace ? "namespace" : "workload");
+      setNamespacesOpen(detail.namespace ? [detail.namespace] : []);
       viewState.current.scrollTop = 0;
       pendingScroll.current = undefined;
       if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
@@ -351,6 +369,7 @@ export function DiagnosticsPage() {
       setTab(restored.tab);
       setFilter(restored.filter);
       setNamespaceScope(restored.namespaceScope);
+      setResourceScope(restored.resourceScope);
       setNeedsAttention(restored.needsAttention);
       setGroupMode(restored.groupMode);
       setNamespacesOpen(restored.namespacesOpen);
@@ -358,6 +377,7 @@ export function DiagnosticsPage() {
       setExpanded(restored.expanded);
       setSelected(restored.selected);
       setPendingUid(restored.pendingUid);
+      setNotReadyUid(restored.notReadyUid ?? "");
       setReason(restored.reason);
       setWarningOnly(restored.warningOnly);
       setGroupedTimeline(restored.groupedTimeline);
@@ -448,7 +468,37 @@ export function DiagnosticsPage() {
     return () => cancelAnimationFrame(frame);
   }, [data]);
   const projected = useMemo(() => (data ? projection(data) : undefined), [data]);
-  const groups = projected?.groups ?? [];
+  const groups = useMemo(() => {
+    if (!data || !projected) return [];
+    if (!resourceScope) return projected.groups;
+    if (resourceScope.kind === "Pod" || resourceScope.kind === "Node") {
+      const pods = (data.pods ?? []).filter((pod) =>
+        resourceScope.kind === "Pod"
+          ? (resourceScope.uid ? pod.metadata.uid === resourceScope.uid : pod.metadata.name === resourceScope.name) &&
+            (!namespaceScope || pod.metadata.namespace === namespaceScope)
+          : pod.spec?.nodeName === resourceScope.name,
+      );
+      if (resourceScope.kind === "Pod") {
+        // explicit pod navigation includes terminal pods while normal consumer totals exclude them
+        const originalPods = new Map<DiagnosticsObject, DiagnosticsObject>();
+        const focusedPods = pods.map((pod) => {
+          const focused = { ...pod, status: { ...pod.status, phase: undefined } };
+          originalPods.set(focused, pod);
+          return focused;
+        });
+        return buildConsumerGroups(focusedPods, data.owners ?? [], projected.usage).map((group) => ({
+          ...group,
+          pods: group.pods.map((pod) => originalPods.get(pod)!),
+        }));
+      }
+      return buildConsumerGroups(pods, data.owners ?? [], projected.usage);
+    }
+    return projected.groups.filter((group) =>
+      resourceScope.uid
+        ? group.identity === resourceScope.uid
+        : group.kind === resourceScope.kind && group.name === resourceScope.name,
+    );
+  }, [data, projected, resourceScope, namespaceScope]);
   const filtered = useMemo(
     () =>
       groups
@@ -520,8 +570,22 @@ export function DiagnosticsPage() {
   );
   const displayedTimeline = groupedTimeline ? timelineGroups.map((group) => group.latest) : timeline;
   const pending = (data?.pods ?? []).filter((pod) => pod.status?.phase === "Pending");
-  const PendingCard = pending.length && data?.pods ? "button" : "div";
-  const selectedPod = pending.find((pod) => pod.metadata.uid === pendingUid);
+  const attentionPods = new Set(
+    groups
+      .filter((group) => !namespaceScope || group.namespace === namespaceScope)
+      .flatMap((group) => group.pods)
+      .filter((pod) => ["warning", "error"].includes(consumerStatus([pod]).tone))
+      .map((pod) => pod.metadata.uid ?? pod),
+  ).size;
+  const AttentionCard = data?.pods ? "button" : "div";
+  const notReady = (data?.pods ?? []).filter(
+    (pod) => pod.status?.phase === "Running" && ["warning", "error"].includes(consumerStatus([pod]).tone),
+  );
+  const readinessView = tab === "Not ready";
+  const triagePods = readinessView ? notReady : pending;
+  const triageUid = readinessView ? notReadyUid : pendingUid;
+  const triageLabel = readinessView ? "Not ready pod" : "Pending pod";
+  const selectedPod = triagePods.find((pod) => pod.metadata.uid === triageUid);
   const diagnosis = selectedPod
     ? diagnosePendingPod(selectedPod, data?.nodes ?? [], data?.events ?? [], data?.pvcs)
     : undefined;
@@ -540,7 +604,7 @@ export function DiagnosticsPage() {
         <span className="snapshot-meta">Read-only snapshot{data ? ` · ${formatDateTime(data.time)}` : ""}</span>
       </header>
       <nav aria-label="Diagnostics views">
-        {(["Consumers", "Timeline", "Pending"] as Tab[]).map((name) => (
+        {(["Consumers", "Timeline", "Pending", "Not ready"] as Tab[]).map((name) => (
           <button
             key={name}
             type="button"
@@ -552,7 +616,11 @@ export function DiagnosticsPage() {
               material={name === "Consumers" ? "account_tree" : name === "Timeline" ? "timeline" : "hourglass_empty"}
             />
             {name}
-            {name === "Pending" && data?.pods ? ` (${pending.length})` : ""}
+            {name === "Pending" && data?.pods
+              ? ` (${pending.length})`
+              : name === "Not ready" && data?.pods
+                ? ` (${notReady.length})`
+                : ""}
           </button>
         ))}
       </nav>
@@ -590,28 +658,28 @@ export function DiagnosticsPage() {
               <span>Pods in snapshot</span>
             </div>
           </div>
-          <PendingCard
-            className={`summary-card pending${!data.pods ? " unavailable" : pending.length ? " attention" : ""}`}
-            {...(pending.length
+          <AttentionCard
+            className={`summary-card pending${!data.pods ? " unavailable" : attentionPods ? " attention" : ""}`}
+            {...(data.pods
               ? {
                   type: "button" as const,
-                  title: "Inspect pending pods",
-                  "aria-label": "Inspect pending pods",
+                  title: "Show consumers needing attention",
+                  "aria-label": "Show consumers needing attention",
                   onClick: () => {
-                    setPendingUid(pending[0]?.metadata.uid ?? "");
-                    setTab("Pending");
+                    setNeedsAttention(true);
+                    setFilter("");
                   },
                 }
               : {})}
           >
             <span className="summary-icon">
-              <AiIcon material="hourglass_empty" size={22} />
+              <AiIcon material="warning_amber" size={22} />
             </span>
             <div>
-              <strong>{data.pods ? pending.length : "Unavailable"}</strong>
-              <span>Pending pods</span>
+              <strong>{data.pods ? attentionPods : "Unavailable"}</strong>
+              <span>Needs attention</span>
             </div>
-          </PendingCard>
+          </AttentionCard>
         </div>
       )}
       {!data && !error && (
@@ -621,6 +689,17 @@ export function DiagnosticsPage() {
       )}
       {tab === "Consumers" && data && (
         <>
+          {resourceScope && (
+            <div className="namespace-scope" role="status">
+              <span className="namespace-scope-label">
+                {resourceScope.kind}: {resourceScope.name}
+              </span>
+              <button type="button" aria-label="Clear resource scope" onClick={() => setResourceScope(undefined)}>
+                <AiIcon material="close" size={13} />
+                Show all resources
+              </button>
+            </div>
+          )}
           {namespaceScope && (
             <div className="namespace-scope" role="status">
               <span className="namespace-scope-label">Namespace: {namespaceScope}</span>
@@ -993,17 +1072,17 @@ export function DiagnosticsPage() {
           )}
         </>
       )}
-      {tab === "Pending" && data && (
+      {(tab === "Pending" || readinessView) && data && (
         <>
           <label>
-            Pending pod{" "}
+            {triageLabel}{" "}
             <DiagnosticsSelect
-              label="Pending pod"
-              value={pendingUid}
-              onChange={setPendingUid}
+              label={triageLabel}
+              value={triageUid}
+              onChange={readinessView ? setNotReadyUid : setPendingUid}
               options={[
                 { value: "", label: "Select a pod" },
-                ...pending.map((pod) => ({
+                ...triagePods.map((pod) => ({
                   value: pod.metadata.uid ?? "",
                   label: `${pod.metadata.namespace} / ${pod.metadata.name}`,
                 })),
@@ -1019,7 +1098,13 @@ export function DiagnosticsPage() {
                       {selectedPod.metadata.namespace} / {selectedPod.metadata.name}
                     </strong>
                     <div className="pending-state-row">
-                      <h3>{diagnosis.state === "assigned-waiting" ? "Assigned and waiting" : "Unscheduled"}</h3>
+                      <h3>
+                        {readinessView
+                          ? "Not ready"
+                          : diagnosis.state === "assigned-waiting"
+                            ? "Assigned and waiting"
+                            : "Unscheduled"}
+                      </h3>
                       {consumerStatus([selectedPod]).tone === "error" && <ConsumerStatus pods={[selectedPod]} />}
                     </div>
                   </div>
@@ -1034,9 +1119,11 @@ export function DiagnosticsPage() {
                   </button>
                 </div>
                 <p>
-                  {diagnosis.state === "assigned-waiting"
-                    ? "A node is assigned. Check pod conditions and events for startup or storage issues."
-                    : "No node is assigned. Start with scheduler events, then inspect constraints."}
+                  {readinessView
+                    ? "The pod is running but needs attention. Check readiness conditions, container status and events."
+                    : diagnosis.state === "assigned-waiting"
+                      ? "A node is assigned. Check pod conditions and events for startup or storage issues."
+                      : "No node is assigned. Start with scheduler events, then inspect constraints."}
                 </p>
                 <div className="pending-request-badges">
                   <span>
@@ -1087,9 +1174,9 @@ export function DiagnosticsPage() {
               <IncidentCopyButton
                 clusterId={data.clusterId}
                 incident={{
-                  problem: "Pending pod",
+                  problem: triageLabel,
                   facts: [
-                    diagnosis.state,
+                    readinessView ? consumerStatus([selectedPod]).label : diagnosis.state,
                     `CPU request ${podRequest(selectedPod, "cpu")}; memory request ${podRequest(selectedPod, "memory")}`,
                     ...diagnosis.evidence.slice(0, 8).map((entry) => entry.message),
                   ],
@@ -1105,8 +1192,8 @@ export function DiagnosticsPage() {
                 onClick={() =>
                   explainDiagnosticFinding({
                     clusterId: data.clusterId,
-                    title: "Pending pod",
-                    summary: `${diagnosis.state}. CPU request ${podRequest(selectedPod, "cpu")}, memory request ${podRequest(selectedPod, "memory")}. ${diagnosis.evidence
+                    title: triageLabel,
+                    summary: `${readinessView ? consumerStatus([selectedPod]).label : diagnosis.state}. CPU request ${podRequest(selectedPod, "cpu")}, memory request ${podRequest(selectedPod, "memory")}. ${diagnosis.evidence
                       .slice(0, 8)
                       .map((entry) => entry.message)
                       .join("; ")}`,
@@ -1121,7 +1208,7 @@ export function DiagnosticsPage() {
                 <AiIcon material="auto_awesome" size={13} />
                 Explain with AI
               </DiagnosticExplainButton>
-              <h3>Scheduling evidence</h3>
+              <h3>{readinessView ? "Readiness and retained evidence" : "Scheduling evidence"}</h3>
               <div className="diagnostics-table">
                 <table className="evidence-table">
                   <colgroup>
@@ -1166,10 +1253,10 @@ export function DiagnosticsPage() {
           ) : (
             <p className="diagnostics-empty">
               {!data.pods
-                ? "Pod inventory unavailable. Check cluster access before investigating pending pods."
-                : pending.length
-                  ? "Select a pending pod to see scheduling evidence and requests"
-                  : "No pending pods in this snapshot"}
+                ? `Pod inventory unavailable. Check cluster access before investigating ${readinessView ? "readiness" : "pending pods"}.`
+                : triagePods.length
+                  ? `Select a ${readinessView ? "not ready" : "pending"} pod to see evidence and requests`
+                  : `No ${readinessView ? "not ready" : "pending"} pods in this snapshot`}
             </p>
           )}
         </>
@@ -1220,8 +1307,7 @@ function ConsumerRows({
                       )
                     }
                   >
-                    {group.name}
-                    <AiIcon material="open_in_new" size={13} />
+                    <span className="consumer-link-name">{group.name}</span>
                   </button>
                 ) : (
                   <span className="consumer-identity-label">{group.name}</span>
@@ -1317,8 +1403,7 @@ function ConsumerRows({
                       onClick={(event) => openResource(pod, clusterId, event)}
                     >
                       <AiIcon material="view_in_ar" size={14} />
-                      {pod.metadata.name}
-                      <AiIcon material="open_in_new" size={12} />
+                      <span className="consumer-link-name">{pod.metadata.name}</span>
                     </button>
                     <ConsumerStatus pods={[pod]} />
                   </div>
@@ -1417,10 +1502,17 @@ function NamespaceRows({
             <div className="consumer-identity-row">
               <div className="consumer-identity-main">
                 <div className="consumer-title-line">
-                  <span className="namespace-identity">
+                  <button
+                    type="button"
+                    className="consumer-resource-link namespace-identity"
+                    onClick={(event) =>
+                      openResource({ kind: "Namespace", metadata: { name: namespace } }, clusterId, event)
+                    }
+                    title="Open namespace"
+                  >
                     <AiIcon material="folder_open" size={17} />
-                    <span className="consumer-identity-label">{namespace}</span>
-                  </span>
+                    <span className="consumer-link-name">{namespace}</span>
+                  </button>
                   <ConsumerStatus pods={groups.flatMap((group) => group.pods)} />
                   <small>
                     {groups.filter((group) => consumerStatus(group.pods).tone === "healthy").length} ready ·{" "}
@@ -1481,7 +1573,14 @@ function NamespaceRows({
 
 function podResourceGroup(pod: DiagnosticsObject, usage: PodUsage[]): ConsumerGroup {
   return buildConsumerGroups(
-    [{ ...pod, kind: "Pod", metadata: { ...pod.metadata, ownerReferences: [] } }],
+    [
+      {
+        ...pod,
+        kind: "Pod",
+        metadata: { ...pod.metadata, ownerReferences: [] },
+        status: { ...pod.status, phase: undefined },
+      },
+    ],
     [],
     usage,
   )[0]!;

@@ -154,6 +154,28 @@ describe("metrics-server overview", () => {
     fireEvent.keyDown(chart, { key: "Escape" });
     expect(hostEscape).toHaveBeenCalledTimes(3);
   });
+  it("keeps native usage and requests independently visible and restores bars on stop", () => {
+    state.enabled = true;
+    document.body.innerHTML = `<style>.LineProgress{height:5px}.LineProgress .line{height:100%}.LineProgress .line.secondary{position:absolute;top:0}</style><div class="Nodes">${["cpu", "memory"].map((metric, i) => `<div class="TableCell ${metric}"><div class="LineProgress" title="Usage / Requests / Allocatable"><div class="line secondary" style="width:${i ? 26 : 75}%"></div><div class="line" style="width:${i ? 37 : 12.5}%"></div></div></div>`).join("")}<div class="TableCell disk"><div class="LineProgress"><div class="line"></div></div></div></div>`;
+    const original = document.body.innerHTML;
+    const stop = startMonitoring();
+    for (const metric of ["cpu", "memory"]) {
+      const bar = document.querySelector(`.${metric} .LineProgress`)!;
+      expect(getComputedStyle(bar.querySelector(".line:not(.secondary)")!).height).toBe("60%");
+      expect(getComputedStyle(bar.querySelector(".secondary")!).height).toBe("40%");
+      expect(getComputedStyle(bar.querySelector(".secondary")!).top).toBe("60%");
+      expect(getComputedStyle(bar.querySelector(".line:not(.secondary)")!).borderRadius).toBe("0px");
+      expect(getComputedStyle(bar.querySelector(".secondary")!).borderRadius).toBe("0px");
+      expect(getComputedStyle(bar).overflow).toBe("hidden");
+      expect(getComputedStyle(bar).height).toBe("5px");
+      expect(bar.getAttribute("title")).toBe("Usage / Requests / Allocatable");
+    }
+    expect(getComputedStyle(document.querySelector(".disk .line")!).height).toBe("100%");
+    stop();
+    expect(document.body.innerHTML).toBe(original);
+    expect(getComputedStyle(document.querySelector(".memory .line:not(.secondary)")!).height).toBe("100%");
+    expect(getComputedStyle(document.querySelector(".memory .secondary")!).top).toBe("0px");
+  });
   it("suppresses native loading panels before overview insertion and replaces them without waiting for the polling interval", async () => {
     vi.useFakeTimers();
     state.enabled = true;

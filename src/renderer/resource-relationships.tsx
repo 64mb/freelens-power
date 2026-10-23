@@ -7,6 +7,7 @@ import {
   type RelationshipNode,
   type RelationshipObject,
 } from "../common/resource-relationships";
+import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { resourceRelationshipsStyles } from "./resource-relationships.css";
 
 const { Icon, Select } = Renderer.Component;
@@ -326,7 +327,18 @@ function EnabledResourceRelationshipsPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [serviceName, setServiceName] = useState("");
   const [focusedPod, setFocusedPod] = useState("");
-  const [hideUpstreams, setHideUpstreams] = useState(false);
+  const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
+  const [hideUpstreams, setHideUpstreams] = useState(() =>
+    preferences.hiddenUpstreamClusters.includes(clusterId.current ?? ""),
+  );
+  const toggleUpstreams = () => {
+    const id = clusterId.current;
+    if (!id || Renderer.Catalog.activeCluster.get()?.metadata.uid !== id) return;
+    const hidden = !hideUpstreams;
+    const otherClusters = preferences.hiddenUpstreamClusters.filter((cluster) => cluster !== id);
+    preferences.hiddenUpstreamClusters = hidden ? [...otherClusters, id].slice(-100) : otherClusters;
+    setHideUpstreams(hidden);
+  };
   const [inventory, setInventory] = useState<InventoryState>();
   const [refresh, setRefresh] = useState(0);
   const [scopeRefresh, setScopeRefresh] = useState(0);
@@ -426,10 +438,6 @@ function EnabledResourceRelationshipsPage() {
       <style>{resourceRelationshipsStyles}</style>
       <div className="page-heading">
         <h2>Resource relationships</h2>
-        <label className="graph-option">
-          <input type="checkbox" checked={hideUpstreams} onChange={(event) => setHideUpstreams(event.target.checked)} />
-          Hide Upstream
-        </label>
       </div>
       <p className="intro">
         Follow one Service from upstream Ingress references to selected pods, published EndpointSlices and controller
@@ -469,6 +477,17 @@ function EnabledResourceRelationshipsPage() {
             isDisabled={!graph?.podOptions.length}
           />
         </label>
+        <button
+          type="button"
+          className="graph-option"
+          aria-pressed={hideUpstreams}
+          onClick={toggleUpstreams}
+          title={hideUpstreams ? "Show upstream references" : "Hide upstream references"}
+          disabled={!clusterId.current}
+        >
+          <Icon material={hideUpstreams ? "visibility_off" : "visibility"} size={16} />
+          Hide Upstream
+        </button>
         <button
           type="button"
           className="refresh"

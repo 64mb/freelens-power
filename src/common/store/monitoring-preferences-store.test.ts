@@ -16,6 +16,7 @@ it("serializes observable tracked resources into IPC-safe plain data", () => {
     enabled: true,
     diagnosticsVisible: true,
     relationshipsVisible: true,
+    hiddenUpstreamClusters: [],
     historyEnabled: true,
     trackedHistory: [{ clusterId: "sample-cluster", scope: "pod", uid: "sample-pod" }],
   });
@@ -32,6 +33,7 @@ it("serializes an empty observable tracking list when updating monitoring switch
     enabled: true,
     diagnosticsVisible: true,
     relationshipsVisible: true,
+    hiddenUpstreamClusters: [],
     historyEnabled: true,
     trackedHistory: [],
   });
@@ -51,4 +53,18 @@ it("keeps relationship beta visible for existing settings and preserves explicit
   expect(store.relationshipsVisible).toBe(true);
   store.fromStore({ enabled: true, relationshipsVisible: false });
   expect(structuredClone(store.toJSON()).relationshipsVisible).toBe(false);
+});
+
+it("restores hidden upstreams per cluster as bounded IPC-safe preferences", () => {
+  const store = new MonitoringPreferencesStore();
+  store.fromStore({ hiddenUpstreamClusters: ["one", "two", "one", ""] });
+  const snapshot = structuredClone(store.toJSON());
+  expect(snapshot.hiddenUpstreamClusters).toEqual(["one", "two"]);
+  store.hiddenUpstreamClusters = ["two"];
+  expect(snapshot.hiddenUpstreamClusters).toEqual(["one", "two"]);
+  store.fromStore(snapshot);
+  expect(store.hiddenUpstreamClusters.includes("one")).toBe(true);
+  expect(store.hiddenUpstreamClusters.includes("other")).toBe(false);
+  store.fromStore({});
+  expect(store.hiddenUpstreamClusters).toEqual([]);
 });

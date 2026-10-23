@@ -28,6 +28,9 @@ const styles = `
   :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link:hover {
     color: var(--primary); background: transparent; box-shadow: none;
   }
+  :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link::before {
+    content: none;
+  }
   :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link:focus-visible {
     color: var(--primary); background: transparent; box-shadow: none;
     outline: 2px solid var(--primary); outline-offset: 2px;
@@ -96,10 +99,14 @@ export const PowerPreferences = () => (
           key={id}
           className="power-settings-section-link"
           title={`Jump to ${title} settings`}
-          onClick={() => {
+          onClick={(event) => {
+            event.preventDefault();
             const section = document.getElementById(`freelens-power-${id}-section`);
-            section?.focus({ preventScroll: true });
-            section?.scrollIntoView({ block: "start" });
+            requestAnimationFrame(() => {
+              if (!section?.isConnected) return;
+              section.focus({ preventScroll: true });
+              section.scrollIntoView({ block: "start", behavior: "instant" });
+            });
           }}
         >
           <Renderer.Component.Icon material={icon} size={16} /> {title}
