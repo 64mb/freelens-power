@@ -91,7 +91,7 @@ extensionTest("universal search and trusted resource drawers", async (session, f
     .press("Escape");
   await expect(dialog).toBeHidden();
   dialog = await openSearch(frame);
-  await dialog.getByRole("textbox", { name: "Filter by exact resource kind", exact: true }).fill("Service");
+  await dialog.getByLabel("Filter by exact resource kind", { exact: true }).fill("Service");
   await search(dialog, "sample-service", "Service");
   await expect(dialog.locator(".power-resource-search-open")).toHaveCount(1);
   await dialog
