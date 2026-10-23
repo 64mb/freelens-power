@@ -123,6 +123,7 @@ describe("application accent override", () => {
       .Checkbox { --checkbox-bgc-active: var(--blue); }
       .theme-light .Checkbox { --checkbox-color-active: var(--blue); }
       .Drawer .drawer-title { background: var(--blue); }
+      .Drawer .ResizingAnchor:hover::after, .Drawer .ResizingAnchor.resizing::after { background: var(--blue); }
       .DrawerParamToggler .param-link-text, .Nodes .cpu .LineProgress { color: var(--blue); }
       .Nodes .memory .LineProgress { color: var(--magenta); }
     `;
@@ -130,7 +131,7 @@ describe("application accent override", () => {
     document.body.innerHTML = `
       <label class="Checkbox"><input type="checkbox" checked /><i class="box"></i></label>
       <div class="theme-light"><label class="Checkbox"><input type="checkbox" checked /><i class="box"></i></label></div>
-      <div class="Drawer"><div class="drawer-title">Pod</div><div class="drawer-content">
+      <div class="Drawer"><div class="drawer-title">Pod</div><div class="ResizingAnchor horizontal"></div><div class="drawer-content">
         <div class="DrawerParamToggler"><div class="param-link"><span class="param-link-text">Show</span></div></div>
         <div class="Nodes"><div class="cpu"><div class="LineProgress"></div></div>
           <div class="memory"><div class="LineProgress"></div></div></div>
@@ -140,7 +141,7 @@ describe("application accent override", () => {
       dispose = startAppearanceOverride();
       const controlRule = () => rules().find((rule) => rule.style.getPropertyValue("--blue"));
       const selector = controlRule()!.selectorText;
-      expect(document.querySelectorAll(selector)).toHaveLength(4);
+      expect(document.querySelectorAll(selector)).toHaveLength(5);
       expect(controlRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
       for (const control of document.querySelectorAll(selector)) {
         expect(getComputedStyle(control).getPropertyValue("--blue")).toBe("var(--primary)");

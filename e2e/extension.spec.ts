@@ -7,7 +7,7 @@ import { applyFixtures, mutateConfigMap, secretSentinel } from "./fixtures";
 test.beforeAll(() => applyFixtures());
 
 async function triggerSearch(frame: Frame) {
-  await frame.locator("body").click({ position: { x: 15, y: 15 } });
+  await frame.locator("body").click({ position: { x: 300, y: 10 } });
   await frame.page().keyboard.press("Shift");
   await frame.page().keyboard.press("Shift");
 }
@@ -55,8 +55,8 @@ function extensionTest(title: string, run: (session: FreelensSession, frame: Fra
     let failed = false;
     try {
       await session.start(info);
-      await session.install();
-      const frame = await session.cluster();
+      await session.install(info);
+      const frame = await session.cluster(info);
       await run(session, frame, info);
     } catch (error) {
       failed = true;
@@ -91,7 +91,9 @@ extensionTest("universal search and trusted resource drawers", async (session, f
     .press("Escape");
   await expect(dialog).toBeHidden();
   dialog = await openSearch(frame);
-  await search(dialog, "sample-service");
+  await dialog.getByRole("textbox", { name: "Filter by exact resource kind", exact: true }).fill("Service");
+  await search(dialog, "sample-service", "Service");
+  await expect(dialog.locator(".power-resource-search-open")).toHaveCount(1);
   await dialog
     .getByRole("textbox", { name: "Resource name, namespace, kind, label or indexed text", exact: true })
     .press("ArrowDown");
@@ -107,6 +109,31 @@ extensionTest("universal search and trusted resource drawers", async (session, f
   await drawer.getByText("sample-service", { exact: true }).first().click();
   await expect(drawer).toBeVisible();
   await session.screenshot(info, "resource-drawer", frame);
+  const resize = drawer.locator(".ResizingAnchor.horizontal");
+  const accentColor = await resize.evaluate((element) => {
+    const probe = document.createElement("span");
+    probe.style.color = getComputedStyle(element).getPropertyValue("--primary");
+    element.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  await resize.hover();
+  await expect
+    .poll(() => resize.evaluate((element) => getComputedStyle(element, "::after").backgroundColor))
+    .toBe(accentColor);
+  await session.screenshot(info, "resource-drawer-resize-hover", frame);
+  const anchorBox = await resize.boundingBox();
+  if (!anchorBox) throw new Error("Native drawer resize handle is missing geometry");
+  await frame.page().mouse.move(anchorBox.x + anchorBox.width / 2, anchorBox.y + anchorBox.height / 2);
+  await frame.page().mouse.down();
+  try {
+    await frame.page().mouse.move(anchorBox.x - 40, anchorBox.y + anchorBox.height / 2, { steps: 5 });
+    await expect(resize).toHaveClass(/resizing/);
+    await session.screenshot(info, "resource-drawer-resize-drag", frame);
+  } finally {
+    await frame.page().mouse.up();
+  }
   await frame.page().keyboard.press("Escape");
   dialog = await openSearch(frame);
   await search(dialog, "team+ops");
@@ -191,7 +218,7 @@ extensionTest("Gateway Relationships graph and saved toggle", async (session, fr
   if (process.env.E2E_LANE === "extended") {
     await session.close(info, false);
     await session.start(info);
-    const restarted = await session.cluster();
+    const restarted = await session.cluster(info);
     await restarted.getByText("Relationships", { exact: true }).first().click();
     await expect(restarted.getByRole("button", { name: /Hide Upstream/ })).toHaveAttribute("aria-pressed", "true");
   }
@@ -247,7 +274,7 @@ extensionTest("Settings jumps and stable pointer geometry", async (session, fram
   if (process.env.E2E_LANE === "extended") {
     await session.close(info, false);
     await session.start(info);
-    activeFrame = await session.cluster();
+    activeFrame = await session.cluster(info);
     await triggerSearch(activeFrame);
     await expect(activeFrame.getByRole("dialog", { name: "Search resources" })).toHaveCount(0);
   }

@@ -67,7 +67,7 @@ export class FreelensSession {
         join(appData, "lens-user-store.json"),
         JSON.stringify({
           preferences: {
-            colorTheme: info.project.name.startsWith("light") ? "light" : "dark",
+            colorTheme: info.project.name.startsWith("light") ? "Light" : "Dark",
             syncKubeconfigEntries: [{ filePath: join(home, ".kube", "config") }],
             shell: "/bin/sh",
             allowTelemetry: false,
@@ -125,13 +125,20 @@ export class FreelensSession {
     return this;
   }
 
-  async install() {
+  async install(info: TestInfo) {
     const userData = await this.app.evaluate(({ app }) => app.getPath("userData"));
     expect(await realpath(userData)).toBe(await realpath(join(this.profile, "Freelens")));
     await expect(this.window.locator(".freelens-power-settings-icon")).toBeVisible();
+    await expect
+      .poll(() =>
+        this.window.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--mainBackground").trim().toLowerCase(),
+        ),
+      )
+      .toBe(info.project.name.startsWith("light") ? "#f1f1f1" : "#1e2124");
   }
 
-  async cluster(): Promise<Frame> {
+  async cluster(info: TestInfo): Promise<Frame> {
     const welcome = this.window.getByText("Browse Clusters in Catalog", { exact: true });
     const catalog = this.window.locator("div.TableCell").getByText("kind-power-e2e", { exact: true }).first();
     const existingFrame = this.window.locator('[id^="cluster-frame-"]').first();
@@ -148,6 +155,13 @@ export class FreelensSession {
     const frame = await (await iframe.elementHandle())?.contentFrame();
     if (!frame) throw new Error("The kind cluster frame did not attach");
     await frame.locator("[data-testid=cluster-sidebar]").waitFor();
+    await expect
+      .poll(() =>
+        frame.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--mainBackground").trim().toLowerCase(),
+        ),
+      )
+      .toBe(info.project.name.startsWith("light") ? "#f1f1f1" : "#1e2124");
     try {
       await frame.getByText("Diagnostics", { exact: true }).first().waitFor();
     } catch (error) {
