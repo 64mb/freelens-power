@@ -8,7 +8,10 @@ import {
   type RelationshipObject,
 } from "../common/resource-relationships";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
+import { loadGatewayInventory } from "./gateway-relationships-client";
 import { resourceRelationshipsStyles } from "./resource-relationships.css";
+import { createResourceSearchTransport } from "./resource-search-client";
+import { openSearchResource } from "./resource-search-routing";
 
 const { Icon, Select } = Renderer.Component;
 const LIMIT = 100;
@@ -89,17 +92,25 @@ export async function loadRelationshipInventory(
     list("Ingress", () => Renderer.K8sApi.ingressApi.list(options, query)),
     ...ownerApis.map((api) => list<RelationshipObject>("Controller", () => api.list(options, query))),
   ]);
-  return { pods, slices, ingresses, owners: owners.flatMap((items) => items ?? []), gaps };
+  const clusterId = Renderer.Catalog.activeCluster.get()?.metadata.uid;
+  const gateway = clusterId
+    ? await loadGatewayInventory(createResourceSearchTransport(clusterId, signal), signal, {
+        focusedNamespace: namespace,
+      })
+    : undefined;
+  return { pods, slices, ingresses, owners: owners.flatMap((items) => items ?? []), gaps, gateway };
 }
 function ResourceCard({
   node,
   incoming,
+  incomingEvidence,
   onOpen,
   onHighlight,
 }: {
   onHighlight: (id?: string) => void;
   node: RelationshipNode;
   incoming: string[];
+  incomingEvidence?: string[];
   onOpen: (path: string) => void;
 }) {
   return (
@@ -140,6 +151,14 @@ function ResourceCard({
         />{" "}
         {node.detail}
       </p>
+      {!!(node.evidence?.length || incomingEvidence?.length) && (
+        <details className="gateway-evidence">
+          <summary>API evidence</summary>
+          {[...(node.evidence ?? []), ...(incomingEvidence ?? [])].map((evidence) => (
+            <p key={evidence}>{evidence}</p>
+          ))}
+        </details>
+      )}
     </article>
   );
 }
@@ -170,6 +189,9 @@ export function RelationshipGraph({
   ingressAvailable: boolean;
   hideUpstreams?: boolean;
 }) {
+  const upstreamIds = new Set(graph.nodes.filter((node) => node.role === "upstream").map((node) => node.id));
+  const upstreamGutter =
+    !hideUpstreams && graph.edges.some((edge) => upstreamIds.has(edge.from) && upstreamIds.has(edge.to));
   const visibleRoles = roles.filter((role) => !hideUpstreams || role.id !== "upstream");
   const element = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<{ from: string; to: string; label: string; path: string }[]>([]);
@@ -241,7 +263,7 @@ export function RelationshipGraph({
     <div className="graph-scroll">
       <div
         ref={element}
-        className={`graph${hideUpstreams ? " hide-upstreams" : ""}`}
+        className={`graph${hideUpstreams ? " hide-upstreams" : ""}${upstreamGutter ? " upstream-gutter" : ""}`}
         style={{
           gridTemplateRows: `auto repeat(${Math.max(1, ...visibleRoles.map((role) => graph.nodes.filter((node) => node.role === role.id).length))}, auto)`,
         }}
@@ -285,6 +307,9 @@ export function RelationshipGraph({
                   key={node.id}
                   node={node}
                   incoming={[...new Set(graph.edges.filter((edge) => edge.to === node.id).map((edge) => edge.label))]}
+                  incomingEvidence={graph.edges
+                    .filter((edge) => edge.to === node.id && edge.evidence)
+                    .map((edge) => edge.evidence as string)}
                   onOpen={onOpen}
                   onHighlight={setHighlight}
                 />
@@ -293,7 +318,7 @@ export function RelationshipGraph({
               <div className="card neutral">
                 {role.id === "upstream"
                   ? ingressAvailable
-                    ? "No matching Ingress references observed"
+                    ? "No matching upstream references observed"
                     : "Ingress evidence unavailable"
                   : "No relationships observed in available evidence"}
               </div>
@@ -427,7 +452,26 @@ function EnabledResourceRelationshipsPage() {
     setOpenError("");
     void Promise.resolve()
       .then(() => {
-        if (currentCluster()) return Renderer.Navigation.showDetails(path);
+        if (!currentCluster()) return;
+        const gatewayPath = path.match(
+          /^\/apis\/(gateway\.networking\.k8s\.io)\/([^/]+)\/(?:namespaces\/([^/]+)\/)?([^/]+)\/([^/]+)$/,
+        );
+        if (gatewayPath) {
+          const [, group, version, namespace, resource, name] = gatewayPath;
+          const kind = (
+            {
+              gateways: "Gateway",
+              gatewayclasses: "GatewayClass",
+              httproutes: "HTTPRoute",
+              grpcroutes: "GRPCRoute",
+              tcproutes: "TCPRoute",
+              tlsroutes: "TLSRoute",
+              udproutes: "UDPRoute",
+            } as Record<string, string>
+          )[resource];
+          return openSearchResource({ path, group, version, namespace, resource, name, kind, labels: {} });
+        }
+        return Renderer.Navigation.showDetails(path);
       })
       .catch(() => {
         if (currentCluster()) setOpenError("Resource details could not be opened; the object may be unavailable");
@@ -440,8 +484,8 @@ function EnabledResourceRelationshipsPage() {
         <h2>Resource relationships</h2>
       </div>
       <p className="intro">
-        Follow one Service from upstream Ingress references to selected pods, published EndpointSlices and controller
-        ownership. Connections show Kubernetes API evidence; they do not prove network reachability.
+        Follow one Service from upstream Ingress and Gateway API references to selected pods, published EndpointSlices
+        and controller ownership. Connections show Kubernetes API evidence; they do not prove network reachability.
       </p>
       <div className="controls">
         <label className="control">
@@ -565,12 +609,15 @@ function EnabledResourceRelationshipsPage() {
                 <li key={`${edge.from}/${edge.to}/${edge.label}`}>
                   {graph.nodes.find((node) => node.id === edge.from)?.name} → {edge.label} →{" "}
                   {graph.nodes.find((node) => node.id === edge.to)?.name}
+                  {edge.evidence && <div>{edge.evidence}</div>}
                 </li>
               ))}
             </ul>
           </details>
           <p className="scope">
-            <span>Snapshot from namespace-scoped read-only API requests.</span>
+            <span>
+              Snapshot from read-only API requests; Gateway discovery and references include other namespaces.
+            </span>
             <span>Owner and node references can point to objects that were not queried.</span>
             <span>Endpoint counts can include separate address families.</span>
             <span>No Secret or ConfigMap data is read.</span>

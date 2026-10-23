@@ -1,0 +1,26 @@
+{
+  "freelens": {
+    "version": "1.10.3",
+    "url": "https://github.com/freelensapp/freelens/releases/download/v1.10.3/Freelens-1.10.3-linux-amd64.AppImage",
+    "sha256": "5be46890eb13e167559b862b9a6f246eeec0a72761c0b3e91a646329323581e9"
+  },
+  "kind": {
+    "version": "0.33.0",
+    "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+    "sha256": "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d"
+  },
+  "kubectl": {
+    "version": "1.36.4",
+    "url": "https://dl.k8s.io/release/v1.36.4/bin/linux/amd64/kubectl",
+    "sha256": "8b8f088da2dab964f853b38464033b1be15ede2839eca751482357c45abdd05a"
+  },
+  "nodes": {
+    "smoke": "kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0",
+    "extended": "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
+  },
+  "gateway": {
+    "version": "1.6.3",
+    "url": "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.3/standard-install.yaml",
+    "sha256": "356c2b8e286a964dc20995435659ad1095386329974793af10bbfe3eff977fe5"
+  }
+}

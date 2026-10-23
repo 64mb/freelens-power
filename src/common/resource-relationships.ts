@@ -1,3 +1,4 @@
+import { type GatewayInventory, gatewayRelationships } from "./gateway-relationships";
 import { incidentResourcePath } from "./incident-summary";
 import {
   diagnoseService,
@@ -39,6 +40,7 @@ export interface RelationshipNode {
   name: string;
   role: "upstream" | "service" | "backend" | "placement";
   detail: string;
+  evidence?: string[];
   tone: "neutral" | "warning" | "healthy";
   selfLink?: string;
   inferred?: boolean;
@@ -47,6 +49,7 @@ export interface RelationshipEdge {
   from: string;
   to: string;
   label: string;
+  evidence?: string;
 }
 export interface RelationshipInventory {
   pods?: RelationshipPod[];
@@ -54,6 +57,7 @@ export interface RelationshipInventory {
   ingresses?: RelationshipIngress[];
   owners?: RelationshipObject[];
   gaps?: string[];
+  gateway?: GatewayInventory;
 }
 export function relationshipReferencePath(kind: string, name: string, namespace?: string) {
   return incidentResourcePath({ kind, name, namespace });
@@ -107,6 +111,13 @@ export function buildResourceRelationships(
       selfLink: ingress.selfLink,
     });
     edges.push({ from: id, to: svc, label: "references backend" });
+  }
+  if (inventory.gateway) {
+    const gateway = gatewayRelationships(service, inventory.gateway);
+    nodes.push(...gateway.nodes);
+    edges.push(...gateway.edges);
+    omitted += gateway.omitted;
+    gaps.push(...inventory.gateway.gaps);
   }
   const pods = diagnostics.matchingPods?.filter((pod) => !focusedPod || pod.metadata.name === focusedPod) ?? [];
   omitted += Math.max(0, pods.length - 8);

@@ -1,0 +1,69 @@
+name: Extension UI
+
+on:
+  workflow_call:
+    inputs:
+      lane:
+        description: UI coverage lane
+        required: false
+        type: string
+        default: smoke
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: UI coverage lane
+        type: choice
+        default: extended
+        options: [smoke, extended]
+  schedule:
+    - cron: '23 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  kind-ui:
+    name: real Freelens + kind
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      E2E_LANE: ${{ github.event_name == 'schedule' && 'extended' || inputs.lane || 'smoke' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install desktop libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 fonts-liberation
+      - name: Build and pack candidate
+        run: |
+          pnpm build
+          mkdir -p .e2e-runtime/package
+          pnpm pack --json --pack-destination .e2e-runtime/package > "${RUNNER_TEMP}/e2e-pack.json"
+          archive="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP + "/e2e-pack.json", "utf8")).filename')"
+          printf 'EXTENSION_ARCHIVE=%s\n' "${archive}" >> "${GITHUB_ENV}"
+      - name: Provision pinned Freelens and isolated kind
+        run: pnpm test:e2e:provision
+      - name: Exercise the packed extension in Freelens
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1600x1200x24' pnpm test:e2e
+      - name: Retain screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove isolated kind cluster
+        if: always()
+        run: |
+          if test -x .e2e-runtime/bin/kind; then
+            node e2e/provision.mjs --cleanup
+          fi

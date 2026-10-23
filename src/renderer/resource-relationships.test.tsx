@@ -2,6 +2,11 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+vi.mock("./resource-search-client", () => ({
+  createResourceSearchTransport: () => ({ get: () => Promise.reject({ status: 404 }) }),
+}));
+vi.mock("./resource-search-routing", () => ({ openSearchResource: vi.fn() }));
+
 const preferences = vi.hoisted(() => ({ hiddenUpstreamClusters: [] as string[] }));
 vi.mock("../common/store/monitoring-preferences-store", () => ({
   MonitoringPreferencesStore: { getInstanceOrCreate: () => preferences },
@@ -247,4 +252,28 @@ it("persists the upstream toggle and restores it when the page is reopened", asy
   fireEvent.click(reopened.getByRole("button", { name: "Hide Upstream" }));
   expect(preferences.hiddenUpstreamClusters).toEqual([]);
   await waitFor(() => expect(reopened.getByLabelText("Relationship Service")).toBeTruthy());
+});
+it("reserves the upstream routing gutter only for visible upstream chains and collapses condition evidence", () => {
+  const graph = buildResourceRelationships(svc(), { pods: [], slices: [], ingresses: [] });
+  const view = render(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
+  expect(view.container.querySelector(".upstream-gutter")).toBeNull();
+  graph.nodes.push(
+    {
+      id: "gateway",
+      kind: "Gateway",
+      name: "entry/http",
+      role: "upstream",
+      tone: "neutral",
+      detail: "HTTP:80",
+      evidence: ["Programmed: unknown"],
+    },
+    { id: "route", kind: "HTTPRoute", name: "web", role: "upstream", tone: "neutral", detail: "weight 1" },
+  );
+  graph.edges.push({ from: "gateway", to: "route", label: "parent reference", evidence: "Accepted: unknown" });
+  view.rerender(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
+  expect(view.container.querySelector(".upstream-gutter")).toBeTruthy();
+  expect(view.container.querySelectorAll(".gateway-evidence")).toHaveLength(2);
+  expect(view.container.querySelector(".gateway-evidence")?.hasAttribute("open")).toBe(false);
+  view.rerender(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable hideUpstreams />);
+  expect(view.container.querySelector(".upstream-gutter")).toBeNull();
 });

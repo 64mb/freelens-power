@@ -1,28 +1,33 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   id: "cluster-a",
-  cachedCount: 1,
-  cachedOverrides: {} as Record<
-    string,
-    {
-      metadata: { name: string; namespace?: string; labels?: Record<string, string> };
-      selfLink: string;
-      spec?: unknown;
-      status?: unknown;
-    }[]
-  >,
   callback: () => {},
-  list: vi.fn(),
+  preference: (_enabled: boolean) => {},
+  searchEnabled: true,
+  syncSignal: undefined as AbortSignal | undefined,
+  coverage: (_status: unknown) => {},
+  query: vi.fn(),
+  clear: vi.fn(),
+  open: vi.fn(),
   explain: vi.fn(),
-  details: vi.fn(),
+  run: vi.fn(),
+}));
+vi.mock("mobx-react", () => ({ observer: (component: unknown) => component }));
+vi.mock("../common/store/monitoring-preferences-store", () => ({
+  MonitoringPreferencesStore: {
+    getInstanceOrCreate: () => ({
+      get resourceSearchEnabled() {
+        return state.searchEnabled;
+      },
+    }),
+  },
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
-    Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.id } }) } },
-    Navigation: { showDetails: state.details },
+    Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.id }, spec: {} }) } },
     K8sApi: Object.fromEntries(
       [
         "podsStore",
@@ -37,25 +42,27 @@ vi.mock("@freelensapp/extensions", () => ({
         "ingressStore",
         "namespaceStore",
         "hpaStore",
-      ].map((key) => [
-        key,
-        {
-          get items() {
-            if (state.cachedOverrides[key]) return state.cachedOverrides[key];
-            return Array.from({ length: state.cachedCount }, (_, index) => ({
-              metadata: { name: state.cachedCount === 1 ? "api" : `cached-${index}`, namespace: "default" },
-              selfLink: `/${key}/${state.cachedCount === 1 ? "api" : index}`,
-            }));
-          },
-          api: { list: (...args: unknown[]) => state.list(key, ...args) },
-        },
-      ]),
+      ].map((key) => [key, { items: [] }]),
     ),
   },
 }));
+vi.mock("./resource-search-client", () => ({
+  searchContextId: () => state.id,
+  createResourceSearchTransport: () => ({}),
+  createResourceSearchClient: () => ({ query: state.query, clear: state.clear }),
+}));
+vi.mock("./resource-search-sync", () => ({
+  createSearchSynchronizer: (options: { onStatus: (status: unknown) => void; signal: AbortSignal }) => {
+    state.syncSignal = options.signal;
+    state.coverage = options.onStatus;
+    return { run: state.run };
+  },
+}));
+vi.mock("./resource-search-routing", () => ({ openSearchResource: state.open, closeSearchResourceFallback: vi.fn() }));
 vi.mock("mobx", () => ({
-  reaction: (_read: unknown, callback: () => void) => {
-    state.callback = callback;
+  reaction: (read: () => unknown, callback: () => void) => {
+    if (typeof read() === "boolean") state.preference = callback;
+    else state.callback = callback;
     return () => {};
   },
 }));
@@ -71,200 +78,205 @@ afterEach(() => {
   act(() => stop?.());
   document.body.innerHTML = "";
   state.id = "cluster-a";
-  state.cachedCount = 1;
-  state.cachedOverrides = {};
+  state.searchEnabled = true;
   vi.clearAllMocks();
 });
-it("opens from the launcher, searches cached kinds and hands the selected identity to AI", async () => {
+const resource = (name: string, kind = "Secret") => ({
+  name,
+  kind,
+  group: "",
+  version: "v1",
+  resource: "secrets",
+  path: `/api/v1/namespaces/default/secrets/${name}`,
+  namespace: "default",
+  labels: {},
+});
+async function launch(documents = [resource("credentials")], hasMore = false) {
   Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
+  state.run.mockImplementation(() => new Promise(() => {}));
+  state.query.mockResolvedValue({ documents, total: documents.length, hasMore });
+  state.open.mockResolvedValue(undefined);
+  act(() => {
+    stop = startResourceSearch();
+  });
   render(<ResourceSearchLauncher />);
-  fireEvent.click(screen.getByRole("button", { name: "Search resources" }));
-  const input = screen.getByRole("textbox");
-  expect(document.activeElement).toBe(input);
-  fireEvent.change(input, { target: { value: "Pod default" } });
-  expect(screen.getAllByRole("listitem")).toHaveLength(2);
-  fireEvent.click(screen.getByRole("button", { name: "Ask AI about Pod api" }));
+  fireEvent.click(screen.getByLabelText("Search resources"));
+  await screen.findAllByText(documents[0].name);
+}
+it("queries the local index and opens Secrets through the shared exact-route helper", async () => {
+  await launch();
+  expect(state.query).toHaveBeenCalledWith("", 100, {});
+  fireEvent.click(screen.getByText("credentials"));
+  await waitFor(() => expect(state.open).toHaveBeenCalledWith(resource("credentials")));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+it("supports keyboard selection and safe identity AI attachments", async () => {
+  await launch([resource("alpha"), resource("beta")]);
+  const input = screen.getByLabelText("Resource name, namespace, kind, label or indexed text");
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(state.open).toHaveBeenCalledWith(resource("beta")));
+});
+it("requests a larger bounded result page without a Kubernetes request per key", async () => {
+  await launch(undefined, true);
+  fireEvent.click(screen.getByText("Show more matches"));
+  await waitFor(() => expect(state.query).toHaveBeenCalledWith("", 200, {}));
+  fireEvent.change(screen.getByLabelText("Resource name, namespace, kind, label or indexed text"), {
+    target: { value: "credentials" },
+  });
+  await waitFor(() => expect(state.query).toHaveBeenCalledWith("credentials", 200, {}));
+});
+it("closes on cluster change and ignores replies from the old partition", async () => {
+  await launch();
+  act(() => {
+    state.id = "cluster-b";
+    state.callback();
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+it("attaches metadata identity without submitting a message", async () => {
+  await launch();
+  fireEvent.click(screen.getByLabelText("Ask AI about Secret credentials"));
   expect(state.explain).toHaveBeenCalledWith(
-    expect.objectContaining({ clusterId: "cluster-a", resource: { kind: "Pod", name: "api", namespace: "default" } }),
+    expect.objectContaining({ resource: { kind: "Secret", name: "credentials", namespace: "default" } }),
   );
+});
+it("starts background inventory independently of opening the dialog", () => {
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  state.run.mockImplementation(() => new Promise(() => {}));
+  act(() => {
+    stop = startResourceSearch();
+  });
+  expect(state.run).toHaveBeenCalledOnce();
   expect(screen.queryByRole("dialog")).toBeNull();
 });
-it("closes on cluster change and ignores outstanding responses", async () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  let resolve: (value: unknown[]) => void = () => {};
-  state.list.mockImplementation(
-    () =>
-      new Promise((done) => {
-        resolve = done;
-      }),
+
+it("passes exact type and namespace filters to the persistent query rather than filtering a truncated page", async () => {
+  await launch();
+  fireEvent.change(screen.getByLabelText("Filter by exact resource kind"), { target: { value: "Secret" } });
+  fireEvent.change(screen.getByLabelText("Filter by exact namespace"), { target: { value: "default" } });
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 100, { kind: "Secret", namespace: "default" }));
+});
+
+it("offers native discovered suggestions and canonicalizes lowercase kind input", async () => {
+  await launch();
+  act(() =>
+    state.coverage({
+      scanned: 1,
+      discovered: 1,
+      denied: 0,
+      unavailable: 0,
+      unsupported: 0,
+      indexing: false,
+      completedAt: Date.now(),
+      kinds: ["Pod", "Secret"],
+      namespaces: ["default"],
+    }),
   );
-  stop = startResourceSearch();
-  act(() => {
-    window.dispatchEvent(new Event("power-resource-search"));
-  });
-  state.id = "cluster-b";
-  act(() => state.callback());
-  await act(async () => {
-    resolve([{ metadata: { name: "stale" }, selfLink: "/stale" }]);
-  });
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(state.details).not.toHaveBeenCalled();
+  expect(document.querySelector('#power-search-kinds option[value="Pod"]')).not.toBeNull();
+  expect(document.querySelector('#power-search-namespaces option[value="default"]')).not.toBeNull();
+  fireEvent.change(screen.getByLabelText("Filter by exact resource kind"), { target: { value: "pod" } });
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 100, { kind: "Pod" }));
+  expect(screen.getByRole("status").textContent).toContain("Updated");
+  expect(screen.queryByText(/Aggregated APIs may transfer/)).toBeNull();
+  expect(screen.getByText("Search options").parentElement?.hasAttribute("open")).toBe(false);
 });
-it("opens the keyboard selection and restores launcher focus after Escape", async () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
-  render(<ResourceSearchLauncher />);
-  const launcher = screen.getByRole("button", { name: "Search resources" });
-  launcher.focus();
-  fireEvent.click(launcher);
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Service default" } });
-  fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowDown" });
-  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
-  await act(async () => {});
-  expect(state.details).toHaveBeenCalledWith("/serviceStore/api");
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(document.activeElement).toBe(launcher);
-  fireEvent.click(launcher);
-  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(document.activeElement).toBe(launcher);
+it("reports cache clearing failures instead of leaving an unhandled rejection", async () => {
+  await launch();
+  state.clear.mockRejectedValueOnce(new Error("Unavailable"));
+  fireEvent.click(screen.getByText("Clear local search cache"));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert").textContent).toContain("Could not clear");
 });
-it("preserves the selected resource when a deferred kind response inserts an earlier result", async () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  let resolvePods: (value: unknown[]) => void = () => {};
-  state.list.mockImplementationOnce(
-    () =>
-      new Promise((done) => {
-        resolvePods = done;
-      }),
-  );
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
-  act(() => {
-    window.dispatchEvent(new Event("power-resource-search"));
-  });
-  const input = screen.getByRole("textbox");
-  fireEvent.change(input, { target: { value: "api" } });
-  for (let index = 0; index < 10; index++) fireEvent.keyDown(input, { key: "ArrowDown" });
-  const selectedName = () => document.querySelector(".power-resource-search-row.selected")?.textContent;
-  expect(selectedName()).toContain("Service");
-  await act(async () => {
-    resolvePods([
-      { metadata: { name: "api", namespace: "default" }, selfLink: "/podsStore/api" },
-      { metadata: { name: "api-added", namespace: "default" }, selfLink: "/podsStore/api-added" },
-    ]);
-  });
-  expect(selectedName()).toContain("Service");
-  fireEvent.keyDown(input, { key: "Enter" });
-  await act(async () => {});
-  expect(state.details).toHaveBeenCalledWith("/serviceStore/api");
-});
-it("keeps host drawer outside-click listeners from receiving search mouse events", () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
-  act(() => {
-    window.dispatchEvent(new Event("power-resource-search"));
-  });
-  const hostOutsideClick = vi.fn();
-  window.addEventListener("mousedown", hostOutsideClick);
-  window.addEventListener("click", hostOutsideClick);
-  try {
-    fireEvent.mouseDown(screen.getByRole("textbox"));
-    fireEvent.click(screen.getByRole("textbox"));
-    expect(hostOutsideClick).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    fireEvent.mouseDown(document.querySelector(".power-resource-search-backdrop")!);
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(hostOutsideClick).not.toHaveBeenCalled();
-  } finally {
-    window.removeEventListener("mousedown", hostOutsideClick);
-    window.removeEventListener("click", hostOutsideClick);
-  }
-});
-it("caps cached inventory to 500 objects per kind before searching", () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.cachedCount = 510;
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
-  act(() => {
-    window.dispatchEvent(new Event("power-resource-search"));
-  });
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "cached-509" } });
-  expect(screen.queryByText("cached-509", { exact: true })).toBeNull();
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "cached-499" } });
-  expect(screen.getAllByText("cached-499", { exact: true })).toHaveLength(12);
-});
-it("recognizes intentional double Shift inside a filter but ignores IME input", () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
-  const filter = document.createElement("input");
-  document.body.append(filter);
-  filter.focus();
-  fireEvent.keyDown(filter, { key: "Shift", isComposing: true });
-  fireEvent.keyUp(filter, { key: "Shift" });
-  fireEvent.keyDown(filter, { key: "Shift", isComposing: true });
-  expect(screen.queryByRole("dialog")).toBeNull();
-  fireEvent.keyUp(filter, { key: "Shift" });
-  fireEvent.keyDown(filter, { key: "Shift" });
-  fireEvent.keyUp(filter, { key: "Shift" });
-  fireEvent.keyDown(filter, { key: "Shift" });
-  expect(screen.getByRole("dialog")).toBeTruthy();
-});
-it("automatically selects the best newly loaded match until keyboard selection is explicit", async () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.cachedOverrides = {
-    podsStore: [{ metadata: { name: "backend", labels: { service: "api" } }, selfLink: "/pods/backend" }],
-    serviceStore: [],
+
+it("keeps full API identities distinct in safe AI summaries for identical kind/name pairs", async () => {
+  const first = {
+    ...resource("sample", "Widget"),
+    group: "first.example",
+    version: "v1",
+    resource: "widgets",
+    uid: "first-uid",
+    path: "/apis/first.example/v1/namespaces/default/widgets/sample",
+    data: { token: "private-value" },
   };
-  let resolveServices: (value: unknown[]) => void = () => {};
-  state.list.mockImplementation((kind: string) =>
-    kind === "serviceStore"
-      ? new Promise((resolve) => {
-          resolveServices = resolve;
-        })
-      : Promise.resolve(kind === "podsStore" ? state.cachedOverrides.podsStore : []),
-  );
-  stop = startResourceSearch();
-  act(() => {
-    window.dispatchEvent(new Event("power-resource-search"));
-  });
-  const input = screen.getByRole("textbox");
-  fireEvent.change(input, { target: { value: "Service" } });
-  expect(document.querySelector(".power-resource-search-row.selected")?.textContent).toContain("Pod");
-  await act(async () => {});
-  await act(async () => {
-    resolveServices([{ metadata: { name: "backend", namespace: "default" }, selfLink: "/services/backend" }]);
-  });
-  expect(document.querySelector(".power-resource-search-row.selected")?.textContent).toContain("Service");
-  fireEvent.keyDown(input, { key: "Enter" });
-  await act(async () => {});
-  expect(state.details).toHaveBeenCalledWith("/services/backend");
+  const second = {
+    ...first,
+    group: "second.example",
+    uid: "second-uid",
+    path: "/apis/second.example/v1/namespaces/default/widgets/sample",
+  };
+  await launch([first, second]);
+  fireEvent.click(screen.getAllByLabelText("Ask AI about Widget sample")[0]);
+  expect(state.explain.mock.calls[0][0].summary).toContain("API group: first.example; version: v1; resource: widgets");
+  expect(state.explain.mock.calls[0][0].summary).toContain("UID: first-uid");
+  fireEvent.click(screen.getByLabelText("Search resources"));
+  await screen.findAllByLabelText("Ask AI about Widget sample");
+  fireEvent.click(screen.getAllByLabelText("Ask AI about Widget sample")[1]);
+  expect(state.explain.mock.calls[1][0].summary).toContain("API group: second.example");
+  expect(state.explain.mock.calls[1][0].summary).toContain("UID: second-uid");
+  expect(JSON.stringify(state.explain.mock.calls)).not.toContain("private-value");
 });
-it("shows safe indexed snippets, highlights text, and labels approximate name matches", () => {
-  Object.defineProperty(window, "top", { configurable: true, value: {} });
-  state.cachedOverrides.podsStore = [
-    {
-      metadata: { name: "backend", namespace: "default" },
-      selfLink: "/pods/backend",
-      spec: { containers: [{ name: "api", image: "example/backend:v3" }] },
-    },
-  ];
-  state.list.mockImplementation(() => new Promise(() => {}));
-  stop = startResourceSearch();
+it("shows a storage-full recovery action while retaining cached results", async () => {
+  await launch();
+  act(() =>
+    state.coverage({
+      scanned: 1,
+      discovered: 3,
+      denied: 0,
+      unavailable: 0,
+      unsupported: 0,
+      indexing: false,
+      storageFull: true,
+      message: "Search storage is full; clear the local search cache to continue",
+    }),
+  );
+  expect(screen.getByRole("alert").textContent).toContain("indexing is paused");
+  expect(screen.getByText("credentials")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Clear local search cache" })).toBeTruthy();
+});
+it("refreshes inventory explicitly without hiding cached results", async () => {
+  await launch();
+  const calls = state.run.mock.calls.length;
+  fireEvent.click(screen.getByLabelText("Refresh resource inventory"));
+  expect(state.run.mock.calls).toHaveLength(calls + 1);
+  expect(screen.getByText("credentials")).toBeTruthy();
+});
+
+it("disables all search listeners, closes the dialog and aborts indexing, then restarts on re-enable", async () => {
+  await launch();
+  const originalSignal = state.syncSignal;
   act(() => {
-    window.dispatchEvent(new Event("power-resource-search"));
+    state.searchEnabled = false;
+    state.preference(false);
   });
-  const input = screen.getByRole("textbox");
-  fireEvent.change(input, { target: { value: "backend:v3" } });
-  expect(screen.getAllByRole("listitem")).toHaveLength(1);
-  expect(document.querySelector(".power-resource-search-snippet")?.textContent).toBe("Image: example/backend:v3");
-  expect(document.querySelector("mark")?.textContent).toBe("backend:v3");
-  fireEvent.change(input, { target: { value: "bakcend" } });
-  expect(screen.getByText("Similar name")).toBeTruthy();
-  expect(input.getAttribute("maxlength")).toBe("300");
+  expect(originalSignal?.aborted).toBe(true);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  state.query.mockClear();
+  const runs = state.run.mock.calls.length;
+  window.dispatchEvent(new Event("power-resource-search"));
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(state.query).not.toHaveBeenCalled();
+  expect(state.run.mock.calls).toHaveLength(runs);
+  act(() => {
+    state.searchEnabled = true;
+    state.preference(true);
+  });
+  expect(state.run.mock.calls).toHaveLength(runs + 1);
+  fireEvent.click(screen.getByLabelText("Search resources"));
+  await screen.findByRole("dialog");
+});
+it("starts with no launcher, search UI, listeners or indexing when the persisted preference is disabled", () => {
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  state.searchEnabled = false;
+  state.run.mockImplementation(() => new Promise(() => {}));
+  const add = vi.spyOn(window, "addEventListener");
+  act(() => {
+    stop = startResourceSearch();
+  });
+  render(<ResourceSearchLauncher />);
+  expect(screen.queryByLabelText("Search resources")).toBeNull();
+  expect(state.run).not.toHaveBeenCalled();
+  expect(add.mock.calls.some(([type]) => ["keydown", "keyup", "power-resource-search"].includes(type))).toBe(false);
+  add.mockRestore();
 });

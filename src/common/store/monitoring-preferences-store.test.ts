@@ -16,6 +16,7 @@ it("serializes observable tracked resources into IPC-safe plain data", () => {
     enabled: true,
     diagnosticsVisible: true,
     relationshipsVisible: true,
+    resourceSearchEnabled: true,
     hiddenUpstreamClusters: [],
     historyEnabled: true,
     trackedHistory: [{ clusterId: "sample-cluster", scope: "pod", uid: "sample-pod" }],
@@ -33,6 +34,7 @@ it("serializes an empty observable tracking list when updating monitoring switch
     enabled: true,
     diagnosticsVisible: true,
     relationshipsVisible: true,
+    resourceSearchEnabled: true,
     hiddenUpstreamClusters: [],
     historyEnabled: true,
     trackedHistory: [],
@@ -67,4 +69,18 @@ it("restores hidden upstreams per cluster as bounded IPC-safe preferences", () =
   expect(store.hiddenUpstreamClusters.includes("other")).toBe(false);
   store.fromStore({});
   expect(store.hiddenUpstreamClusters).toEqual([]);
+});
+
+it("enables search for existing settings and persists an explicit full-feature disable across reloads", () => {
+  const store = new MonitoringPreferencesStore();
+  store.fromStore({});
+  expect(store.resourceSearchEnabled).toBe(true);
+  store.resourceSearchEnabled = false;
+  const restored = new MonitoringPreferencesStore();
+  restored.fromStore(structuredClone(store.toJSON()));
+  expect(restored.resourceSearchEnabled).toBe(false);
+  expect(restored.relationshipsVisible).toBe(true);
+  restored.resourceSearchEnabled = true;
+  store.fromStore(restored.toJSON());
+  expect(store.resourceSearchEnabled).toBe(true);
 });

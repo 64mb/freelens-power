@@ -20,6 +20,7 @@ import { startDashboardViews } from "./dashboard-views";
 import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
 import { startMonitoringHistory } from "./monitoring-history";
+import { startResourceSearchIndex } from "./resource-search";
 import { startSettingsExport } from "./settings-export";
 import { startSplashAccentOverride } from "./splash-accent";
 
@@ -57,6 +58,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
         disposers = enabled
           ? [
               startMonitoringHistory(this),
+              startResourceSearchIndex(),
               startDiagnosticsMenuOrder(),
               startAiIpc(),
               startAiModels(),

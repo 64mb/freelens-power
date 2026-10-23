@@ -84,3 +84,14 @@ it("recovers after Command release when macOS omits a chord keyup", () => {
   detect(key("Shift", "keyup"), 210);
   expect(detect(key("Shift"), 300)).toBe(true);
 });
+it("finds discovered short aliases without reading resource payloads", () => {
+  const item = {
+    kind: "ConfigMap",
+    name: "settings",
+    namespace: "default",
+    labels: {},
+    aliases: ["cm"],
+    path: "/api/v1/namespaces/default/configmaps/settings",
+  };
+  expect(matchResources([item], "cm")).toEqual([item]);
+});

@@ -12,8 +12,8 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, per-card 10-second refresh including pinned windows, and optional background refresh
 - **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts using metrics-server and Kubernetes APIs
 - **Resource diagnostics:** CPU/memory consumers, grouped warning timelines, Pending and Not ready triage, Service/HPA checks, operational resource and namespace summaries, scoped AI handoff, and incident-summary copying
-- **Resource relationships:** a focused Service graph connects Ingress, selected Pods, published endpoints, owners and node references, with resource links, saved upstream visibility and an optional menu switch
-- **Fast resource search:** double Shift opens an indexed cross-kind search over names, namespaces, labels and safe status fields, with name-part and typo matching, keyboard navigation, resource links and explicit AI attachment; inventory is bounded and excludes Secrets, ConfigMaps and custom resources
+- **Resource relationships:** a focused Service graph connects Ingress and installed Gateway API routes/listeners to selected Pods, published endpoints, owners and node references, with acceptance and cross-namespace reference evidence, resource links and saved upstream visibility
+- **Fast resource search:** double Shift searches all discoverable resource types, including Secrets, ConfigMaps and custom resources, through a persistent local metadata index with gentle background refresh, type and namespace filters, name-part and typo matching, resource links and explicit AI attachment; search and background indexing can be disabled together in Monitoring settings
 - **Local metric history:** opt-in SQLite storage, up to seven days within a 100 MiB budget, with aggregated ranges and explicit collection gaps
 - **AI assistant:** native Codex or Claude CLI, per-cluster conversations, read-only API discovery and resource summaries, model/effort/speed selection, editable prompts, quick-start commands, Markdown, cancellable replies, context preview, optional terminal attachments, resource links, resizable pinned chat, and a switch to disable all AI features
 - **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
@@ -56,7 +56,7 @@ Use `pnpm dev` to rebuild on changes, then reinstall the package.
 
 ## CI and releases
 
-Pull requests and pushes to `main` run lint, type checking, unit tests, and a build.
+Pull requests and pushes to `main` run independent lint, type checking, unit tests, build and real Freelens UI checks against a disposable kind cluster. Scheduled checks add a light/narrow profile, restart and index refresh scenarios. See [UI testing](e2e/README.md) for fixtures, screenshots and coverage limits.
 
 Run **Make Release** in GitHub Actions to create a version bump pull request. Merging it publishes the package to npm and the installable `.tgz` archive in [GitHub Releases](https://github.com/64mb/freelens-power/releases). Use **Package Release** with the merged pull request number to retry a failed release.
 
