@@ -75,6 +75,27 @@ it("does not query APIs while disabled", () => {
   expect(state.namespace).not.toHaveBeenCalled();
   expect(state.pods).not.toHaveBeenCalled();
 });
+it("opens a graph resource without letting the same click close its native drawer", () => {
+  const onOpen = vi.fn();
+  const closeDrawer = vi.fn();
+  const outsideClick = (event: MouseEvent) => {
+    if (!event.defaultPrevented) closeDrawer();
+  };
+  window.addEventListener("click", outsideClick);
+  try {
+    const view = render(
+      <RelationshipGraph graph={buildResourceRelationships(svc(), {})} onOpen={onOpen} ingressAvailable />,
+    );
+    const button = view.getByRole("button", { name: "web" });
+    fireEvent.mouseDown(button);
+    fireEvent.mouseUp(button);
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledWith("/api/v1/namespaces/sample/services/web");
+    expect(closeDrawer).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener("click", outsideClick);
+  }
+});
 it("keeps denied evidence unknown and uses bounded namespace requests", async () => {
   state.pods.mockRejectedValue(new Error("Forbidden"));
   const view = render(<ResourceRelationshipsPage />);
@@ -159,11 +180,12 @@ it("draws actual card-to-card edges through gutters and highlights incident conn
   );
   const view = render(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
   const selected = view.container.querySelector('[data-edge-from="service"][data-edge-to="pod/pod-1"]');
-  expect(selected?.getAttribute("d")).toBe("M 400 150 L 440 150");
+  expect(selected?.getAttribute("d")).toBe("M 400 150 H 440");
   const owner = view.container.querySelector('[data-edge-from="owner/rs-1"]');
   expect(owner?.getAttribute("d")).toMatch(/^M 660 150 L /);
   expect(owner?.getAttribute("d")).toContain(" Q ");
   expect(owner?.getAttribute("d")).toMatch(/ L 660 310$/);
+  expect(view.container.querySelector<HTMLElement>(".graph")?.style.gridTemplateRows).toBe("auto repeat(2, auto)");
   fireEvent.focus(view.getByRole("button", { name: "web-1" }));
   expect(selected?.getAttribute("class")).toContain("highlighted");
   expect(owner?.getAttribute("class")).toContain("dimmed");
@@ -181,4 +203,27 @@ it("skips pod, EndpointSlice and controller queries for ExternalName even with a
   expect(state.slices).not.toHaveBeenCalled();
   expect(state.owners).not.toHaveBeenCalled();
   expect(state.ingress).toHaveBeenCalledTimes(1);
+});
+
+it("hides upstream resources and their edges while preserving backend connections", () => {
+  const graph = buildResourceRelationships(svc(), {
+    pods: [{ metadata: { uid: "pod-1", name: "web-1", namespace: "sample", labels: { app: "web" } } }],
+    slices: [],
+    ingresses: [
+      { metadata: { name: "entry", namespace: "sample" }, spec: { defaultBackend: { service: { name: "web" } } } },
+    ],
+  });
+  const view = render(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
+  expect(view.getByRole("region", { name: "Upstream references" })).toBeTruthy();
+  expect(view.container.querySelectorAll(".connection").length).toBe(graph.edges.length);
+  view.rerender(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable hideUpstreams />);
+  expect(view.queryByRole("region", { name: "Upstream references" })).toBeNull();
+  expect(view.container.querySelectorAll(".column").length).toBe(3);
+  expect(view.container.querySelector(".graph.hide-upstreams")).toBeTruthy();
+  const visibleIds = new Set(graph.nodes.filter((node) => node.role !== "upstream").map((node) => node.id));
+  expect(view.container.querySelectorAll(".connection").length).toBe(
+    graph.edges.filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).length,
+  );
+  view.rerender(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
+  expect(view.getByRole("region", { name: "Upstream references" })).toBeTruthy();
 });

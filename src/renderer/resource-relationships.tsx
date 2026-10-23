@@ -120,7 +120,11 @@ function ResourceCard({
         <button
           type="button"
           className="resource-name"
-          onClick={() => onOpen(node.selfLink as string)}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen(node.selfLink as string);
+          }}
           title={`Open ${node.kind} ${node.name}`}
         >
           {node.name}
@@ -147,7 +151,7 @@ function roundedConnector(points: [number, number][]) {
     const before = Math.hypot(x - px, y - py);
     const after = Math.hypot(nx - x, ny - y);
     if (!before || !after) continue;
-    const radius = Math.min(14, before / 2, after / 2);
+    const radius = Math.min(6, before / 2, after / 2);
     path += ` L ${x + ((px - x) * radius) / before} ${y + ((py - y) * radius) / before}`;
     path += ` Q ${x} ${y} ${x + ((nx - x) * radius) / after} ${y + ((ny - y) * radius) / after}`;
   }
@@ -158,11 +162,14 @@ export function RelationshipGraph({
   graph,
   onOpen,
   ingressAvailable,
+  hideUpstreams = false,
 }: {
   graph: ReturnType<typeof buildResourceRelationships>;
   onOpen: (path: string) => void;
   ingressAvailable: boolean;
+  hideUpstreams?: boolean;
 }) {
+  const visibleRoles = roles.filter((role) => !hideUpstreams || role.id !== "upstream");
   const element = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<{ from: string; to: string; label: string; path: string }[]>([]);
   const [highlight, setHighlight] = useState<string>();
@@ -192,27 +199,30 @@ export function RelationshipGraph({
           const crossesColumn = Array.from(cards.values()).some(
             (card) => card.left > from.left + 2 && card.right < to.left - 2,
           );
-          let points: [number, number][] = [
-            [sx, sy],
-            [gutter, sy],
-            [gutter, ty],
-            [tx, ty],
-          ];
+          let path =
+            !sameColumn && sy === ty
+              ? `M ${sx} ${sy} H ${tx}`
+              : roundedConnector([
+                  [sx, sy],
+                  [gutter, sy],
+                  [gutter, ty],
+                  [tx, ty],
+                ]);
           if (crossesColumn) {
             const bottom =
               Math.max(...Array.from(cards.values(), (card) => card.bottom)) - origin.top + 24 + (index % 3) * 8;
             const sourceGutter = sx + 32 + laneOffset;
             const targetGutter = tx - 32 + laneOffset;
-            points = [
+            path = roundedConnector([
               [sx, sy],
               [sourceGutter, sy],
               [sourceGutter, bottom],
               [targetGutter, bottom],
               [targetGutter, ty],
               [tx, ty],
-            ];
+            ]);
           }
-          return [{ ...edge, path: roundedConnector(points) }];
+          return [{ ...edge, path }];
         }),
       );
     };
@@ -225,10 +235,17 @@ export function RelationshipGraph({
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [graph]);
+  }, [graph, hideUpstreams]);
   return (
     <div className="graph-scroll">
-      <div ref={element} className="graph" aria-label="Service resource relationship graph">
+      <div
+        ref={element}
+        className={`graph${hideUpstreams ? " hide-upstreams" : ""}`}
+        style={{
+          gridTemplateRows: `auto repeat(${Math.max(1, ...visibleRoles.map((role) => graph.nodes.filter((node) => node.role === role.id).length))}, auto)`,
+        }}
+        aria-label="Service resource relationship graph"
+      >
         <svg className="resource-connections" width="100%" height="100%" aria-hidden="true">
           <defs>
             <marker id="relationship-arrow" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
@@ -257,7 +274,7 @@ export function RelationshipGraph({
             </path>
           ))}
         </svg>
-        {roles.map((role) => (
+        {visibleRoles.map((role) => (
           <section className="column" key={role.id} aria-label={role.name}>
             <h3>{role.name}</h3>
             {graph.nodes
@@ -309,6 +326,7 @@ function EnabledResourceRelationshipsPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [serviceName, setServiceName] = useState("");
   const [focusedPod, setFocusedPod] = useState("");
+  const [hideUpstreams, setHideUpstreams] = useState(false);
   const [inventory, setInventory] = useState<InventoryState>();
   const [refresh, setRefresh] = useState(0);
   const [scopeRefresh, setScopeRefresh] = useState(0);
@@ -406,7 +424,13 @@ function EnabledResourceRelationshipsPage() {
   return (
     <div className="power-relationships">
       <style>{resourceRelationshipsStyles}</style>
-      <h2>Resource relationships</h2>
+      <div className="page-heading">
+        <h2>Resource relationships</h2>
+        <label className="graph-option">
+          <input type="checkbox" checked={hideUpstreams} onChange={(event) => setHideUpstreams(event.target.checked)} />
+          Hide Upstream
+        </label>
+      </div>
       <p className="intro">
         Follow one Service from upstream Ingress references to selected pods, published EndpointSlices and controller
         ownership. Connections show Kubernetes API evidence; they do not prove network reachability.
@@ -507,6 +531,7 @@ function EnabledResourceRelationshipsPage() {
             graph={graph}
             onOpen={openResource}
             ingressAvailable={current?.data.ingresses !== undefined}
+            hideUpstreams={hideUpstreams}
           />
           {graph.omitted > 0 && (
             <div className="notice">
