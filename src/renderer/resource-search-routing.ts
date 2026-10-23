@@ -23,9 +23,13 @@ export async function openSearchResource(resource: SearchDocument): Promise<void
     searchContextId() === contextId;
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   if (!valid()) return;
-  const api = Renderer.K8sApi.apiManager.getApi(resource.path);
+  // native stores parse raw self-links without decoding names, while HTTP requests use the encoded path
+  const selfLink = decodeURIComponent(resource.path);
+  const nativePath = new URL(selfLink, window.location.origin);
+  const nativeCompatible = nativePath.pathname === selfLink && !nativePath.search && !nativePath.hash;
+  const api = nativeCompatible ? Renderer.K8sApi.apiManager.getApi(selfLink) : undefined;
   if (api && Renderer.K8sApi.apiManager.getStore(api)) {
-    await Renderer.Navigation.showDetails(resource.path);
+    await Renderer.Navigation.showDetails(selfLink);
     return;
   }
   const transport = createResourceSearchTransport(clusterId);

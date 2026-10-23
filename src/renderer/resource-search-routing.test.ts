@@ -77,6 +77,22 @@ it("opens a safe metadata fallback without CRD listing permissions or exposing p
   expect(state.open).not.toHaveBeenCalled();
 });
 
+it.each(["team+ops", "system:discovery"])("opens native raw self-links for encoded RBAC name %s", async (name) => {
+  const path = `/apis/rbac.authorization.k8s.io/v1/clusterroles/${encodeURIComponent(name)}`;
+  await openSearchResource({ ...resource, namespace: undefined, name, path });
+  expect(state.open).toHaveBeenCalledWith(`/apis/rbac.authorization.k8s.io/v1/clusterroles/${name}`);
+  expect(state.get).not.toHaveBeenCalled();
+});
+
+it("keeps URL delimiters encoded when opening generic metadata", async () => {
+  HTMLDialogElement.prototype.showModal = vi.fn();
+  state.get.mockResolvedValue({ metadata: { name: "team#ops", labels: {} } });
+  const path = "/apis/rbac.authorization.k8s.io/v1/clusterroles/team%23ops";
+  await openSearchResource({ ...resource, namespace: undefined, name: "team#ops", path });
+  expect(state.open).not.toHaveBeenCalled();
+  expect(state.get).toHaveBeenCalledWith(path, undefined, expect.any(Object));
+});
+
 it("ignores a late generic reply after extension cleanup closes pending details", async () => {
   state.api = undefined;
   let resolve!: (value: unknown) => void;

@@ -85,6 +85,28 @@ extensionTest("universal search and trusted resource drawers", async (session, f
   ]) {
     await expect(await search(dialog, name, kind)).toContainText(kind);
   }
+  const contrast = await dialog
+    .locator(".power-resource-search-row.selected")
+    .first()
+    .evaluate((row) => {
+      const context = document.createElement("canvas").getContext("2d")!;
+      function luminance(color: string) {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const channels = Array.from(context.getImageData(0, 0, 1, 1).data)
+          .slice(0, 3)
+          .map((value) => {
+            const channel = value / 255;
+            return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+          });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      }
+      const foreground = luminance(getComputedStyle(row.querySelector("strong")!).color);
+      const background = luminance(getComputedStyle(row).backgroundColor);
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+    });
+  expect(contrast, "Selected resource name contrast").toBeGreaterThanOrEqual(4.5);
   await session.screenshot(info, "search", frame);
   await dialog
     .getByRole("textbox", { name: "Resource name, namespace, kind, label or indexed text", exact: true })
