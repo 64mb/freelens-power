@@ -15,6 +15,7 @@ it("serializes observable tracked resources into IPC-safe plain data", () => {
   expect(serialized).toEqual({
     enabled: true,
     diagnosticsVisible: true,
+    relationshipsVisible: true,
     historyEnabled: true,
     trackedHistory: [{ clusterId: "sample-cluster", scope: "pod", uid: "sample-pod" }],
   });
@@ -30,6 +31,7 @@ it("serializes an empty observable tracking list when updating monitoring switch
   expect(structuredClone(store.toJSON())).toEqual({
     enabled: true,
     diagnosticsVisible: true,
+    relationshipsVisible: true,
     historyEnabled: true,
     trackedHistory: [],
   });
@@ -41,4 +43,12 @@ it("keeps Diagnostics visible for existing settings and preserves an explicit hi
   expect(store.diagnosticsVisible).toBe(true);
   store.fromStore({ enabled: true, diagnosticsVisible: false });
   expect(structuredClone(store.toJSON()).diagnosticsVisible).toBe(false);
+});
+
+it("keeps relationship beta visible for existing settings and preserves explicit disablement", () => {
+  const store = new MonitoringPreferencesStore();
+  store.fromStore({ enabled: true });
+  expect(store.relationshipsVisible).toBe(true);
+  store.fromStore({ enabled: true, relationshipsVisible: false });
+  expect(structuredClone(store.toJSON()).relationshipsVisible).toBe(false);
 });

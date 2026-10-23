@@ -95,3 +95,25 @@ it("renders compact navigable chips with complete identities available on hover"
   expect(chip.querySelector('[aria-hidden="true"]')?.textContent).toContain("arrow_forward");
   view.unmount();
 });
+
+it("keeps selected evidence in one removable row within Attached context", () => {
+  const remove = vi.fn();
+  const view = render(
+    <AiContextPreview
+      context={{ clusterId: "cluster-a", resource: { kind: "Pod", name: "worker", namespace: "sample" } }}
+      finding={{ clusterId: "cluster-a", title: "Pod worker is not ready", summary: "Readiness probe failed" }}
+      onRemoveFinding={remove}
+    />,
+  );
+  const row = screen.getByLabelText("Selected diagnostic finding");
+  expect(row.closest(".power-ai-context-preview")).toBeTruthy();
+  expect(row.querySelector("section")).toBeNull();
+  expect(
+    [...view.container.querySelectorAll("summary")].filter((element) => element.textContent === "Attached context"),
+  ).toHaveLength(1);
+  expect(row.querySelector("pre")?.textContent).toBe("Readiness probe failed");
+  expect(row.querySelector("details")?.open).toBe(false);
+  fireEvent.click(screen.getByLabelText("Remove diagnostic finding"));
+  expect(remove).toHaveBeenCalledOnce();
+  view.unmount();
+});

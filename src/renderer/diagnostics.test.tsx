@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -74,6 +74,11 @@ vi.mock("@freelensapp/extensions", () => ({
     },
   },
 }));
+vi.mock("../common/store/ai-preferences-store", () => ({
+  AiPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
+}));
+vi.mock("electron", () => ({ clipboard: { writeText: vi.fn() } }));
+vi.mock("./ai-diagnostic-handoff", () => ({ explainDiagnosticFinding: vi.fn() }));
 vi.mock("./monitoring-collector", () => ({
   getMonitoringSnapshot: state.get,
   retainMonitoringCollector: () => state.release,
@@ -82,6 +87,12 @@ vi.mock("./monitoring-collector", () => ({
 
 import { formatDateTime } from "../common/date-time";
 import { consumerStatus, DiagnosticsPage } from "./diagnostics";
+import {
+  clearDiagnosticsStates,
+  focusDiagnosticsNamespace,
+  readDiagnosticsState,
+  saveDiagnosticsState,
+} from "./diagnostics-state";
 
 import type { DiagnosticsEvent } from "../common/resource-diagnostics";
 
@@ -125,6 +136,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 beforeEach(() => {
+  clearDiagnosticsStates();
   state.cluster = "sample-cluster";
   state.get.mockReset().mockResolvedValue(snapshot());
   state.release.mockReset();
@@ -428,7 +440,7 @@ describe("resource diagnostics views", () => {
     expect(view.getByText("sample").closest("tr")?.getAttribute("data-row-depth")).toBe("0");
     const namespaceRow = view.getByText("sample").closest("tr")!;
     expect(namespaceRow.querySelector(".namespace-identity .Icon")).toBeTruthy();
-    expect(namespaceRow.textContent).toContain("1 shown consumers");
+    expect(namespaceRow.textContent).toContain("1 filtered consumers");
     expect(namespaceRow.classList.contains("consumer-tone-warning")).toBe(true);
     fireEvent.click(view.getByTitle("Expand namespace workloads"));
     expect(view.getByTitle("Open Deployment sample / app").closest("tr")?.getAttribute("data-row-depth")).toBe("1");
@@ -504,4 +516,174 @@ describe("resource diagnostics views", () => {
     fireEvent.change(view.getByLabelText("Filter consumers"), { target: { value: "sample" } });
     expect(state.usage).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("diagnostics navigation state", () => {
+  it("restores filters, grouping, expansion, tab and scroll on return", async () => {
+    const first = render(<DiagnosticsPage />);
+    await waitFor(() => expect(first.getByText("app")).toBeTruthy());
+    fireEvent.change(first.getByLabelText("Filter consumers"), { target: { value: "app" } });
+    fireEvent.click(first.getByLabelText("Expand pods for app"));
+    fireEvent.click(first.getByRole("button", { name: "Timeline" }));
+    fireEvent.change(first.getByLabelText("Filter timeline reason"), { target: { value: "cpu" } });
+    fireEvent.click(first.getByLabelText("Group recurring warnings"));
+    const container = first.container.querySelector(".power-diagnostics")!;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    fireEvent.scroll(container, { target: { scrollTop: 145 } });
+    first.unmount();
+    const second = render(<DiagnosticsPage />);
+    await waitFor(() => expect(second.getByLabelText("Filter timeline reason")).toBeTruthy());
+    expect((second.getByLabelText("Filter timeline reason") as HTMLInputElement).value).toBe("cpu");
+    expect((second.getByLabelText("Group recurring warnings") as HTMLInputElement).checked).toBe(false);
+    await waitFor(() => expect(second.container.querySelector(".power-diagnostics")!.scrollTop).toBe(145));
+    fireEvent.click(second.getByRole("button", { name: "Consumers" }));
+    expect((second.getByLabelText("Filter consumers") as HTMLInputElement).value).toBe("app");
+    expect(second.getByLabelText("Collapse pods for app")).toBeTruthy();
+  });
+});
+
+it("groups recurring warnings with original evidence and allows chronological entries", async () => {
+  const current = snapshot();
+  current.events.push({
+    ...current.events[0],
+    metadata: { uid: "event-b" },
+    message: "Insufficient cpu",
+    count: 4,
+  });
+  state.get.mockResolvedValue(current);
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByText("app")).toBeTruthy());
+  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  expect(view.container.querySelectorAll(".timeline-entry")).toHaveLength(1);
+  expect(view.getByText("1 affected resources · 2 original entries")).toBeTruthy();
+  expect(view.getByText(/Count 5/)).toBeTruthy();
+  fireEvent.click(view.getByLabelText("Group recurring warnings"));
+  expect(view.container.querySelectorAll(".timeline-entry")).toHaveLength(2);
+});
+
+it("restores deep scroll only after async rows and saved expansion have rendered", async () => {
+  let resolve!: (value: ReturnType<typeof snapshot>) => void;
+  state.get.mockReturnValue(
+    new Promise((complete) => {
+      resolve = complete;
+    }),
+  );
+  saveDiagnosticsState("sample-cluster", {
+    ...readDiagnosticsState("sample-cluster"),
+    expanded: ["sample/deployment-a"],
+    scrollTop: 420,
+  });
+  const view = render(<DiagnosticsPage />);
+  const container = view.container.querySelector(".power-diagnostics")!;
+  const writes: { top: number; rows: number }[] = [];
+  let top = 0;
+  Object.defineProperty(container, "scrollTop", {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      const rows = container.querySelectorAll(".consumer-pod-row").length;
+      writes.push({ top: value, rows });
+      top = rows ? value : 0;
+    },
+  });
+  fireEvent.scroll(container);
+  expect(writes).toEqual([]);
+  resolve(snapshot());
+  await waitFor(() => expect(top).toBe(420));
+  expect(writes.every((write) => write.rows === 1 && write.top === 420)).toBe(true);
+});
+
+it("scopes namespace links exactly and lets users remove the scope independently of search", async () => {
+  const current = snapshot();
+  current.pods.push({
+    ...current.pods[0],
+    metadata: { uid: "pod-other", name: "other", namespace: "sample-extra", ownerReferences: [] },
+  });
+  state.get.mockResolvedValue(current);
+  saveDiagnosticsState("sample-cluster", {
+    ...readDiagnosticsState("sample-cluster"),
+    namespaceScope: "sample",
+    filter: "",
+    needsAttention: false,
+  });
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByText("app")).toBeTruthy());
+  expect(view.queryByText("other")).toBeNull();
+  expect(view.getByText("Namespace: sample")).toBeTruthy();
+  expect((view.getByLabelText("Filter consumers") as HTMLInputElement).value).toBe("");
+  fireEvent.click(view.getByLabelText("Clear namespace scope"));
+  expect(view.getByText("other")).toBeTruthy();
+  expect(view.queryByText("Namespace: sample")).toBeNull();
+});
+
+it("applies namespace focus to a mounted page and retains it after leaving", async () => {
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByText("app")).toBeTruthy());
+  fireEvent.change(view.getByLabelText("Filter consumers"), { target: { value: "unrelated" } });
+  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  act(() => focusDiagnosticsNamespace("other-cluster", "other"));
+  expect(view.queryByText("Namespace: other")).toBeNull();
+  act(() => focusDiagnosticsNamespace("sample-cluster", "sample"));
+  expect(view.getByText("Namespace: sample")).toBeTruthy();
+  expect((view.getByLabelText("Filter consumers") as HTMLInputElement).value).toBe("");
+  expect((view.getByLabelText("Group consumers") as HTMLSelectElement).value).toBe("namespace");
+  expect(view.getByText("app")).toBeTruthy();
+  view.unmount();
+  expect(readDiagnosticsState("sample-cluster").namespaceScope).toBe("sample");
+  expect(readDiagnosticsState("sample-cluster").tab).toBe("Consumers");
+});
+
+it("copies only the selected pending pod finding and its evidence", async () => {
+  const { clipboard } = await import("electron");
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByRole("button", { name: "Inspect pending pods" })).toBeTruthy());
+  fireEvent.click(view.getByRole("button", { name: "Inspect pending pods" }));
+  fireEvent.click(view.getByLabelText("Copy incident summary"));
+  const text = vi.mocked(clipboard.writeText).mock.calls.at(-1)![0];
+  expect(text).toContain("Problem: Pending pod");
+  expect(text).toContain("Insufficient cpu");
+  expect(text).toContain("/api/v1/namespaces/sample/pods/worker");
+  expect(text).not.toContain("Other application");
+  expect(view.getByText("Copied")).toBeTruthy();
+});
+
+it("distinguishes completed consumers from active readiness and unknown state", () => {
+  const completed = { metadata: {}, status: { phase: "Succeeded", conditions: [{ type: "Ready", status: "False" }] } };
+  const ready = { metadata: {}, status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] } };
+  const unknown = { metadata: {}, status: { phase: "Running", conditions: [{ type: "Ready", status: "Unknown" }] } };
+  expect(consumerStatus([completed])).toEqual({ tone: "healthy", label: "Completed", icon: "check_circle" });
+  expect(consumerStatus([completed, ready])).toMatchObject({ tone: "healthy", label: "Ready / Completed" });
+  expect(consumerStatus([completed, unknown])).toMatchObject({ tone: "neutral", label: "Readiness unknown" });
+  expect(consumerStatus([completed, { metadata: {}, status: { phase: "Pending" } }])).toMatchObject({
+    tone: "warning",
+    label: "1 Pending",
+  });
+  expect(
+    consumerStatus([
+      completed,
+      { metadata: {}, status: { phase: "Running", conditions: [{ type: "Ready", status: "False" }] } },
+    ]),
+  ).toMatchObject({ tone: "warning", label: "Not ready" });
+  expect(consumerStatus([completed, { metadata: {}, status: { phase: "Failed" } }])).toMatchObject({
+    tone: "error",
+    label: "Failed",
+  });
+});
+
+it("places Timeline resource, copy and AI actions together beside the heading", async () => {
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByText("app")).toBeTruthy());
+  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  const actions = view.getByRole("group", { name: "Event actions" });
+  expect(actions.closest(".timeline-card-top")?.querySelector(".timeline-card-heading")?.textContent).toContain(
+    "FailedScheduling",
+  );
+  expect(actions.querySelectorAll("button")).toHaveLength(3);
+  expect(view.getByLabelText("Open resource").parentElement).toBe(actions);
+  expect(view.getByLabelText("Copy incident summary").closest(".timeline-card-actions")).toBe(actions);
+  expect(view.getByLabelText("Explain with AI").parentElement).toBe(actions);
+  expect(view.getAllByLabelText("Copy incident summary")).toHaveLength(1);
+  fireEvent.click(view.getByLabelText("Copy incident summary"));
+  const { clipboard } = await import("electron");
+  expect(vi.mocked(clipboard.writeText).mock.calls.at(-1)![0]).toContain("Insufficient cpu");
 });

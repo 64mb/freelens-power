@@ -1,6 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { formatDateTime } from "../common/date-time";
 import {
   buildConsumerGroups,
@@ -14,8 +14,13 @@ import {
   type ResourceSummary,
   type TimelineEntry,
 } from "../common/resource-diagnostics";
+import { groupTimelineEntries } from "../common/timeline-groups";
+import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
+import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { diagnosticsStyles } from "./diagnostics.css";
+import { DIAGNOSTICS_NAMESPACE_EVENT, readDiagnosticsState, saveDiagnosticsState } from "./diagnostics-state";
+import { IncidentCopyButton } from "./incident-copy-button";
 import {
   getCollectedPodUsage,
   getMonitoringSnapshot,
@@ -130,6 +135,7 @@ export function consumerStatus(pods: DiagnosticsObject[]): { tone: string; label
     "InvalidImageName",
   ]);
   for (const pod of pods) {
+    if (pod.status?.phase === "Succeeded") continue;
     type WaitingStatus = { state?: { waiting?: { reason?: string } } };
     const status = pod.status as
       | { containerStatuses?: WaitingStatus[]; initContainerStatuses?: WaitingStatus[] }
@@ -144,8 +150,10 @@ export function consumerStatus(pods: DiagnosticsObject[]): { tone: string; label
   const pendingCount = pods.filter((pod) => pod.status?.phase === "Pending").length;
   if (pendingCount) return { tone: "warning", label: `${pendingCount} Pending`, icon: "hourglass_empty" };
   if (
-    pods.some((pod) =>
-      pod.status?.conditions?.some((condition) => condition.type === "Ready" && condition.status === "False"),
+    pods.some(
+      (pod) =>
+        pod.status?.phase !== "Succeeded" &&
+        pod.status?.conditions?.some((condition) => condition.type === "Ready" && condition.status === "False"),
     )
   )
     return { tone: "warning", label: "Not ready", icon: "warning_amber" };
@@ -153,11 +161,18 @@ export function consumerStatus(pods: DiagnosticsObject[]): { tone: string; label
     pods.length &&
     pods.every(
       (pod) =>
-        pod.status?.phase === "Running" &&
-        pod.status.conditions?.some((condition) => condition.type === "Ready" && condition.status === "True"),
+        pod.status?.phase === "Succeeded" ||
+        (pod.status?.phase === "Running" &&
+          pod.status.conditions?.some((condition) => condition.type === "Ready" && condition.status === "True")),
     )
   )
-    return { tone: "healthy", label: "Ready", icon: "check_circle_outline" };
+    return pods.every((pod) => pod.status?.phase === "Succeeded")
+      ? { tone: "healthy", label: "Completed", icon: "check_circle" }
+      : {
+          tone: "healthy",
+          label: pods.some((pod) => pod.status?.phase === "Succeeded") ? "Ready / Completed" : "Ready",
+          icon: "check_circle_outline",
+        };
   return { tone: "neutral", label: "Readiness unknown", icon: "help_outline" };
 }
 function ConsumerStatus({ pods }: { pods: DiagnosticsObject[] }) {
@@ -248,20 +263,75 @@ function projection(data: MonitoringSnapshot) {
   return value;
 }
 export function DiagnosticsPage() {
-  const [tab, setTab] = useState<Tab>("Consumers");
+  const initial = useRef(readDiagnosticsState(activeId() ?? "")).current;
+  const scrollContainer = useRef<HTMLDivElement>(null);
+  const stateCluster = useRef(activeId() ?? "");
+  const [tab, setTab] = useState<Tab>(initial.tab);
   const [snapshot, setSnapshot] = useState<MonitoringSnapshot>();
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("");
-  const [needsAttention, setNeedsAttention] = useState(true);
-  const [groupMode, setGroupMode] = useState("workload");
-  const [namespacesOpen, setNamespacesOpen] = useState<string[]>([]);
+  const [filter, setFilter] = useState(initial.filter);
+  const [namespaceScope, setNamespaceScope] = useState(initial.namespaceScope);
+  const pendingScroll = useRef<{ clusterId: string; top: number } | undefined>({
+    clusterId: stateCluster.current,
+    top: initial.scrollTop,
+  });
+  const [needsAttention, setNeedsAttention] = useState(initial.needsAttention);
+  const [groupMode, setGroupMode] = useState(initial.groupMode);
+  const [namespacesOpen, setNamespacesOpen] = useState<string[]>(initial.namespacesOpen);
   const known = useRef(new Map<string, { group: ConsumerGroup; uids: Set<string> }>());
-  const [sort, setSort] = useState("cpu");
-  const [expanded, setExpanded] = useState<string[]>([]);
-  const [selected, setSelected] = useState("");
-  const [pendingUid, setPendingUid] = useState("");
-  const [reason, setReason] = useState("");
-  const [warningOnly, setWarningOnly] = useState(true);
+  const [sort, setSort] = useState(initial.sort);
+  const [expanded, setExpanded] = useState<string[]>(initial.expanded);
+  const [selected, setSelected] = useState(initial.selected);
+  const [pendingUid, setPendingUid] = useState(initial.pendingUid);
+  const [reason, setReason] = useState(initial.reason);
+  const [warningOnly, setWarningOnly] = useState(initial.warningOnly);
+  const [groupedTimeline, setGroupedTimeline] = useState(initial.groupedTimeline);
+  const [openTimeline, setOpenTimeline] = useState<string[]>(initial.openTimeline);
+  const viewState = useRef(initial);
+  viewState.current = {
+    tab,
+    filter,
+    namespaceScope,
+    needsAttention,
+    groupMode,
+    namespacesOpen,
+    sort,
+    expanded,
+    selected,
+    pendingUid,
+    reason,
+    warningOnly,
+    groupedTimeline,
+    openTimeline,
+    scrollTop: viewState.current.scrollTop,
+  };
+  useEffect(() => {
+    return () => saveDiagnosticsState(stateCluster.current, viewState.current);
+  }, [initial]);
+  useEffect(() => {
+    const focusNamespace = (event: Event) => {
+      const detail = (event as CustomEvent<{ clusterId: string; namespace: string }>).detail;
+      if (
+        !detail ||
+        detail.clusterId !== stateCluster.current ||
+        detail.clusterId !== activeId() ||
+        typeof detail.namespace !== "string" ||
+        !detail.namespace
+      )
+        return;
+      setTab("Consumers");
+      setNamespaceScope(detail.namespace);
+      setFilter("");
+      setNeedsAttention(false);
+      setGroupMode("namespace");
+      setNamespacesOpen([detail.namespace]);
+      viewState.current.scrollTop = 0;
+      pendingScroll.current = undefined;
+      if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
+    };
+    window.addEventListener(DIAGNOSTICS_NAMESPACE_EVENT, focusNamespace);
+    return () => window.removeEventListener(DIAGNOSTICS_NAMESPACE_EVENT, focusNamespace);
+  }, []);
   const [observed, setObserved] = useState<TimelineEntry[]>([]);
   const previous = useRef<MonitoringSnapshot>();
   useEffect(() => {
@@ -275,9 +345,25 @@ export function DiagnosticsPage() {
       known.current.clear();
       setSnapshot(undefined);
       setObserved([]);
-      setSelected("");
-      setPendingUid("");
-      setExpanded([]);
+      saveDiagnosticsState(stateCluster.current, viewState.current);
+      stateCluster.current = activeId() ?? "";
+      const restored = readDiagnosticsState(stateCluster.current);
+      setTab(restored.tab);
+      setFilter(restored.filter);
+      setNamespaceScope(restored.namespaceScope);
+      setNeedsAttention(restored.needsAttention);
+      setGroupMode(restored.groupMode);
+      setNamespacesOpen(restored.namespacesOpen);
+      setSort(restored.sort);
+      setExpanded(restored.expanded);
+      setSelected(restored.selected);
+      setPendingUid(restored.pendingUid);
+      setReason(restored.reason);
+      setWarningOnly(restored.warningOnly);
+      setGroupedTimeline(restored.groupedTimeline);
+      setOpenTimeline(restored.openTimeline);
+      viewState.current = restored;
+      pendingScroll.current = { clusterId: stateCluster.current, top: restored.scrollTop };
       setError("");
     };
     const load = async () => {
@@ -348,11 +434,25 @@ export function DiagnosticsPage() {
     };
   }, []);
   const data = snapshot?.clusterId === activeId() ? snapshot : undefined;
+  useLayoutEffect(() => {
+    const pending = pendingScroll.current;
+    if (!data || !pending || pending.clusterId !== data.clusterId || !scrollContainer.current) return;
+    // restore after the snapshot and expanded rows have committed, then guard initial layout scroll events
+    scrollContainer.current.scrollTop = pending.top;
+    const frame = requestAnimationFrame(() => {
+      if (pendingScroll.current !== pending || !scrollContainer.current) return;
+      scrollContainer.current.scrollTop = pending.top;
+      viewState.current.scrollTop = scrollContainer.current.scrollTop;
+      pendingScroll.current = undefined;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [data]);
   const projected = useMemo(() => (data ? projection(data) : undefined), [data]);
   const groups = projected?.groups ?? [];
   const filtered = useMemo(
     () =>
       groups
+        .filter((group) => !namespaceScope || group.namespace === namespaceScope)
         .filter((group) =>
           `${group.namespace} ${group.name} ${group.kind}`.toLowerCase().includes(filter.toLowerCase()),
         )
@@ -368,7 +468,7 @@ export function DiagnosticsPage() {
               : (b[sort === "memory" ? "memory" : "cpu"].usage ?? -1) -
                 (a[sort === "memory" ? "memory" : "cpu"].usage ?? -1),
         ),
-    [groups, filter, sort, needsAttention],
+    [groups, filter, namespaceScope, sort, needsAttention],
   );
   const warningUids = new Set(
     (data?.events ?? [])
@@ -380,9 +480,6 @@ export function DiagnosticsPage() {
     .filter((item) => !warningOnly || [...item.uids].some((uid) => warningUids.has(uid)))
     .map((item) => item.group);
   const selectionAvailable = applications.some((group) => groupKey(group) === selected);
-  useEffect(() => {
-    if (selected && !selectionAvailable) setSelected("");
-  }, [selected, selectionAvailable]);
   const application = applications.find((group) => groupKey(group) === selected);
   const uids = new Set(known.current.get(selected)?.uids ?? []);
   const normalizedEvents = normalizeEvents(data?.events ?? []);
@@ -403,6 +500,25 @@ export function DiagnosticsPage() {
         (!warningOnly || warningIds.has(entry.id)),
     )
     .sort((a, b) => (Date.parse(b.time ?? "") || 0) - (Date.parse(a.time ?? "") || 0));
+  const timelineResource = (entry: TimelineEntry) => {
+    const object = entry.objectUid ? projected?.objects.get(entry.objectUid) : undefined;
+    const ref = eventReferences.get(entry.id);
+    return `${object?.metadata.namespace ?? ref?.namespace ?? "Unknown namespace"} / ${object?.kind ?? ref?.kind ?? "Resource"} / ${object?.metadata.name ?? ref?.name ?? entry.objectUid ?? entry.id}`;
+  };
+  const timelineGroups = groupTimelineEntries(
+    timeline,
+    (entry) => {
+      if (!warningIds.has(entry.id)) return entry.id;
+      const owner = [...known.current.entries()].find(
+        ([, item]) => !!entry.objectUid && item.uids.has(entry.objectUid),
+      );
+      return owner
+        ? `${owner[1].group.namespace}/${owner[1].group.kind}/${owner[1].group.name}`
+        : timelineResource(entry);
+    },
+    timelineResource,
+  );
+  const displayedTimeline = groupedTimeline ? timelineGroups.map((group) => group.latest) : timeline;
   const pending = (data?.pods ?? []).filter((pod) => pod.status?.phase === "Pending");
   const PendingCard = pending.length && data?.pods ? "button" : "div";
   const selectedPod = pending.find((pod) => pod.metadata.uid === pendingUid);
@@ -410,7 +526,14 @@ export function DiagnosticsPage() {
     ? diagnosePendingPod(selectedPod, data?.nodes ?? [], data?.events ?? [], data?.pvcs)
     : undefined;
   return (
-    <div className="power-diagnostics" style={{ padding: 24, overflow: "auto", height: "100%", minWidth: 0 }}>
+    <div
+      ref={scrollContainer}
+      onScroll={(event) => {
+        if (!pendingScroll.current) viewState.current.scrollTop = event.currentTarget.scrollTop;
+      }}
+      className="power-diagnostics"
+      style={{ padding: 24, overflow: "auto", height: "100%", minWidth: 0 }}
+    >
       <style>{diagnosticsStyles}</style>
       <header className="diagnostics-header">
         <h2>Resource diagnostics</h2>
@@ -498,6 +621,15 @@ export function DiagnosticsPage() {
       )}
       {tab === "Consumers" && data && (
         <>
+          {namespaceScope && (
+            <div className="namespace-scope" role="status">
+              <span className="namespace-scope-label">Namespace: {namespaceScope}</span>
+              <button type="button" aria-label="Clear namespace scope" onClick={() => setNamespaceScope(undefined)}>
+                <AiIcon material="close" size={13} />
+                Show all namespaces
+              </button>
+            </div>
+          )}
           <div className="toolbar consumers-toolbar">
             <label>
               Group by{" "}
@@ -576,6 +708,7 @@ export function DiagnosticsPage() {
                       key={namespace}
                       namespace={namespace}
                       groups={namespace ? filtered.filter((group) => group.namespace === namespace) : filtered}
+                      snapshotTime={data.time}
                       clusterId={data?.clusterId ?? ""}
                       usage={projected?.usage ?? []}
                       open={!namespace || namespacesOpen.includes(namespace)}
@@ -676,6 +809,13 @@ export function DiagnosticsPage() {
               incomplete.
             </p>
           </details>
+          <div className="warning-filter">
+            <Renderer.Component.Checkbox
+              label="Group recurring warnings"
+              value={groupedTimeline}
+              onChange={setGroupedTimeline}
+            />
+          </div>
           <div className="timeline-legend" aria-label="Event types">
             {["Warning", "Rollout", "Restart", "Readiness", "Kubernetes event", "Observed change"].map((label) => (
               <span key={label} className={`timeline-type ${eventCategory(label)}`}>
@@ -684,7 +824,8 @@ export function DiagnosticsPage() {
             ))}
           </div>
           <ol className="diagnostics-timeline" aria-label="Workload event timeline">
-            {timeline.map((entry) => {
+            {displayedTimeline.map((entry) => {
+              const recurrence = groupedTimeline ? timelineGroups.find((group) => group.latest === entry) : undefined;
               const kind = eventCategory(entry.reason);
               const category = warningIds.has(entry.id)
                 ? "warning"
@@ -714,27 +855,82 @@ export function DiagnosticsPage() {
                     <small>{entry.certainty === "observed" ? "Observed at snapshot" : "Kubernetes event time"}</small>
                   </div>
                   <div className="timeline-content">
-                    {object && data && (
-                      <button
-                        type="button"
-                        className="timeline-resource-action"
-                        aria-label="Open resource"
-                        title={`Open ${object.kind ?? "Pod"} ${object.metadata.namespace} / ${object.metadata.name}`}
-                        onClick={(event) => openResource(object, data.clusterId, event)}
-                      >
-                        <AiIcon material="open_in_new" />
-                      </button>
-                    )}
-                    <div className="timeline-card-heading">
-                      {" "}
-                      <span className={`timeline-type ${category}`}>{label}</span>
-                      <h4>{entry.reason}</h4>
-                      <small className="timeline-resource-identity">
-                        <AiIcon material={referenceKind === "Pod" ? "view_in_ar" : "account_tree"} size={12} />
-                        {metadata?.name
-                          ? `${metadata.namespace ?? "Namespace unknown"} / ${referenceKind ?? "Resource"} / ${metadata.name}`
-                          : "Resource identity unavailable"}
-                      </small>
+                    <div className="timeline-card-top">
+                      <div className="timeline-card-heading">
+                        {" "}
+                        <span className={`timeline-type ${category}`}>{label}</span>
+                        <h4>{entry.reason}</h4>
+                        <small className="timeline-resource-identity">
+                          <AiIcon material={referenceKind === "Pod" ? "view_in_ar" : "account_tree"} size={12} />
+                          {metadata?.name
+                            ? `${metadata.namespace ?? "Namespace unknown"} / ${referenceKind ?? "Resource"} / ${metadata.name}`
+                            : "Resource identity unavailable"}
+                        </small>
+                      </div>
+                      <div className="timeline-card-actions" role="group" aria-label="Event actions">
+                        {object && data && (
+                          <button
+                            type="button"
+                            className="timeline-resource-action"
+                            aria-label="Open resource"
+                            title={`Open ${object.kind ?? "Pod"} ${object.metadata.namespace} / ${object.metadata.name}`}
+                            onClick={(event) => openResource(object, data.clusterId, event)}
+                          >
+                            <AiIcon material="open_in_new" />
+                          </button>
+                        )}
+                        <IncidentCopyButton
+                          clusterId={data.clusterId}
+                          incident={{
+                            problem: entry.reason,
+                            facts: [
+                              entry.message,
+                              `Reported count ${recurrence?.count ?? entry.count}`,
+                              ...((recurrence?.affected ?? []).length > 1
+                                ? [`Affected resources: ${recurrence?.affected.join("; ")}`]
+                                : []),
+                            ],
+                            time: entry.time ?? data.time,
+                            resources: (recurrence?.entries ?? [entry]).slice(0, 12).flatMap((original) => {
+                              const originalObject = original.objectUid
+                                ? projected?.objects.get(original.objectUid)
+                                : undefined;
+                              const originalReference = eventReferences.get(original.id);
+                              const originalMetadata = originalObject?.metadata ?? originalReference;
+                              const originalKind = originalObject?.kind ?? originalReference?.kind;
+                              return originalMetadata?.name && originalKind
+                                ? [
+                                    {
+                                      kind: originalKind,
+                                      namespace: originalMetadata.namespace,
+                                      name: originalMetadata.name,
+                                    },
+                                  ]
+                                : [];
+                            }),
+                          }}
+                        />
+                        <DiagnosticExplainButton
+                          type="button"
+                          className="explain-finding"
+                          aria-label="Explain with AI"
+                          title="Explain with AI"
+                          onClick={() =>
+                            explainDiagnosticFinding({
+                              clusterId: data.clusterId,
+                              title: entry.reason,
+                              summary: `${timelineResource(entry)}: ${entry.message}. Reported count ${recurrence?.count ?? entry.count}`,
+                              resource:
+                                metadata?.name && referenceKind
+                                  ? { kind: referenceKind, namespace: metadata.namespace, name: metadata.name }
+                                  : undefined,
+                            })
+                          }
+                        >
+                          <AiIcon material="auto_awesome" size={13} />
+                          <span className="timeline-action-label">Explain with AI</span>
+                        </DiagnosticExplainButton>
+                      </div>
                     </div>
                     <p>{entry.message}</p>
                     <small>
@@ -743,10 +939,39 @@ export function DiagnosticsPage() {
                         : entry.certainty === "observed"
                           ? "Observed"
                           : "Unknown"}{" "}
-                      · Count {entry.count}
+                      · Count {recurrence?.count ?? entry.count}
                       {entry.firstTime ? ` · First ${formatDateTime(entry.firstTime)}` : ""}
                     </small>
                     {entry.gap && <small>{entry.gap}</small>}
+                    {recurrence && recurrence.entries.length > 1 && (
+                      <details
+                        open={openTimeline.includes(recurrence.key)}
+                        onToggle={(event) => {
+                          const open = event.currentTarget.open;
+                          setOpenTimeline((items) =>
+                            open
+                              ? [...new Set([...items, recurrence.key])]
+                              : items.filter((item) => item !== recurrence.key),
+                          );
+                        }}
+                      >
+                        <summary>
+                          {recurrence.affected.length} affected resources · {recurrence.entries.length} original entries
+                        </summary>
+                        <small>{recurrence.affected.join(" · ")}</small>
+                        <ul>
+                          {recurrence.entries.map((original, index) => (
+                            <li key={`${original.id}/${index}`}>
+                              <small>
+                                {original.time ? formatDateTime(original.time) : "Time unknown"} ·{" "}
+                                {timelineResource(original)} · Count {original.count}
+                              </small>
+                              {original.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                   </div>
                 </li>
               );
@@ -859,6 +1084,43 @@ export function DiagnosticsPage() {
                     .join(" · ")}
                 </p>
               </details>
+              <IncidentCopyButton
+                clusterId={data.clusterId}
+                incident={{
+                  problem: "Pending pod",
+                  facts: [
+                    diagnosis.state,
+                    `CPU request ${podRequest(selectedPod, "cpu")}; memory request ${podRequest(selectedPod, "memory")}`,
+                    ...diagnosis.evidence.slice(0, 8).map((entry) => entry.message),
+                  ],
+                  time: data.time,
+                  resources: [
+                    { kind: "Pod", namespace: selectedPod.metadata.namespace, name: selectedPod.metadata.name! },
+                  ],
+                }}
+              />
+              <DiagnosticExplainButton
+                type="button"
+                className="explain-finding"
+                onClick={() =>
+                  explainDiagnosticFinding({
+                    clusterId: data.clusterId,
+                    title: "Pending pod",
+                    summary: `${diagnosis.state}. CPU request ${podRequest(selectedPod, "cpu")}, memory request ${podRequest(selectedPod, "memory")}. ${diagnosis.evidence
+                      .slice(0, 8)
+                      .map((entry) => entry.message)
+                      .join("; ")}`,
+                    resource: {
+                      kind: "Pod",
+                      namespace: selectedPod.metadata.namespace,
+                      name: selectedPod.metadata.name!,
+                    },
+                  })
+                }
+              >
+                <AiIcon material="auto_awesome" size={13} />
+                Explain with AI
+              </DiagnosticExplainButton>
               <h3>Scheduling evidence</h3>
               <div className="diagnostics-table">
                 <table className="evidence-table">
@@ -918,6 +1180,7 @@ export function DiagnosticsPage() {
 function ConsumerRows({
   group,
   clusterId,
+  snapshotTime,
   expanded,
   toggle,
   usage,
@@ -926,6 +1189,7 @@ function ConsumerRows({
   group: ConsumerGroup;
   depth: number;
   clusterId: string;
+  snapshotTime: number;
   expanded: boolean;
   toggle: () => void;
   usage: PodUsage[];
@@ -975,6 +1239,41 @@ function ConsumerRows({
               </small>
             </div>
             <div className="consumer-row-actions">
+              {["warning", "error"].includes(consumerStatus(group.pods).tone) && (
+                <IncidentCopyButton
+                  clusterId={clusterId}
+                  incident={{
+                    problem: `${group.kind} ${group.name}: ${consumerStatus(group.pods).label}`,
+                    facts: [
+                      `${group.pods.length} pods`,
+                      `CPU ${resourceText(group.cpu.usage, "cpu")} used / ${resourceText(group.cpu.requests, "cpu")} requested`,
+                      `Memory ${resourceText(group.memory.usage, "memory")} used / ${resourceText(group.memory.requests, "memory")} requested`,
+                    ],
+                    time: snapshotTime,
+                    resources: [{ kind: group.kind, namespace: group.namespace, name: group.name }],
+                  }}
+                />
+              )}
+
+              {["warning", "error"].includes(consumerStatus(group.pods).tone) && (
+                <DiagnosticExplainButton
+                  type="button"
+                  className="explain-finding"
+                  title="Explain with AI"
+                  aria-label={`Explain finding for ${group.name}`}
+                  onClick={() =>
+                    explainDiagnosticFinding({
+                      clusterId,
+                      title: `${group.kind} ${group.name}`,
+                      summary: `${consumerStatus(group.pods).label}; ${group.pods.length} pods. CPU ${resourceText(group.cpu.usage, "cpu")} used / ${resourceText(group.cpu.requests, "cpu")} requested; memory ${resourceText(group.memory.usage, "memory")} used / ${resourceText(group.memory.requests, "memory")} requested`,
+                      resource: { kind: group.kind, namespace: group.namespace, name: group.name },
+                    })
+                  }
+                >
+                  <AiIcon material="auto_awesome" size={13} />
+                </DiagnosticExplainButton>
+              )}
+
               <span className="consumer-expand-slot">
                 <button
                   className="consumer-expand"
@@ -1066,6 +1365,7 @@ function NamespaceRows({
   namespace,
   groups,
   clusterId,
+  snapshotTime,
   usage,
   open,
   toggleNamespace,
@@ -1075,6 +1375,7 @@ function NamespaceRows({
   namespace: string;
   groups: ConsumerGroup[];
   clusterId: string;
+  snapshotTime: number;
   usage: PodUsage[];
   open: boolean;
   toggleNamespace: () => void;
@@ -1121,12 +1422,18 @@ function NamespaceRows({
                     <span className="consumer-identity-label">{namespace}</span>
                   </span>
                   <ConsumerStatus pods={groups.flatMap((group) => group.pods)} />
+                  <small>
+                    {groups.filter((group) => consumerStatus(group.pods).tone === "healthy").length} ready ·{" "}
+                    {groups.filter((group) => ["warning", "error"].includes(consumerStatus(group.pods).tone)).length}{" "}
+                    need attention · {groups.filter((group) => consumerStatus(group.pods).tone === "neutral").length}{" "}
+                    unknown
+                  </small>
                 </div>
                 <small
                   className="consumer-subtitle"
                   title="Resource totals include only consumers shown by the current filters"
                 >
-                  {groups.length} shown consumers<span>·</span>
+                  {groups.length} filtered consumers<span>·</span>
                   {groups.reduce((total, group) => total + group.pods.length, 0)} pods
                 </small>
               </div>
@@ -1161,6 +1468,7 @@ function NamespaceRows({
             key={groupKey(group)}
             group={group}
             depth={namespace ? 1 : 0}
+            snapshotTime={snapshotTime}
             clusterId={clusterId}
             expanded={expanded.includes(groupKey(group))}
             toggle={() => toggleGroup(groupKey(group))}

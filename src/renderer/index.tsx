@@ -20,8 +20,13 @@ import { startAppearanceOverride } from "./appearance";
 import { startPowerButtonStyles } from "./button-styles";
 import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
+import { HpaDiagnosticsDetails } from "./details/hpa-diagnostics-details";
+import { NamespaceHealthDetails } from "./details/namespace-health-details";
+import { ResourceHealthDetails } from "./details/resource-health-details";
 import { SecretCertificateDetails } from "./details/secret-certificate-details";
+import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details";
 import { DiagnosticsPage } from "./diagnostics";
+import { focusDiagnosticsNamespace } from "./diagnostics-state";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
@@ -30,6 +35,8 @@ import { NodeMonitoringDetails } from "./node-monitoring";
 import { startPodMonitoring } from "./pod-monitoring";
 import { PowerPreferences } from "./preferences/preferences";
 import { startReadOnlyMode } from "./read-only";
+import { ResourceRelationshipsPage } from "./resource-relationships";
+import { startResourceSearch } from "./resource-search";
 import { startWelcomeOverride } from "./welcome";
 
 import type { ReactNode } from "react";
@@ -37,6 +44,14 @@ import type { ReactNode } from "react";
 const PowerEnabled = observer(({ children }: { children: ReactNode }) =>
   PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled ? <>{children}</> : null,
 );
+
+const RelationshipsPage = observer(() => (
+  <PowerEnabled>
+    <ResourceRelationshipsPage
+      enabled={MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>().relationshipsVisible}
+    />
+  </PowerEnabled>
+));
 
 export default class FreelensPowerRenderer extends Renderer.LensExtension {
   get name() {
@@ -79,6 +94,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startAppearanceOverride,
             startWelcomeOverride,
             startAiChat,
+            startResourceSearch,
           ]) {
             try {
               disposers.push(start());
@@ -134,6 +150,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   ];
 
   clusterPages = [
+    { id: "relationships", components: { Page: () => <RelationshipsPage /> } },
     {
       id: "diagnostics",
       components: {
@@ -158,6 +175,20 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
       orderNumber: 5,
       components: { Icon: () => <Renderer.Component.Icon material="insights" tooltip="Resource diagnostics" /> },
     },
+    {
+      visible: computed(
+        () =>
+          PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled &&
+          MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>().relationshipsVisible,
+      ),
+      id: "relationships",
+      target: { pageId: "relationships" },
+      title: "Relationships",
+      orderNumber: 6,
+      components: {
+        Icon: () => <Renderer.Component.Icon material="account_tree" tooltip="Resource relationships" />,
+      },
+    },
   ];
 
   topBarItems = [
@@ -177,7 +208,61 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     },
   ];
 
+  private openDiagnostics = (namespace?: string) => {
+    const clusterId = Renderer.Catalog.activeCluster.get()?.metadata.uid;
+    if (clusterId && namespace) focusDiagnosticsNamespace(clusterId, namespace);
+    void this.navigate("diagnostics");
+  };
+
   kubeObjectDetailItems: Renderer.LensExtension["kubeObjectDetailItems"] = [
+    ...["Pod", "Deployment", "StatefulSet", "DaemonSet", "Node"].map((kind) => ({
+      kind,
+      apiVersions: kind === "Pod" || kind === "Node" ? ["v1"] : ["apps/v1"],
+      priority: 320,
+      components: {
+        Details: (props: Renderer.Component.KubeObjectDetailsProps) => (
+          <PowerEnabled>
+            <ResourceHealthDetails {...props} onOpenDiagnostics={this.openDiagnostics} />
+          </PowerEnabled>
+        ),
+      },
+    })),
+    {
+      kind: "Namespace",
+      apiVersions: ["v1"],
+      priority: 320,
+      components: {
+        Details: (props) => (
+          <PowerEnabled>
+            <NamespaceHealthDetails {...props} onOpenDiagnostics={this.openDiagnostics} />
+          </PowerEnabled>
+        ),
+      },
+    },
+    {
+      kind: "Service",
+      apiVersions: ["v1"],
+      priority: 320,
+      components: {
+        Details: (props) => (
+          <PowerEnabled>
+            <ServiceDiagnosticsDetails {...props} object={props.object as Renderer.K8sApi.Service} />
+          </PowerEnabled>
+        ),
+      },
+    },
+    {
+      kind: "HorizontalPodAutoscaler",
+      apiVersions: ["autoscaling/v1", "autoscaling/v2"],
+      priority: 320,
+      components: {
+        Details: (props) => (
+          <PowerEnabled>
+            <HpaDiagnosticsDetails {...props} object={props.object as Renderer.K8sApi.HorizontalPodAutoscaler} />
+          </PowerEnabled>
+        ),
+      },
+    },
     {
       kind: "Node",
       apiVersions: ["v1"],

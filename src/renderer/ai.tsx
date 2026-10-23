@@ -10,6 +10,12 @@ import { expandAiShortcut } from "../common/ai-shortcuts";
 import { type AiMessage, AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AiCopyAnswer } from "./ai-copy-answer";
+import {
+  AI_DIAGNOSTIC_EVENT,
+  type DiagnosticFinding,
+  diagnosticQuestion,
+  sanitizeDiagnosticFinding,
+} from "./ai-diagnostic-handoff";
 import { AiContextPreview, AiResourceReferences } from "./ai-extras";
 import { AiIcon } from "./ai-icon";
 import { AiMessageContent } from "./ai-message";
@@ -172,6 +178,13 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 .power-ai-panel header > button { flex-shrink: 0; }
 .power-ai-panel form { position: relative; flex-shrink: 0; margin: 0 16px 16px; border: 1px solid var(--borderFaintColor); border-radius: 12px; background: var(--mainBackground); transition: border-color 160ms ease; }
 .power-ai-panel form > .power-ai-context-preview { padding: 8px 48px 4px 16px !important; min-height: 34px; margin: 0; box-sizing: border-box; }
+.power-ai-context-finding { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; min-width: 0; }
+.power-ai-context-finding > .Icon { flex-shrink: 0; margin-top: 7px; }
+.power-ai-context-finding > details { flex: 1; min-width: 0; }
+.power-ai-context-finding summary { padding: 6px 0; min-height: 28px; box-sizing: border-box; cursor: pointer; overflow-wrap: anywhere; }
+:root .power-ai-panel button.power-ai-remove-context { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 28px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--textColorSecondary); }
+:root .power-ai-panel button.power-ai-remove-context:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
+:root .power-ai-panel button.power-ai-remove-context:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .power-ai-panel form:focus-within { border-color: var(--primary); }
 .power-ai-message > strong { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--textColorSecondary); margin-bottom: 10px; }
 .power-ai-message-assistant { border-color: transparent; background: transparent; }
@@ -222,6 +235,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [launcherHidden, setLauncherHidden] = useState(false);
   const [draft, setDraft] = useState("");
+  const [finding, setFinding] = useState<DiagnosticFinding>();
   const [terminalAttachment, setTerminalAttachment] = useState<AiTerminalAttachment>();
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [dismissedDraft, setDismissedDraft] = useState<string>();
@@ -286,7 +300,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     };
     const update = () => {
       updateDock();
-      setContext(readAiContext());
+      const nextContext = readAiContext();
+      setContext(nextContext);
+      setFinding((current) => (current && current.clusterId !== nextContext.clusterId ? undefined : current));
       setResourceDetailsOpen(hasAiResourceDetails());
       setCoveredByOverlay(hasAiOverlay());
     };
@@ -325,6 +341,18 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       attributes: true,
       attributeFilter: ["class", "style", "hidden", "open"],
     });
+    const onDiagnostic = (event: Event) => {
+      const next = sanitizeDiagnosticFinding((event as CustomEvent).detail);
+      if (!next || !preferences.enabled || !isClusterDocument() || next.clusterId !== readAiContext().clusterId) return;
+      update();
+      setFinding(next);
+      setDraft((previous) =>
+        previous.trim() ? previous : "Explain this finding and suggest the next read-only checks.",
+      );
+      setOpen(true);
+      requestAnimationFrame(() => composer.current?.focus());
+    };
+    window.addEventListener(AI_DIAGNOSTIC_EVENT, onDiagnostic);
     window.addEventListener("power-ai-open", updateAndOpen);
     function updateAndOpen() {
       update();
@@ -343,6 +371,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       window.clearInterval(timer);
       observer.disconnect();
       window.removeEventListener("power-ai-open", updateAndOpen);
+      window.removeEventListener(AI_DIAGNOSTIC_EVENT, onDiagnostic);
     };
   }, []);
   useEffect(() => {
@@ -386,81 +415,8 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     document.addEventListener("click", onOutsideClick, true);
     return () => document.removeEventListener("click", onOutsideClick, true);
   }, [open, pinned]);
-  useEffect(() => {
-    const heldKeys = new Set<string>();
-    let shiftDownAt: number | undefined;
-    let lastTapAt: number | undefined;
-    const reset = () => {
-      shiftDownAt = undefined;
-      lastTapAt = undefined;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Shift") heldKeys.add(event.code || event.key);
-      if (
-        event.key !== "Shift" ||
-        event.repeat ||
-        event.isComposing ||
-        event.keyCode === 229 ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        heldKeys.size > 0 ||
-        shiftDownAt !== undefined
-      ) {
-        reset();
-        return;
-      }
-      shiftDownAt = performance.now();
-    };
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === "Meta") {
-        // macOS can omit keyup events for keys released while [Meta] is held
-        heldKeys.clear();
-        reset();
-        return;
-      }
-      heldKeys.delete(event.code || event.key);
-      const now = performance.now();
-      if (
-        event.key !== "Shift" ||
-        shiftDownAt === undefined ||
-        now - shiftDownAt > 400 ||
-        event.isComposing ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        !preferences.enabled ||
-        !isClusterDocument() ||
-        hasAiOverlay()
-      ) {
-        reset();
-        return;
-      }
-      shiftDownAt = undefined;
-      if (lastTapAt === undefined || now - lastTapAt > 400) {
-        lastTapAt = now;
-        return;
-      }
-      reset();
-      setContext(readAiContext());
-      setOpen((value) => !value);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    const onBlur = () => {
-      heldKeys.clear();
-      reset();
-    };
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [preferences, isClusterDocument]);
   const availablePanelWidth = Math.max(1, viewportWidth - Math.max(0, launcherLeft - 16));
   const panelWidth = clampAiPanelWidth(preferences.chatPanelWidth ?? DEFAULT_AI_PANEL_WIDTH, availablePanelWidth);
-  const shortcutLabel = "Shift, Shift";
   const key = context.clusterId ?? "global";
   const messages = preferences.conversations[key] ?? [];
   const busy = pending.includes(key);
@@ -505,7 +461,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       setError("Message is too long. Please keep it under 20,000 characters.");
       return;
     }
-    const requestContext = attachedAiContext(readAiContext());
+    const activeFinding = finding?.clusterId === readAiContext().clusterId ? finding : undefined;
+    const payloadQuestion = diagnosticQuestion(question, activeFinding);
+    if (payloadQuestion.length > 20_000) {
+      setError("Message and attached finding are too long. Shorten the message or remove the finding.");
+      return;
+    }
+    const requestContext = attachedAiContext({
+      ...readAiContext(),
+      ...(activeFinding?.resource ? { resource: activeFinding.resource } : {}),
+    });
     if ((requestContext.clusterId ?? "global") !== key) {
       setContext(requestContext);
       return;
@@ -520,6 +485,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       return;
     }
     setTerminalAttachment(undefined);
+    setFinding(undefined);
     following.current = true;
     const next: AiMessage[] = [...messages, { role: "user", text: question }];
     preferences.setMessages(key, next);
@@ -534,11 +500,13 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     try {
       const response = await ipcRenderer.invoke(AI_CHAT_CHANNEL, {
         requestId,
-        messages: next.slice(-80).reduceRight<AiMessage[]>((tail, message) => {
-          if (tail.reduce((length, item) => length + item.text.length, 0) + message.text.length < 100_000)
-            tail.unshift({ role: message.role, text: message.text });
-          return tail;
-        }, []),
+        messages: [...next.slice(0, -1), { role: "user" as const, text: payloadQuestion }]
+          .slice(-80)
+          .reduceRight<AiMessage[]>((tail, message) => {
+            if (tail.reduce((length, item) => length + item.text.length, 0) + message.text.length < 100_000)
+              tail.unshift({ role: message.role, text: message.text });
+            return tail;
+          }, []),
         context: requestContext,
         ...(terminalSnapshot ? { terminalSnapshot } : {}),
         systemPrompt: [preferences.systemPrompt, requestContext.clusterId ? preferences.clusterPrompt : ""]
@@ -626,7 +594,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           }}
           onClick={() => setOpen(true)}
           aria-label="Open AI assistant"
-          title={`Open AI assistant (${shortcutLabel})`}
+          title="Open AI assistant"
         >
           <span aria-hidden="true">
             <AiIcon material="chat_bubble_outline" size={16} />
@@ -659,6 +627,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               title="Clear this conversation and start a new chat"
               onClick={() => {
                 setTerminalAttachment(undefined);
+                setFinding(undefined);
                 preferences.setMessages(key, []);
                 setStopped((keys) => keys.filter((entry) => entry !== key));
                 setActivity({ key, reads: [] });
@@ -829,7 +798,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 ))}
               </div>
             )}
-            <AiContextPreview context={attachedAiContext(context)} />
+            <AiContextPreview
+              finding={finding?.clusterId === context.clusterId ? finding : undefined}
+              onRemoveFinding={() => setFinding(undefined)}
+              context={attachedAiContext({
+                ...context,
+                ...(finding && finding.clusterId === context.clusterId && finding.resource
+                  ? { resource: finding.resource }
+                  : {}),
+              })}
+            />
             <AiTerminalContext
               clusterId={context.clusterId}
               attachment={terminalAttachment}

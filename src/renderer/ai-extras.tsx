@@ -4,16 +4,48 @@ import { type AiResourceReference, referencedAiResources, validAiResourceReferen
 import { AiIcon } from "./ai-icon";
 
 import type { AiChatRequest } from "../common/ai";
+import type { DiagnosticFinding } from "./ai-diagnostic-handoff";
 
-export function AiContextPreview({ context }: { context: AiChatRequest["context"] }) {
+export function AiContextPreview({
+  context,
+  finding,
+  onRemoveFinding,
+}: {
+  context: AiChatRequest["context"];
+  finding?: DiagnosticFinding;
+  onRemoveFinding?: () => void;
+}) {
   return (
-    <details className="power-ai-context-preview" style={{ padding: "8px 16px", fontSize: 11 }}>
-      <summary title="Show the screen and resource metadata attached to your next message">Attached context</summary>
-      <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 160, overflowY: "auto" }}>
-        {JSON.stringify(context, null, 2)}
-      </pre>
-      <p>Screen and resource metadata only. Resource reads happen after sending.</p>
-    </details>
+    <div className="power-ai-context-preview" style={{ padding: "8px 16px", fontSize: 11 }}>
+      {finding && (
+        <div className="power-ai-context-finding" aria-label="Selected diagnostic finding">
+          <AiIcon material="insights" size={14} />
+          <details key={`${finding.clusterId}:${finding.title}:${finding.summary}`}>
+            <summary title="Review the selected evidence attached to your next message">{finding.title}</summary>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 140, overflow: "auto" }}>
+              {finding.summary}
+            </pre>
+            <p>Selected snapshot · sent with your next message</p>
+          </details>
+          <button
+            type="button"
+            className="power-ai-remove-context"
+            aria-label="Remove diagnostic finding"
+            title="Remove attached finding"
+            onClick={onRemoveFinding}
+          >
+            <AiIcon material="close" size={14} />
+          </button>
+        </div>
+      )}
+      <details>
+        <summary title="Show the screen and resource metadata attached to your next message">Attached context</summary>
+        <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 160, overflowY: "auto" }}>
+          {JSON.stringify(context, null, 2)}
+        </pre>
+        <p>Screen and resource metadata only. Resource reads happen after sending.</p>
+      </details>
+    </div>
   );
 }
 
