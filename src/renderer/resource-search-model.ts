@@ -3,6 +3,7 @@ import { boundedNameDistance } from "./resource-search-distance";
 import type { SearchField } from "./resource-search-fields";
 export interface SearchResource {
   kind: string;
+  aliases?: string[];
   name: string;
   namespace?: string;
   labels: Record<string, string>;
@@ -16,6 +17,7 @@ export const queryTokens = (query: string) =>
 const metadataText = (resource: SearchResource) =>
   [
     resource.kind,
+    ...(resource.aliases ?? []),
     resource.name,
     resource.namespace ?? "",
     ...Object.entries(resource.labels).map(([key, value]) => `${key}=${value}`),
@@ -48,7 +50,7 @@ function rankResources(resources: SearchResource[], tokens: string[]) {
 }
 
 export function createResourceSearchIndex(resources: SearchResource[]) {
-  const documents = resources.filter((resource) => resource.kind !== "Secret" && resource.kind !== "ConfigMap");
+  const documents = resources;
   const vocabulary = new Map<string, Set<number>>();
   const names = new Map<number, Map<string, Set<number>>>();
   let lastQuery: string | undefined;

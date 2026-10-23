@@ -1,10 +1,13 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
+import { observer } from "mobx-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
+import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
+import { createResourceSearchClient, createResourceSearchTransport, searchContextId } from "./resource-search-client";
 import { projectSearchFields } from "./resource-search-fields";
 import {
   createDoubleShift,
@@ -12,6 +15,10 @@ import {
   queryTokens,
   type SearchResource,
 } from "./resource-search-model";
+import { closeSearchResourceFallback, openSearchResource } from "./resource-search-routing";
+import { createSearchSynchronizer, type SearchCoverage } from "./resource-search-sync";
+
+import type { SearchDocument } from "../common/resource-search";
 
 const OPEN = "power-resource-search";
 const activeId = () => Renderer.Catalog.activeCluster.get()?.metadata.uid;
@@ -31,34 +38,9 @@ const inventory = () =>
     ["HorizontalPodAutoscaler", Renderer.K8sApi.hpaStore, "swap_vert"],
   ] as const;
 const icons = new Map(inventory().map(([kind, , icon]) => [kind as string, icon]));
-function project(
-  kind: string,
-  objects: {
-    metadata: { name?: string; namespace?: string; labels?: Partial<Record<string, string>> };
-    selfLink: string;
-  }[],
-): SearchResource[] {
-  return objects.slice(0, 500).flatMap((object) =>
-    object.metadata.name
-      ? [
-          {
-            kind,
-            name: object.metadata.name,
-            namespace: object.metadata.namespace,
-            labels: Object.fromEntries(
-              Object.entries(object.metadata.labels ?? {}).filter(
-                (entry): entry is [string, string] => typeof entry[1] === "string",
-              ),
-            ),
-            path: object.selfLink,
-            fields: projectSearchFields(kind, object),
-          },
-        ]
-      : [],
-  );
-}
 
-export function ResourceSearchLauncher() {
+export const ResourceSearchLauncher = observer(() => {
+  if (!MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>().resourceSearchEnabled) return null;
   return (
     <button
       type="button"
@@ -69,7 +51,7 @@ export function ResourceSearchLauncher() {
       <AiIcon material="search" />
     </button>
   );
-}
+});
 
 function SearchSnippet({ field, query }: { field?: { label: string; text: string }; query: string }) {
   if (!field) return null;
@@ -93,9 +75,13 @@ function SearchSnippet({ field, query }: { field?: { label: string; text: string
 
 function SearchDialog({ close, clusterId }: { close: () => void; clusterId: string }) {
   const [query, setQuery] = useState("");
+  const [knownNamespace, setKnownNamespace] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const [namespaceFilter, setNamespaceFilter] = useState("");
   const [resources, setResources] = useState<SearchResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(0);
+  const [cachedCount, setCachedCount] = useState<number>();
   const [selectedPath, setSelectedPath] = useState<string>();
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDivElement>(null);
@@ -103,56 +89,81 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
   const searchIndex = useMemo(() => createResourceSearchIndex(resources), [resources]);
   const matches = searchIndex.search(query);
   const selectedResource = matches.find((resource) => resource.path === selectedPath) ?? matches[0];
-  const results = matches.slice(0, 100);
+  const results = matches;
   if (selectedResource && !results.includes(selectedResource)) results[results.length - 1] = selectedResource;
   const selected = results.findIndex((resource) => resource.path === selectedResource?.path);
   useEffect(() => {
     if (selectedPath !== undefined && selectedPath !== selectedResource?.path) setSelectedPath(undefined);
   }, [selectedPath, selectedResource?.path]);
+  const [coverage, setCoverage] = useState<SearchCoverage>(currentCoverage);
+  const [limit, setLimit] = useState(100);
+  const [hasMore, setHasMore] = useState(false);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     input.current?.focus();
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15000);
-    let live = true;
-    const sources = inventory();
-    const parts = sources.map(([kind, store]) => project(kind, store.items));
-    setResources(parts.flat());
-    let next = 0;
-    const worker = async () => {
-      while (next < sources.length && live && activeId() === clusterId) {
-        const index = next++;
-        const [kind, store] = sources[index];
-        try {
-          const objects = await store.api.list(
-            { namespace: "", reqInit: { signal: controller.signal } },
-            { limit: 500 },
-          );
-          if (!live || activeId() !== clusterId) return;
-          parts[index] = project(kind, objects ?? []);
-          setResources(parts.flat());
-        } catch {
-          if (live && activeId() === clusterId) setFailed((count) => count + 1);
-        }
-      }
-    };
-    void Promise.all([worker(), worker()]).then(() => {
-      if (live) setLoading(false);
-    });
+    const update = () => setCoverage({ ...currentCoverage });
+    window.addEventListener("power-search-coverage", update);
     return () => {
-      live = false;
-      window.clearTimeout(timeout);
-      controller.abort();
+      window.removeEventListener("power-search-coverage", update);
       if (previous?.isConnected) previous.focus();
     };
-  }, [clusterId]);
+  }, []);
+  useEffect(() => {
+    let live = true;
+    const client = createResourceSearchClient(clusterId, searchContextId());
+    const timer = window.setTimeout(() => {
+      void client
+        .query(query, limit, {
+          ...(kindFilter
+            ? {
+                kind:
+                  coverage.kinds?.find((kind) => kind.toLocaleLowerCase() === kindFilter.toLocaleLowerCase()) ??
+                  kindFilter,
+              }
+            : {}),
+          ...(namespaceFilter ? { namespace: namespaceFilter === "(cluster)" ? "" : namespaceFilter } : {}),
+        })
+        .then((result) => {
+          if (!live || activeId() !== clusterId) return;
+          setResources(result.documents);
+          setHasMore(result.hasMore);
+          setLoading(false);
+          setFailed(0);
+          void client
+            .status?.()
+            .then((status) => {
+              if (live) setCachedCount(status.count);
+            })
+            .catch(() => {});
+        })
+        .catch(() => {
+          if (live) {
+            setFailed(1);
+            setLoading(false);
+          }
+        });
+    }, 100);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [clusterId, query, limit, kindFilter, namespaceFilter, coverage.scanned, coverage.indexing]);
   useEffect(() => {
     document.getElementById(`power-resource-result-${selected}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selected, selectedResource?.path]);
+  const clearCache = () => {
+    void createResourceSearchClient(clusterId, searchContextId())
+      .clear()
+      .then(() => {
+        setResources([]);
+        restartSearchSync();
+      })
+      .catch(() => setError("Could not clear the local search cache. Try again."));
+  };
   const open = (resource: SearchResource) => {
     if (activeId() !== clusterId) return;
     void Promise.resolve()
-      .then(() => Renderer.Navigation.showDetails(resource.path))
+      .then(() => openSearchResource(resource as SearchDocument))
       .then(() => {
         if (activeId() === clusterId) close();
       })
@@ -181,7 +192,7 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
           }
           if (event.key === "Tab") {
             const controls = Array.from(
-              dialog.current?.querySelectorAll<HTMLElement>("input, button:not(:disabled)") ?? [],
+              dialog.current?.querySelectorAll<HTMLElement>("input, button:not(:disabled), select") ?? [],
             );
             const index = controls.indexOf(document.activeElement as HTMLElement);
             if (event.shiftKey && index <= 0) {
@@ -199,9 +210,19 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
             <AiIcon material="search" size={18} />
             Search resources
           </strong>
-          <button type="button" aria-label="Close resource search" onClick={close}>
-            <AiIcon material="close" />
-          </button>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              type="button"
+              aria-label="Refresh resource inventory"
+              title="Refresh resource inventory"
+              onClick={() => restartSearchSync()}
+            >
+              <AiIcon material="refresh" />
+            </button>
+            <button type="button" aria-label="Close resource search" onClick={close}>
+              <AiIcon material="close" />
+            </button>
+          </div>
         </div>
         <input
           ref={input}
@@ -228,12 +249,69 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
             }
           }}
         />
+        <div className="power-resource-search-filters" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            list="power-search-kinds"
+            aria-label="Filter by exact resource kind"
+            placeholder="Kind (all types)"
+            value={kindFilter}
+            maxLength={253}
+            onChange={(event) => {
+              setKindFilter(event.target.value);
+              setSelectedPath(undefined);
+            }}
+          />
+          <input
+            list="power-search-namespaces"
+            aria-label="Filter by exact namespace"
+            placeholder="Namespace (all)"
+            value={namespaceFilter}
+            maxLength={253}
+            onChange={(event) => {
+              setNamespaceFilter(event.target.value);
+              setSelectedPath(undefined);
+            }}
+          />
+        </div>
+        <datalist id="power-search-kinds">
+          {(coverage.kinds ?? []).map((kind) => (
+            <option key={kind} value={kind} />
+          ))}
+        </datalist>
+        <datalist id="power-search-namespaces">
+          <option value="(cluster)">Cluster scoped</option>
+          {(coverage.namespaces ?? []).map((namespace) => (
+            <option key={namespace} value={namespace} />
+          ))}
+        </datalist>
         <p role="status">
-          {loading ? "Loading supported kinds; cached results are available. " : "Supported kinds loaded. "}Partial
-          inventory: up to 500 objects per kind, subject to permissions. Secrets, ConfigMaps and custom resources are
-          excluded. Full-text index covers safe metadata, images, selectors and status only.
-          {failed > 0 && ` ${failed} kinds unavailable; cached results retained.`}
+          {coverage.indexing
+            ? `Indexing ${coverage.scanned}/${coverage.discovered} types`
+            : coverage.completedAt
+              ? `Updated ${new Date(coverage.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : "Cached inventory"}
+          {cachedCount !== undefined && ` · ${cachedCount.toLocaleString()} resources`}
+          {coverage.denied > 0 && ` · ${coverage.denied} restricted scopes`}
+          {coverage.unavailable + coverage.unsupported > 0 &&
+            ` · ${coverage.unavailable + coverage.unsupported} APIs unavailable`}
+          {failed > 0 && " · Search cache unavailable"}
         </p>
+        {(coverage.message || coverage.denied > 0 || coverage.unavailable + coverage.unsupported > 0) && (
+          <details>
+            <summary>Inventory coverage</summary>
+            <p>
+              {coverage.message ?? "Results include the resources your current permissions and available APIs allow."}
+            </p>
+          </details>
+        )}
+        {coverage.storageFull && (
+          <div role="alert">
+            <p>Local search storage is full. Cached results are partial; indexing is paused.</p>
+            <button type="button" onClick={clearCache}>
+              Clear local search cache
+            </button>
+          </div>
+        )}
         {error && <p role="alert">{error}</p>}
         <div
           id="power-resource-search-results"
@@ -270,7 +348,7 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
                   explainDiagnosticFinding({
                     clusterId,
                     title: `${resource.kind}: ${resource.name}`,
-                    summary: `Resource selected from search. Kind: ${resource.kind}; namespace: ${resource.namespace ?? "cluster scoped"}; name: ${resource.name}. No live diagnostic data was collected.`,
+                    summary: `Resource selected from search. API group: ${(resource as SearchDocument).group || "core"}; version: ${(resource as SearchDocument).version}; resource: ${(resource as SearchDocument).resource}; kind: ${resource.kind}; namespace: ${resource.namespace ?? "cluster scoped"}; name: ${resource.name}; UID: ${(resource as SearchDocument).uid ?? "unknown"}; path: ${resource.path}. No live diagnostic data was collected.`,
                     resource: { kind: resource.kind, name: resource.name, namespace: resource.namespace },
                   });
                 }}
@@ -281,17 +359,149 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
           ))}
           {!results.length && <p>{loading ? "Searching…" : "No matching resources in the available inventory"}</p>}
         </div>
-        {matches.length > 100 && <p>Showing 100 matches. Refine your search.</p>}
+        {hasMore && (
+          <button
+            type="button"
+            disabled={limit >= 1000}
+            onClick={() => setLimit((value) => Math.min(1000, value + 100))}
+          >
+            Show more matches
+          </button>
+        )}
+        <details>
+          <summary>Search options</summary>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input
+              aria-label="Known namespace for restricted access"
+              placeholder="Known namespace"
+              value={knownNamespace}
+              maxLength={63}
+              onChange={(event) => setKnownNamespace(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(knownNamespace)}
+              onClick={() => {
+                extraNamespaces.add(knownNamespace);
+                restartSearchSync();
+              }}
+            >
+              Index namespace
+            </button>
+          </div>
+          {hasMore && limit >= 1000 && (
+            <p>Showing up to 1000 candidates. Refine the name, type or namespace to continue.</p>
+          )}
+          {!coverage.storageFull && (
+            <button type="button" onClick={clearCache}>
+              Clear local search cache
+            </button>
+          )}
+        </details>
         <p className="power-resource-search-shortcuts">↑↓ Navigate · Enter Open · Esc Close</p>
       </div>
     </div>
   );
 }
 
+let currentCoverage: SearchCoverage = {
+  scanned: 0,
+  discovered: 0,
+  denied: 0,
+  unavailable: 0,
+  unsupported: 0,
+  indexing: true,
+};
+let restartSearchSync = () => {};
+const extraNamespaces = new Set<string>();
+
 export function startResourceSearch(): () => void {
+  const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
+  let stop = preferences.resourceSearchEnabled ? startEnabledResourceSearch() : undefined;
+  const dispose = reaction(
+    () => preferences.resourceSearchEnabled,
+    (enabled) => {
+      stop?.();
+      stop = enabled ? startEnabledResourceSearch() : undefined;
+    },
+  );
+  return () => {
+    dispose();
+    stop?.();
+    stop = undefined;
+  };
+}
+
+function startEnabledResourceSearch(): () => void {
+  let syncAbort: AbortController | undefined;
+  const sync = () => {
+    syncAbort?.abort();
+    closeSearchResourceFallback();
+    const clusterId = activeId();
+    if (!clusterId || window.top === window) return;
+    const phase = Renderer.Catalog.activeCluster.get()?.status?.phase;
+    if (phase && phase !== "connected") {
+      currentCoverage = {
+        ...currentCoverage,
+        indexing: false,
+        message: "Cluster disconnected; cached results may be stale",
+      };
+      window.dispatchEvent(new Event("power-search-coverage"));
+      return;
+    }
+    const controller = new AbortController();
+    syncAbort = controller;
+    const client = createResourceSearchClient(clusterId, searchContextId());
+    const liveStores = new Map(inventory().map(([kind, store]) => [kind as string, store]));
+    const liveObjects = new Map<string, Map<string, unknown>>();
+    const sink = {
+      ...client,
+      append: (scope: string, scanId: string, documents: SearchDocument[]) =>
+        client.append(
+          scope,
+          scanId,
+          documents.map((item) => {
+            const store = liveStores.get(item.kind);
+            if (!store) return item;
+            let objects = liveObjects.get(item.kind);
+            if (!objects) {
+              objects = new Map(store.items.map((object) => [object.selfLink, object] as const));
+              liveObjects.set(item.kind, objects);
+            }
+            const object = objects.get(item.path);
+            return object ? { ...item, fields: projectSearchFields(item.kind, object) } : item;
+          }),
+        ),
+    };
+    let wasIndexing = false;
+    const task = createSearchSynchronizer({
+      transport: createResourceSearchTransport(clusterId, controller.signal),
+      sink,
+      signal: controller.signal,
+      namespaces: () => [
+        ...new Set([...(Renderer.Catalog.activeCluster.get()?.spec?.accessibleNamespaces ?? []), ...extraNamespaces]),
+      ],
+      onStatus: (status) => {
+        if (!controller.signal.aborted) {
+          if (status.indexing && !wasIndexing) liveObjects.clear();
+          wasIndexing = status.indexing;
+          currentCoverage = status;
+          window.dispatchEvent(new Event("power-search-coverage"));
+        }
+      },
+    });
+    void task.run().catch(() => {
+      if (!controller.signal.aborted) {
+        currentCoverage = { ...currentCoverage, indexing: false, unavailable: currentCoverage.unavailable + 1 };
+        window.dispatchEvent(new Event("power-search-coverage"));
+      }
+    });
+  };
+  restartSearchSync = sync;
+  sync();
   const container = document.createElement("div");
   const style = document.createElement("style");
-  style.textContent = `.power-resource-search-backdrop{position:fixed;inset:0;z-index:10000;background:#0007;display:flex;align-items:flex-start;justify-content:center;padding:12vh 20px}.power-resource-search-dialog{width:680px;max-width:100%;max-height:75vh;display:flex;flex-direction:column;padding:20px;gap:12px;background:var(--mainBackground,#222);color:var(--textColorPrimary,#eee);border:1px solid var(--borderColor,#555);border-radius:8px;box-shadow:0 16px 60px #0008}.power-resource-search-heading{display:flex;align-items:center;justify-content:space-between}.power-resource-search-dialog input{padding:12px;font-size:16px;background:var(--inputControlBackground,#333);color:inherit;border:1px solid var(--borderColor,#666);border-radius:4px}.power-resource-search-dialog p{margin:0;font-size:12px;color:var(--textColorSecondary,#bbb)}.power-resource-search-results{overflow:auto;min-height:60px}.power-resource-search-row{display:flex;align-items:center;gap:12px;padding:4px;border-radius:4px}.power-resource-search-row{border-left:3px solid transparent}.power-resource-search-row.selected{background:var(--tableSelectedBackground,#394b66);border-left-color:var(--primary,#668fff)}.power-resource-search-row.selected .Icon{color:var(--primary,#8daaff)}.power-resource-search-row:hover{background:var(--tableHoveredBackground,#ffffff0b)}.power-resource-search-dialog button:hover:not(:disabled){background:#ffffff12;border-radius:4px}.power-resource-search-row>button:last-child{border:1px solid var(--borderColor,#555);border-radius:4px}.power-resource-search-shortcuts{padding-top:8px;border-top:1px solid var(--borderColor,#555)}.power-resource-search-dialog button{min-width:32px;min-height:32px;padding:6px;color:inherit;background:transparent;border:0;cursor:pointer}.power-resource-search-dialog button:disabled{opacity:.45;cursor:default}.power-resource-search-open{display:flex;align-items:center;gap:12px;flex:1;text-align:left;min-width:0}.power-resource-search-open span{min-width:0}.power-resource-search-open strong,.power-resource-search-open small{display:block;overflow-wrap:anywhere}.power-resource-search-open small{opacity:.7}.power-resource-search-row>button.power-resource-search-ai{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:34px;height:34px;min-width:34px;padding:0;background:var(--contentColor,#292d32);border:1px solid var(--borderColor,#666)}.power-resource-search-row.selected>button.power-resource-search-ai{background:var(--mainBackground,#202326);border-color:color-mix(in srgb,var(--textColorPrimary,#ddd) 55%,var(--borderColor,#666));box-shadow:0 1px 3px #0002}.power-resource-search-row.selected>button.power-resource-search-ai .Icon{color:var(--textColorAccent,#eee)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled){background:var(--contentColor,#30343a);border-color:var(--primary,#8daaff);color:var(--primary,#8daaff)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled) .Icon{color:inherit}.power-resource-search-dialog button:focus-visible{outline:2px solid var(--primary,#668fff)}`;
+  style.textContent = `.power-resource-search-backdrop{position:fixed;inset:0;z-index:10000;background:#0007;display:flex;align-items:flex-start;justify-content:center;padding:8vh 20px}.power-resource-search-dialog{width:680px;max-width:100%;max-height:75vh;display:flex;flex-direction:column;padding:20px;gap:12px;background:var(--mainBackground,#222);color:var(--textColorPrimary,#eee);border:1px solid var(--borderColor,#555);border-radius:8px;box-shadow:0 16px 60px #0008}.power-resource-search-heading{display:flex;align-items:center;justify-content:space-between}.power-resource-search-filters input{flex:1;min-width:180px}.power-resource-search-dialog input{padding:12px;font-size:16px;background:var(--inputControlBackground,#333);color:inherit;border:1px solid var(--borderColor,#666);border-radius:4px}.power-resource-search-dialog p{margin:0;font-size:12px;color:var(--textColorSecondary,#bbb)}.power-resource-search-results{overflow:auto;min-height:180px;flex:1}.power-resource-search-row{display:flex;align-items:center;gap:12px;padding:4px;border-radius:4px}.power-resource-search-row{border-left:3px solid transparent}.power-resource-search-row.selected{background:color-mix(in srgb,var(--primary,#668fff) 16%,var(--mainBackground,#222));color:var(--tableSelectedRowColor,var(--textColorPrimary,#eee));border-left-color:var(--primary,#668fff)}.power-resource-search-row.selected .Icon{color:var(--primary,#8daaff)}.power-resource-search-row:hover{background:var(--tableBgcSelected,var(--contentColor,#292d32))}.power-resource-search-dialog button:hover:not(:disabled){background:#ffffff12;border-radius:4px}.power-resource-search-row>button:last-child{border:1px solid var(--borderColor,#555);border-radius:4px}.power-resource-search-shortcuts{padding-top:8px;border-top:1px solid var(--borderColor,#555)}.power-resource-search-dialog button{min-width:32px;min-height:32px;padding:6px;color:inherit;background:transparent;border:0;cursor:pointer}.power-resource-search-dialog button:disabled{opacity:.45;cursor:default}.power-resource-search-open{display:flex;align-items:center;gap:12px;flex:1;text-align:left;min-width:0}.power-resource-search-open span{min-width:0}.power-resource-search-open strong,.power-resource-search-open small{display:block;overflow-wrap:anywhere}.power-resource-search-open small{opacity:.7}.power-resource-search-row>button.power-resource-search-ai{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:34px;height:34px;min-width:34px;padding:0;background:var(--contentColor,#292d32);border:1px solid var(--borderColor,#666)}.power-resource-search-row.selected>button.power-resource-search-ai{background:var(--mainBackground,#202326);border-color:color-mix(in srgb,var(--textColorPrimary,#ddd) 55%,var(--borderColor,#666));box-shadow:0 1px 3px #0002}.power-resource-search-row.selected>button.power-resource-search-ai .Icon{color:var(--textColorAccent,#eee)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled){background:var(--contentColor,#30343a);border-color:var(--primary,#8daaff);color:var(--primary,#8daaff)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled) .Icon{color:inherit}.power-resource-search-dialog button:focus-visible{outline:2px solid var(--primary,#668fff)}`;
   document.head.append(style);
   document.body.append(container);
   let visible = false;
@@ -328,9 +538,20 @@ export function startResourceSearch(): () => void {
   window.addEventListener("keydown", key);
   window.addEventListener("keyup", key);
   window.addEventListener(OPEN, show);
-  const dispose = reaction(activeId, close);
+  const dispose = reaction(
+    () => `${searchContextId()}/${Renderer.Catalog.activeCluster.get()?.status?.phase}`,
+    () => {
+      close();
+      extraNamespaces.clear();
+      sync();
+    },
+  );
   return () => {
     close();
+    syncAbort?.abort();
+    closeSearchResourceFallback();
+    restartSearchSync = () => {};
+    extraNamespaces.clear();
     dispose();
     window.removeEventListener("blur", resetShift);
     window.removeEventListener("keydown", key);

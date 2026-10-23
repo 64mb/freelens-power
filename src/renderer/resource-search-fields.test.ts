@@ -32,7 +32,7 @@ it("indexes safe image, condition, selector, owner and scale target text across 
   expect(index.snippet(pod, "Pod unschedulable")).toEqual({ label: "Reason", text: "Unschedulable" });
   expect(index.snippet(pod, "backend")).toBeUndefined();
 });
-it("never projects env, annotations, arbitrary spec payloads or excluded kinds", () => {
+it("never projects env, annotations, arbitrary spec payloads or sensitive kinds", () => {
   const raw = {
     metadata: { annotations: { hidden: "annotation-private" } },
     spec: {
@@ -52,8 +52,8 @@ it("never projects env, annotations, arbitrary spec payloads or excluded kinds",
   const pod = resource("Pod", raw);
   const index = createResourceSearchIndex([pod, resource("Secret", raw), resource("ConfigMap", raw)]);
   expect(index.search("private")).toEqual([]);
-  expect(index.search("Secret")).toEqual([]);
-  expect(index.search("ConfigMap")).toEqual([]);
+  expect(index.search("Secret").map((item) => item.kind)).toEqual(["Secret"]);
+  expect(index.search("ConfigMap").map((item) => item.kind)).toEqual(["ConfigMap"]);
   expect(index.search("example/api")).toEqual([pod]);
 });
 it("redacts freeform conditions and bounds projected fields and indexed documents", () => {

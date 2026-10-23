@@ -15,7 +15,7 @@ const styles = `
   #freelens-power-settings > .SubTitle,
   #freelens-power-settings > .hint,
   #freelens-power-settings + hr { display: none; }
-  .freelens-power-preferences { display: grid; gap: 24px; max-width: 760px; }
+  .freelens-power-preferences { display: grid; gap: 24px; max-width: 760px; container: power-preferences / inline-size; }
   .freelens-power-preferences .power-preferences-section-links {
     display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; gap: 8px;
   }
@@ -35,10 +35,10 @@ const styles = `
     color: var(--primary); background: transparent; box-shadow: none;
     outline: 2px solid var(--primary); outline-offset: 2px;
   }
-  @media (max-width: 600px) {
+  @container power-preferences (max-width: 660px) {
     .freelens-power-preferences .power-preferences-section-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
-  @media (max-width: 360px) {
+  @container power-preferences (max-width: 360px) {
     .freelens-power-preferences .power-preferences-section-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   .freelens-power-preferences section[id] { scroll-margin-top: 16px; }

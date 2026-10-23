@@ -27,7 +27,7 @@ jobs:
       (github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'release-v') &&
       github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Resolve merged release
         id: release
@@ -77,6 +77,32 @@ jobs:
           archive="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP + "/pack-result.json", "utf8")).filename')"
           test -f "${archive}"
           printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
+      - name: Install desktop libraries for release UI gate
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 fonts-liberation
+      - name: Provision pinned Freelens and isolated kind
+        run: pnpm test:e2e:provision
+      - name: Test the exact release archive in real Freelens
+        env:
+          EXTENSION_ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1600x1200x24' pnpm test:e2e
+      - name: Retain release UI screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-extension-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove isolated kind cluster
+        if: always()
+        run: |
+          if test -x .e2e-runtime/bin/kind; then
+            node e2e/provision.mjs --cleanup
+          fi
       - name: Publish package to npm
         env:
           NPM_CONFIG_PROVENANCE: 'false'

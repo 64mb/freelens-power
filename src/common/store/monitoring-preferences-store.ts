@@ -6,6 +6,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
   enabled: boolean;
   diagnosticsVisible: boolean;
   relationshipsVisible: boolean;
+  resourceSearchEnabled: boolean;
   hiddenUpstreamClusters: string[];
   historyEnabled: boolean;
   trackedHistory: HistoryIdentity[];
@@ -13,6 +14,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
   enabled = false;
   diagnosticsVisible = true;
   relationshipsVisible = true;
+  resourceSearchEnabled = true;
   hiddenUpstreamClusters: string[] = [];
   historyEnabled = false;
   trackedHistory: HistoryIdentity[] = [];
@@ -24,6 +26,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
         enabled: false,
         diagnosticsVisible: true,
         relationshipsVisible: true,
+        resourceSearchEnabled: true,
         hiddenUpstreamClusters: [],
         historyEnabled: false,
         trackedHistory: [],
@@ -33,6 +36,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
       enabled: observable,
       diagnosticsVisible: observable,
       relationshipsVisible: observable,
+      resourceSearchEnabled: observable,
       hiddenUpstreamClusters: observable,
       historyEnabled: observable,
       trackedHistory: observable,
@@ -44,6 +48,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
     enabled?: boolean;
     diagnosticsVisible?: boolean;
     relationshipsVisible?: boolean;
+    resourceSearchEnabled?: boolean;
     hiddenUpstreamClusters?: string[];
     historyEnabled?: boolean;
     trackedHistory?: HistoryIdentity[];
@@ -51,6 +56,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
     this.enabled = data?.enabled === true;
     this.diagnosticsVisible = data?.diagnosticsVisible !== false;
     this.relationshipsVisible = data?.relationshipsVisible !== false;
+    this.resourceSearchEnabled = data?.resourceSearchEnabled !== false;
     this.hiddenUpstreamClusters = Array.isArray(data?.hiddenUpstreamClusters)
       ? [
           ...new Set(
@@ -71,6 +77,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
     enabled: boolean;
     diagnosticsVisible: boolean;
     relationshipsVisible: boolean;
+    resourceSearchEnabled: boolean;
     hiddenUpstreamClusters: string[];
     historyEnabled: boolean;
     trackedHistory: HistoryIdentity[];
@@ -79,6 +86,7 @@ export class MonitoringPreferencesStore extends Common.Store.ExtensionStore<{
       enabled: this.enabled,
       diagnosticsVisible: this.diagnosticsVisible,
       relationshipsVisible: this.relationshipsVisible,
+      resourceSearchEnabled: this.resourceSearchEnabled,
       hiddenUpstreamClusters: [...this.hiddenUpstreamClusters],
       historyEnabled: this.historyEnabled,
       trackedHistory: this.trackedHistory.map(({ clusterId, scope, uid }) => ({ clusterId, scope, uid })),
