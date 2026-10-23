@@ -173,7 +173,7 @@ describe("resource diagnostics views", () => {
       view.getByText("Workloads and standalone pods").closest(".summary-card")?.classList.contains("workloads"),
     ).toBe(true);
     expect(view.getByText("Pods in snapshot").closest(".summary-card")?.classList.contains("pods")).toBe(true);
-    const pendingCard = view.getByText("Pending pods").closest(".summary-card")!;
+    const pendingCard = view.getByText("Needs attention", { selector: ".summary-card span" }).closest(".summary-card")!;
     expect(pendingCard.classList.contains("attention")).toBe(true);
     expect(pendingCard.querySelector(".summary-icon .Icon")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
@@ -185,13 +185,13 @@ describe("resource diagnostics views", () => {
     fireEvent.click(view.getByRole("button", { name: /Pending/ }));
     expect(view.queryByLabelText("Snapshot summary")).toBeNull();
   });
-  it("keeps zero pending pods in the healthy summary state", async () => {
+  it("keeps zero attention pods in the healthy summary state", async () => {
     const current = snapshot();
     current.pods[0].status.phase = "Running";
     state.get.mockResolvedValue(current);
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByText("Pending pods")).toBeTruthy());
-    const pendingCard = view.getByText("Pending pods").closest(".summary-card")!;
+    await waitFor(() => expect(view.getByText("Needs attention", { selector: ".summary-card span" })).toBeTruthy());
+    const pendingCard = view.getByText("Needs attention", { selector: ".summary-card span" }).closest(".summary-card")!;
     expect(pendingCard.classList.contains("pending")).toBe(true);
     expect(pendingCard.classList.contains("attention")).toBe(false);
     expect(pendingCard.querySelector("strong")?.textContent).toBe("0");
@@ -200,7 +200,7 @@ describe("resource diagnostics views", () => {
     state.get.mockResolvedValue({ ...snapshot(), pods: undefined, errors: ["Pod access denied"] });
     const view = render(<DiagnosticsPage />);
     await waitFor(() => expect(view.getByText("Pod access denied")).toBeTruthy());
-    const card = view.getByText("Pending pods").closest(".summary-card")!;
+    const card = view.getByText("Needs attention", { selector: ".summary-card span" }).closest(".summary-card")!;
     expect(card.classList.contains("unavailable")).toBe(true);
     expect(card.querySelector("strong")?.textContent).toBe("Unavailable");
     expect(view.getByText("Pods in snapshot").closest(".summary-card")?.textContent).toContain("Unavailable");
@@ -220,10 +220,11 @@ describe("resource diagnostics views", () => {
     expect(badge.classList.contains("error")).toBe(false);
     expect(view.getByText("1 Pending").classList.contains("warning")).toBe(true);
   });
-  it("opens the first pending pod directly from its summary card", async () => {
+  it("opens the first pending pod from the Pending tab", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByRole("button", { name: "Inspect pending pods" })).toBeTruthy());
-    fireEvent.click(view.getByRole("button", { name: "Inspect pending pods" }));
+    await waitFor(() => expect(view.getByRole("button", { name: /^Pending/ })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: /^Pending/ }));
+    fireEvent.change(view.getByLabelText("Pending pod"), { target: { value: "pod-a" } });
     expect((view.getByLabelText("Pending pod") as HTMLSelectElement).value).toBe("pod-a");
     expect(view.getByText("Scheduling evidence")).toBeTruthy();
   });
@@ -636,8 +637,9 @@ it("applies namespace focus to a mounted page and retains it after leaving", asy
 it("copies only the selected pending pod finding and its evidence", async () => {
   const { clipboard } = await import("electron");
   const view = render(<DiagnosticsPage />);
-  await waitFor(() => expect(view.getByRole("button", { name: "Inspect pending pods" })).toBeTruthy());
-  fireEvent.click(view.getByRole("button", { name: "Inspect pending pods" }));
+  await waitFor(() => expect(view.getByRole("button", { name: /^Pending/ })).toBeTruthy());
+  fireEvent.click(view.getByRole("button", { name: /^Pending/ }));
+  fireEvent.change(view.getByLabelText("Pending pod"), { target: { value: "pod-a" } });
   fireEvent.click(view.getByLabelText("Copy incident summary"));
   const text = vi.mocked(clipboard.writeText).mock.calls.at(-1)![0];
   expect(text).toContain("Problem: Pending pod");
@@ -686,4 +688,120 @@ it("places Timeline resource, copy and AI actions together beside the heading", 
   fireEvent.click(view.getByLabelText("Copy incident summary"));
   const { clipboard } = await import("electron");
   expect(vi.mocked(clipboard.writeText).mock.calls.at(-1)![0]).toContain("Insufficient cpu");
+});
+
+it.each([
+  ["Pod", "worker"],
+  ["Node", "sample-node"],
+  ["Deployment", "app"],
+])("focuses %s identity without matching similarly named resources", async (kind, name) => {
+  const current = snapshot();
+  Object.assign(current.pods[0].spec, { nodeName: "sample-node" });
+  current.pods[0].status = { phase: "Running", conditions: [{ type: "Ready", status: "True" }] } as any;
+  current.pods.push({
+    ...current.pods[0],
+    metadata: { uid: "pod-extra", name: "worker-extra", namespace: "sample", ownerReferences: [] },
+    spec: { ...current.pods[0].spec, ...{ nodeName: "sample-node-extra" } },
+  });
+  state.get.mockResolvedValue(current);
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByText("All consumers are ready")).toBeTruthy());
+  act(() => focusDiagnosticsNamespace("sample-cluster", kind === "Node" ? undefined : "sample", { kind, name }));
+  expect(view.getByText(`${kind}: ${name}`)).toBeTruthy();
+  expect(view.getByText("app")).toBeTruthy();
+  expect(view.queryByText("worker-extra")).toBeNull();
+  expect((view.getByLabelText("Needs attention") as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(view.getByLabelText("Clear resource scope"));
+  expect(view.getByText("worker-extra")).toBeTruthy();
+});
+
+it.each(["Failed", "Succeeded"])("keeps an explicitly focused %s pod inspectable", async (phase) => {
+  const current = snapshot();
+  current.pods[0].status.phase = phase;
+  state.get.mockResolvedValue(current);
+  focusDiagnosticsNamespace("sample-cluster", "sample", { kind: "Pod", name: "worker", uid: "pod-a" });
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByText("app")).toBeTruthy());
+  fireEvent.click(view.getByLabelText("Expand pods for app"));
+  expect(view.getByText("worker")).toBeTruthy();
+  fireEvent.click(view.getByLabelText("Clear resource scope"));
+  expect(view.queryByText("app")).toBeNull();
+});
+
+it("uses the focused workload UID when deleted and recreated owners share a name", async () => {
+  const current = snapshot();
+  current.owners.push({ kind: "Deployment", metadata: { uid: "deployment-old", name: "app", namespace: "sample" } });
+  current.pods.push({
+    ...current.pods[0],
+    metadata: {
+      uid: "pod-old",
+      name: "old-worker",
+      namespace: "sample",
+      ownerReferences: [{ uid: "deployment-old", controller: true }],
+    },
+  });
+  state.get.mockResolvedValue(current);
+  focusDiagnosticsNamespace("sample-cluster", "sample", { kind: "Deployment", name: "app", uid: "deployment-a" });
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getAllByText("app")).toHaveLength(1));
+  fireEvent.click(view.getByLabelText("Expand pods for app"));
+  expect(view.getByText("worker")).toBeTruthy();
+  expect(view.queryByText("old-worker")).toBeNull();
+  fireEvent.click(view.getByLabelText("Clear resource scope"));
+  expect(view.getAllByText("app")).toHaveLength(2);
+});
+
+it("counts Running NotReady pods without changing the Pending tab badge", async () => {
+  const current = snapshot();
+  current.pods[0].status = { phase: "Running", conditions: [{ type: "Ready", status: "False" }] } as any;
+  state.get.mockResolvedValue(current);
+  saveDiagnosticsState("sample-cluster", {
+    ...readDiagnosticsState("sample-cluster"),
+    needsAttention: false,
+    filter: "other",
+    groupMode: "namespace",
+    namespacesOpen: ["sample"],
+    namespaceScope: "sample",
+  });
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByRole("button", { name: "Pending (0)" })).toBeTruthy());
+  const card = view.getByRole("button", { name: "Show consumers needing attention" });
+  expect(card.querySelector("strong")?.textContent).toBe("1");
+  fireEvent.click(card);
+  expect((view.getByLabelText("Needs attention") as HTMLInputElement).checked).toBe(true);
+  expect((view.getByLabelText("Filter consumers") as HTMLInputElement).value).toBe("");
+  expect(view.getByText("Namespace: sample")).toBeTruthy();
+  expect(view.getByText("app")).toBeTruthy();
+  fireEvent.click(view.getByTitle("Open namespace"));
+  expect(state.navigate).toHaveBeenCalledWith("/api/v1/namespaces/sample");
+});
+
+it("investigates running NotReady pods separately and preserves its selection", async () => {
+  const current = snapshot();
+  current.pods[0].status = {
+    phase: "Running",
+    conditions: [{ type: "Ready", status: "False", reason: "ContainersNotReady" }],
+  } as any;
+  current.pods.push({
+    ...current.pods[0],
+    metadata: { uid: "healthy", name: "healthy", namespace: "sample", ownerReferences: [] },
+    status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] } as any,
+  });
+  state.get.mockResolvedValue(current);
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.getByRole("button", { name: "Not ready (1)" })).toBeTruthy());
+  fireEvent.click(view.getByRole("button", { name: "Not ready (1)" }));
+  expect((view.getByLabelText("Not ready pod") as HTMLSelectElement).options).toHaveLength(2);
+  fireEvent.change(view.getByLabelText("Not ready pod"), { target: { value: "pod-a" } });
+  expect(view.getByText("Readiness and retained evidence")).toBeTruthy();
+  expect(view.queryByText("Unscheduled")).toBeNull();
+  fireEvent.click(view.getByTitle("Open pod details"));
+  expect(state.navigate).toHaveBeenCalledWith("/api/v1/namespaces/sample/pods/worker");
+  fireEvent.click(view.getByRole("button", { name: "Pending (0)" }));
+  expect((view.getByLabelText("Pending pod") as HTMLSelectElement).value).toBe("");
+  fireEvent.click(view.getByRole("button", { name: "Not ready (1)" }));
+  expect((view.getByLabelText("Not ready pod") as HTMLSelectElement).value).toBe("pod-a");
+  view.unmount();
+  expect(readDiagnosticsState("sample-cluster").notReadyUid).toBe("pod-a");
+  expect(readDiagnosticsState("sample-cluster").pendingUid).toBe("");
 });

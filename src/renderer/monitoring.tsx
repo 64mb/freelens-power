@@ -657,6 +657,21 @@ function mountMonitoring(): () => void {
   const suppression = document.createElement("style");
   suppression.setAttribute("data-freelens-power-native-metrics-suppression", "");
   suppression.textContent = `
+    .Nodes .TableCell:is(.cpu, .memory) .LineProgress:has(> .line.secondary) {
+      overflow:hidden;
+    }
+    .Nodes .TableCell:is(.cpu, .memory) .LineProgress:has(> .line.secondary) > .line {
+      border-radius:0;
+    }
+    .Nodes .TableCell:is(.cpu, .memory) .LineProgress:has(> .line.secondary) > .line:not(.secondary) {
+      height:60%;
+    }
+    .Nodes .TableCell:is(.cpu, .memory) .LineProgress > .line.secondary {
+      top:60%;
+      height:40%;
+      opacity:1;
+      background:color-mix(in srgb, currentColor 65%, var(--mainBackground));
+    }
     [data-testid="cluster-overview-page"] > [class*="ClusterMetrics"],
     [data-testid="cluster-overview-page"] > :has([class*="ClusterMetrics"]),
     [data-testid="cluster-overview-page"] > :is([class*="noMetrics"], [data-testid="no-metrics-message"]):not(:has(.PieChart)),

@@ -2,6 +2,11 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+const preferences = vi.hoisted(() => ({ hiddenUpstreamClusters: [] as string[] }));
+vi.mock("../common/store/monitoring-preferences-store", () => ({
+  MonitoringPreferencesStore: { getInstanceOrCreate: () => preferences },
+}));
+
 const state = vi.hoisted(() => ({
   namespace: vi.fn(),
   service: vi.fn(),
@@ -58,6 +63,7 @@ const svc = (namespace = "sample") => ({
   selfLink: `/api/v1/namespaces/${namespace}/services/web`,
 });
 beforeEach(() => {
+  preferences.hiddenUpstreamClusters = [];
   state.namespace.mockResolvedValue([{ getName: () => "sample" }, { getName: () => "other" }]);
   state.service.mockImplementation(({ namespace }) => Promise.resolve([svc(namespace)]));
   state.pods.mockResolvedValue([]);
@@ -226,4 +232,19 @@ it("hides upstream resources and their edges while preserving backend connection
   );
   view.rerender(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
   expect(view.getByRole("region", { name: "Upstream references" })).toBeTruthy();
+});
+
+it("persists the upstream toggle and restores it when the page is reopened", async () => {
+  const view = render(<ResourceRelationshipsPage />);
+  const toggle = view.getByRole("button", { name: "Hide Upstream" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(preferences.hiddenUpstreamClusters).toEqual(["cluster"]);
+  view.unmount();
+  const reopened = render(<ResourceRelationshipsPage />);
+  expect(reopened.getByRole("button", { name: "Hide Upstream" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(reopened.getByRole("button", { name: "Hide Upstream" }));
+  expect(preferences.hiddenUpstreamClusters).toEqual([]);
+  await waitFor(() => expect(reopened.getByLabelText("Relationship Service")).toBeTruthy());
 });

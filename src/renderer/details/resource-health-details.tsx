@@ -12,12 +12,10 @@ const actionStyle = {
   gap: 6,
   minHeight: 28,
   padding: "4px 8px",
-  border: "1px solid var(--borderFaintColor)",
-  background: "var(--buttonDefaultBackground)",
 } as const;
 
 export type ResourceHealthDetailsProps = Renderer.Component.KubeObjectDetailsProps & {
-  onOpenDiagnostics?: (namespace?: string) => void;
+  onOpenDiagnostics?: (namespace?: string, resource?: { kind: string; name: string; uid?: string }) => void;
 };
 
 export const ResourceHealthDetails = observer(({ object, onOpenDiagnostics }: ResourceHealthDetailsProps) => {
@@ -49,6 +47,8 @@ export const ResourceHealthDetails = observer(({ object, onOpenDiagnostics }: Re
       <style>{`
         .power-operational-summary > .DrawerTitle.power-operational-title { margin-bottom: 10px; }
         .power-operational-summary .power-resource-action::before { content: none; }
+        .power-operational-summary .power-resource-action { border: 1px solid var(--borderFaintColor); background: var(--buttonDefaultBackground); transition: background-color 140ms, border-color 140ms; }
+        .power-operational-summary .power-resource-action:not(:disabled):hover { background: color-mix(in srgb, var(--buttonDefaultBackground) 85%, var(--textColorPrimary)); border-color: var(--borderColor); }
         .power-operational-summary .power-resource-action:active { filter: brightness(1.12); }
         .power-operational-summary .power-resource-action:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       `}</style>
@@ -95,7 +95,17 @@ export const ResourceHealthDetails = observer(({ object, onOpenDiagnostics }: Re
       <DrawerItem name="Investigate">
         <span style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           {onOpenDiagnostics && (
-            <Button className="power-resource-action" onClick={() => onOpenDiagnostics(namespace)} style={actionStyle}>
+            <Button
+              className="power-resource-action"
+              onClick={() =>
+                onOpenDiagnostics(namespace, {
+                  kind: object.kind,
+                  name: object.metadata.name ?? object.getName(),
+                  uid: object.metadata.uid,
+                })
+              }
+              style={actionStyle}
+            >
               <Icon material="insights" size={14} aria-hidden="true" /> Open Diagnostics
             </Button>
           )}

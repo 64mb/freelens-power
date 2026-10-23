@@ -63,7 +63,7 @@ it("keeps phase and readiness visible and links only related resources", () => {
   expect(showDetails).toHaveBeenCalledWith("/api/v1/nodes/worker-node");
   fireEvent.click(screen.getByRole("button", { name: "Open Diagnostics" }));
   expect(onOpenDiagnostics).toHaveBeenCalledOnce();
-  expect(onOpenDiagnostics).toHaveBeenCalledWith("team");
+  expect(onOpenDiagnostics).toHaveBeenCalledWith("team", { kind: "Pod", name: "worker", uid: undefined });
 });
 
 it("attaches bounded operational evidence and identity only after Ask AI is clicked", () => {

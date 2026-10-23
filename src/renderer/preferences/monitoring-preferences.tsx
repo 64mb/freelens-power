@@ -43,7 +43,7 @@ export const MonitoringPreferences = observer(() => {
             preferences.relationshipsVisible = value;
           }}
         >
-          Show resource relationships
+          Show Relationships in sidebar
         </Renderer.Component.Switch>
         <div className="power-settings-hint">
           Focused resource connections from API evidence, with links to related objects.

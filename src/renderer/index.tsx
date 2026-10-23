@@ -26,7 +26,7 @@ import { ResourceHealthDetails } from "./details/resource-health-details";
 import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details";
 import { DiagnosticsPage } from "./diagnostics";
-import { focusDiagnosticsNamespace } from "./diagnostics-state";
+import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
@@ -208,9 +208,9 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     },
   ];
 
-  private openDiagnostics = (namespace?: string) => {
+  private openDiagnostics = (namespace?: string, resourceScope?: DiagnosticsResourceScope) => {
     const clusterId = Renderer.Catalog.activeCluster.get()?.metadata.uid;
-    if (clusterId && namespace) focusDiagnosticsNamespace(clusterId, namespace);
+    if (clusterId && (namespace || resourceScope)) focusDiagnosticsNamespace(clusterId, namespace, resourceScope);
     void this.navigate("diagnostics");
   };
 
