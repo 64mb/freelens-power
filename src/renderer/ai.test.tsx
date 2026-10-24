@@ -89,8 +89,9 @@ describe("AI chat", () => {
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
     const attach = screen.getByLabelText("Attach terminal output");
     expect(attach.textContent?.trim()).toBe("terminal");
-    expect(attach.style.position).toBe("absolute");
-    expect(attach.style.right).toBe(attach.style.top);
+    const triggerStyle = getComputedStyle(attach.parentElement!);
+    expect(triggerStyle.position).toBe("absolute");
+    expect(triggerStyle.right).toBe(triggerStyle.top);
     expect(attach.style.borderColor).toBe("var(--borderFaintColor)");
     expect(attach.style.color).toBe("var(--textColorSecondary)");
     expect(attach.title).toBe("Attach terminal output to this question");
