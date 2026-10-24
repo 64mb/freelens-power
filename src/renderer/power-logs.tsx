@@ -92,7 +92,7 @@ function LogSelect({
   renderOption?: (option: { value: string; label: string }, context: "menu" | "value") => ReactNode;
 }) {
   return (
-    <span className="power-logs-select">
+    <span className="power-logs-select" data-source-select={label === "Container source" || undefined}>
       <Renderer.Component.Select
         aria-label={label}
         value={value}
@@ -115,6 +115,9 @@ function LogSelect({
         menuPosition="fixed"
         menuPortalTarget={document.body}
         styles={{
+          menu: (base) => (label === "Container source" ? { ...base, width: "100%", maxWidth: "100%" } : base),
+          menuList: (base) => (label === "Container source" ? { ...base, width: "100%", maxWidth: "100%" } : base),
+          option: (base) => (label === "Container source" ? { ...base, whiteSpace: "normal" } : base),
           menuPortal: (base) => {
             if (label !== "Container source" && label !== "Capture snapshot") return { ...base, zIndex: 10000 };
             const width = Math.min(label === "Capture snapshot" ? 620 : 560, window.innerWidth - 32);
@@ -953,15 +956,23 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             <LogSelect
               label="Container source"
               renderOption={(option, context) => {
-                if (context !== "menu" || !option.value) return <span title={option.label}>{option.label}</span>;
+                if (context !== "menu") return <span title={option.label}>{option.label}</span>;
                 const item = sources.find((item) => sourceKey(item) === option.value);
                 return (
-                  <span className="power-logs-option-text" title={option.label}>
-                    <strong>{item ? item.pod : "All pods"}</strong>
-                    <small>
-                      Container · {item?.container ?? option.value.slice(10)}
-                      {item?.previous ? " · Previous" : ""}
-                    </small>
+                  <span className="power-logs-source-option" title={option.label}>
+                    <Icon material={item ? "view_in_ar" : "layers"} size={16} />
+                    <span className="power-logs-option-text">
+                      <strong>{item ? item.pod : option.value ? "All pods" : option.label}</strong>
+                      <small>
+                        {option.value
+                          ? `Container · ${item?.container ?? option.value.slice(10)}`
+                          : "Every pod and container"}
+                        {item?.previous ? " · Previous" : ""}
+                      </small>
+                    </span>
+                    <span className="power-logs-source-check" aria-hidden="true">
+                      {source === option.value && <Icon material="check" size={16} />}
+                    </span>
                   </span>
                 );
               }}

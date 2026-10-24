@@ -24,6 +24,11 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-option-text { display:flex; flex-direction:column; gap:3px; min-width:0; white-space:normal; overflow-wrap:anywhere; }
 .power-logs-option-text strong { font-weight:500; }
 .power-logs-option-text small { opacity:.85; font-size:11px; }
+.power-logs-source-option { display:flex; align-items:center; gap:10px; width:100%; min-width:0; white-space:normal; line-height:1.4; }
+.power-logs-source-option > :first-child { flex-shrink:0; opacity:.75; }
+.power-logs-source-option .power-logs-option-text { flex:1; }
+.power-logs-source-option strong, .power-logs-source-option small { white-space:normal; overflow:visible; overflow-wrap:anywhere; }
+.power-logs-source-check { display:inline-flex; width:16px; flex-shrink:0; }
 .power-logs-snapshot-option > button { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; min-width:28px; min-height:28px; padding:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; }
 .power-logs-snapshot-option > button:not(:disabled):hover { color:var(--colorError); background:color-mix(in srgb,var(--colorError) 12%,transparent); }
 .power-logs-snapshot-option > button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
@@ -79,6 +84,7 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-source .power-logs-select { flex:1; max-width:none; }
 .power-logs-select > div { width:100%; min-width:0; }
 .power-logs-filters .power-logs-select { flex:0 1 180px; }
+.power-logs-filters .power-logs-select[data-source-select] { flex:1 1 260px; max-width:420px; }
 
 .power-logs-capture { display:flex; }
 .power-logs-capture > button { color:var(--primary); }

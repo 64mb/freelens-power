@@ -345,6 +345,17 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   const page = frame.getByTestId("power-logs-page");
   await expect(page).toBeVisible();
   await expect(page.getByRole("status")).toContainText("6 sources", { timeout: 120_000 });
+  const sourceFilter = page.getByRole("combobox", { name: "Container source", exact: true });
+  await sourceFilter.click();
+  const sourceMenu = frame.getByRole("listbox");
+  await expect(sourceMenu.locator(".power-logs-source-check .Icon")).toHaveCount(1);
+  const menuFits = await sourceMenu.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return box.left >= 0 && box.right <= window.innerWidth && el.scrollWidth <= el.clientWidth + 1;
+  });
+  expect(menuFits).toBe(true);
+  await session.screenshot(info, "power-logs-source-selector");
+  await sourceFilter.press("Escape");
   await page.getByRole("button", { name: "Open AI assistant", exact: true }).click();
   const initialAssistant = frame.getByRole("complementary", { name: "AI assistant" });
   await expect(initialAssistant).toBeVisible();
@@ -390,7 +401,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await page.getByLabel("Search log messages").fill("fixture failure");
   await page.getByRole("combobox", { name: "Log level", exact: true }).click();
-  await frame.getByRole("option", { name: "error", exact: true }).click();
+  await frame.getByRole("option", { name: "ERROR", exact: true }).click();
   await page.getByRole("combobox", { name: "Container source", exact: true }).click();
   await frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · sidecar" }).click();
   await expect(page.locator(".power-log-row").first()).toContainText("sidecar");
