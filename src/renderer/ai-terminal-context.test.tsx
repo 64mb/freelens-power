@@ -16,7 +16,9 @@ vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: mocks.clusterId } }) } },
     Component: {
-      Icon: () => null,
+      Icon: () => {
+        throw new Error("Native icons require the host UI provider");
+      },
       terminalStore: {
         isConnected: () => mocks.connected,
         getTerminalApi: () => ({ isReady: mocks.connected, isConnected: () => mocks.connected }),
@@ -68,6 +70,18 @@ const terminal = () => {
   return element;
 };
 describe("terminal snapshot capture", () => {
+  it("renders an explained unavailable attachment without a host UI provider", () => {
+    const onChange = vi.fn();
+    render(<AiTerminalContext clusterId="cluster-a" onChange={onChange} disabled={false} />);
+    const button = screen.getByLabelText("Attach terminal output") as HTMLButtonElement;
+    const tooltip = screen.getByRole("tooltip", { hidden: true });
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-describedby")).toBe(tooltip.id);
+    expect(tooltip.textContent).toBe("Open a connected terminal in this cluster");
+    fireEvent.click(button);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(mocks.sendCommand).not.toHaveBeenCalled();
+  });
   it("only reads the visible connected terminal in the current cluster", () => {
     const element = terminal();
     expect(activeAiTerminal("cluster-a")).toBe("terminal-a");

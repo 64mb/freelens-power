@@ -1,11 +1,12 @@
 {
   "name": "@64mb/freelens-power",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Power tools for Freelens Kubernetes IDE",
   "main": "out/main/index.js",
   "renderer": "out/renderer/index.js",
   "files": [
     "out/**/*",
+    "!out/**/duckdb/**",
     "THIRD_PARTY_LICENSES"
   ],
   "engines": {
@@ -42,7 +43,8 @@
     "dev": "electron-vite build --watch",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:provision": "node e2e/provision.mjs",
-    "type:check:e2e": "tsc -p e2e/tsconfig.json"
+    "type:check:e2e": "tsc -p e2e/tsconfig.json",
+    "test:packaging": "pnpm build && node --test build/power-logs-assets.test.mjs"
   },
   "devDependencies": {
     "@babel/plugin-proposal-decorators": "^8.0.2",

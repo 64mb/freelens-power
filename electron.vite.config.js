@@ -12,10 +12,13 @@ export default defineConfig({
   // main process has full access to Node.js APIs
   main: {
     build: {
+      emptyOutDir: true,
       lib: {
         entry: {
           index: resolve(__dirname, "src/main/index.ts"),
           "dashboard-preload": resolve(__dirname, "src/main/dashboard-preload.ts"),
+          "power-logs-child": resolve(__dirname, "src/main/power-logs-child.ts"),
+          "power-logs-query-child": resolve(__dirname, "src/main/power-logs-query-child.ts"),
         },
         // freelens 1.xx extensions are CommonJS modules
         formats: ["cjs"],
@@ -62,6 +65,7 @@ export default defineConfig({
   // with settings for preload script
   preload: {
     build: {
+      emptyOutDir: true,
       lib: {
         entry: resolve(__dirname, "src/renderer/index.tsx"),
         // freelens 1.xx extensions are CommonJS modules

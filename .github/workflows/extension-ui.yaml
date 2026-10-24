@@ -44,7 +44,7 @@ jobs:
         run: |
           pnpm build
           mkdir -p .e2e-runtime/package
-          pnpm pack --json --pack-destination .e2e-runtime/package > "${RUNNER_TEMP}/e2e-pack.json"
+          pnpm --config.ignore-scripts=true pack --json --pack-destination .e2e-runtime/package > "${RUNNER_TEMP}/e2e-pack.json"
           archive="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP + "/e2e-pack.json", "utf8")).filename')"
           printf 'EXTENSION_ARCHIVE=%s\n' "${archive}" >> "${GITHUB_ENV}"
       - name: Provision pinned Freelens and isolated kind

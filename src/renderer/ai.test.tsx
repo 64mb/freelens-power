@@ -46,6 +46,11 @@ vi.mock("../common/store/ai-preferences-store", () => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Icon: ({ material }: { material: string }) => (
+        <span className="Icon material">
+          <span className="icon">{material}</span>
+        </span>
+      ),
       terminalStore: {
         isConnected: () => true,
         getTerminalApi: () => ({ isReady: true, isConnected: () => true }),
@@ -84,8 +89,9 @@ describe("AI chat", () => {
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
     const attach = screen.getByLabelText("Attach terminal output");
     expect(attach.textContent?.trim()).toBe("terminal");
-    expect(attach.style.position).toBe("absolute");
-    expect(attach.style.right).toBe(attach.style.top);
+    const triggerStyle = getComputedStyle(attach.parentElement!);
+    expect(triggerStyle.position).toBe("absolute");
+    expect(triggerStyle.right).toBe(triggerStyle.top);
     expect(attach.style.borderColor).toBe("var(--borderFaintColor)");
     expect(attach.style.color).toBe("var(--textColorSecondary)");
     expect(attach.title).toBe("Attach terminal output to this question");
@@ -261,10 +267,54 @@ describe("AI chat", () => {
       }),
     );
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
-    stop();
+    act(() => stop?.());
     stop = undefined;
     expect(screen.queryByLabelText("Open AI assistant")).toBeNull();
     expect(screen.queryByRole("button", { name: "Ask about cluster" })).toBeNull();
+  });
+  it("opens an empty AI conversation without sending when requested by a page action", async () => {
+    window.history.replaceState({}, "", "/power-logs");
+    await act(async () => {
+      stop = startAiChat(() => true);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("power-ai-open-only"));
+    });
+    expect(await screen.findByLabelText("AI assistant")).toBeTruthy();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+    expect(mocks.preferences.conversations["cluster-a"] ?? []).toHaveLength(0);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    act(() => stop?.());
+    stop = undefined;
+    act(() => {
+      window.dispatchEvent(new Event("power-ai-open-only"));
+    });
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+  it("adds SQLite draft guidance only when the user sends from Power Logs", async () => {
+    window.history.replaceState({}, "", "/power-logs");
+    await act(async () => {
+      stop = startAiChat(() => true);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("power-ai-open-only"));
+    });
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Draft an errors query" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalled());
+    const request = mocks.invoke.mock.calls.find(([channel]) => channel === "freelens-power:ai-chat")![1] as {
+      systemPrompt: string;
+      messages: { role: string; text: string }[];
+    };
+    expect(request.systemPrompt).toContain("logs(timestamp INTEGER");
+    expect(request.systemPrompt).toContain("Draft queries only: never execute them");
+    expect(request.messages).toEqual([{ role: "user", text: "Draft an errors query" }]);
+    act(() => {
+      window.dispatchEvent(new Event("power-ai-close"));
+    });
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
   });
   it("only opens existing cluster history and never resends it", async () => {
     window.history.replaceState({}, "", "/overview");
@@ -736,7 +786,7 @@ it("shortens the overview action only beside horizontal custom metrics and track
     width = 1103;
     act(() => callbacks.get(overview)?.());
     expect(button.textContent).toContain("Ask AI");
-    stop();
+    act(() => stop?.());
     stop = undefined;
     expect(callbacks.has(overview)).toBe(false);
   } finally {

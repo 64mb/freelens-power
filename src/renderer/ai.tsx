@@ -18,6 +18,7 @@ import {
 } from "./ai-diagnostic-handoff";
 import { AiContextPreview, AiResourceReferences } from "./ai-extras";
 import { AiIcon } from "./ai-icon";
+import { isPowerLogsWorkspace, POWER_LOGS_SQL_DRAFT_PROMPT } from "./ai-logs-sql";
 import { AiMessageContent } from "./ai-message";
 import { AiProviderIcon } from "./ai-provider-icon";
 import { AiResizeHandle, clampAiPanelWidth, DEFAULT_AI_PANEL_WIDTH } from "./ai-resize";
@@ -354,9 +355,15 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     };
     window.addEventListener(AI_DIAGNOSTIC_EVENT, onDiagnostic);
     window.addEventListener("power-ai-open", updateAndOpen);
-    function updateAndOpen() {
+    window.addEventListener("power-ai-open-only", openOnly);
+    const closePanel = () => setOpen(false);
+    window.addEventListener("power-ai-close", closePanel);
+    function openOnly() {
       update();
       setOpen(true);
+    }
+    function updateAndOpen() {
+      openOnly();
       clusterReview.current();
     }
     return () => {
@@ -371,6 +378,8 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       window.clearInterval(timer);
       observer.disconnect();
       window.removeEventListener("power-ai-open", updateAndOpen);
+      window.removeEventListener("power-ai-open-only", openOnly);
+      window.removeEventListener("power-ai-close", closePanel);
       window.removeEventListener(AI_DIAGNOSTIC_EVENT, onDiagnostic);
     };
   }, []);
@@ -509,7 +518,11 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           }, []),
         context: requestContext,
         ...(terminalSnapshot ? { terminalSnapshot } : {}),
-        systemPrompt: [preferences.systemPrompt, requestContext.clusterId ? preferences.clusterPrompt : ""]
+        systemPrompt: [
+          preferences.systemPrompt,
+          requestContext.clusterId ? preferences.clusterPrompt : "",
+          isPowerLogsWorkspace() ? POWER_LOGS_SQL_DRAFT_PROMPT : "",
+        ]
           .filter(Boolean)
           .join("\n\n"),
         model: preferences.model,

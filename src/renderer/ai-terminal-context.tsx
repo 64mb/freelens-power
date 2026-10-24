@@ -4,6 +4,8 @@ import { type AiTerminalSnapshot, sanitizeAiTerminalSnapshot } from "../common/a
 import { formatDateTime } from "../common/date-time";
 import { AiIcon } from "./ai-icon";
 
+let nextTerminalTooltip = 0;
+
 type TerminalBuffer = {
   length: number;
   baseY: number;
@@ -85,6 +87,7 @@ export function AiTerminalContext({
   onChange(value: AiTerminalAttachment | undefined): void;
   disabled: boolean;
 }) {
+  const [tooltipId] = useState(() => `power-terminal-tooltip-${++nextTerminalTooltip}`);
   const [terminalId, setTerminalId] = useState(() => activeAiTerminal(clusterId));
   const [preview, setPreview] = useState<AiTerminalSnapshot>();
   const [unavailable, setUnavailable] = useState(false);
@@ -144,50 +147,53 @@ export function AiTerminalContext({
     if (!subscription) polling = window.setInterval(update, 1000);
     return stop;
   }, [attached, attachment, clusterId, onChange]);
+  const tooltip = attached
+    ? "Detach terminal output from this question"
+    : terminalId
+      ? "Attach terminal output to this question"
+      : "Open a connected terminal in this cluster";
   return (
     <div className="power-ai-terminal-context" style={{ fontSize: 11 }}>
-      <button
-        type="button"
-        aria-label="Attach terminal output"
-        aria-pressed={attached}
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 26,
-          height: 26,
-          minHeight: 26,
-          padding: 0,
-          color: "var(--textColorSecondary)",
-          borderColor: "var(--borderFaintColor)",
-          background: attached ? "color-mix(in srgb, var(--textColorPrimary) 8%, transparent)" : "transparent",
-        }}
-        disabled={disabled || !terminalId}
-        title={
-          attached
-            ? "Detach terminal output from this question"
-            : terminalId
-              ? "Attach terminal output to this question"
-              : "Open a connected terminal in this cluster"
-        }
-        onClick={() => {
-          if (attached) {
-            onChange(undefined);
-            setPreview(undefined);
-            return;
-          }
-          const snapshot = captureAiTerminal(clusterId, terminalId);
-          setUnavailable(!snapshot);
-          if (!snapshot || !clusterId || !terminalId) return;
-          setPreview(snapshot);
-          onChange({ clusterId, terminalId });
-        }}
-      >
-        <AiIcon material="terminal" size={16} />
-      </button>
+      <style>{`.power-ai-terminal-trigger{position:absolute;top:8px;right:8px;display:inline-flex}.power-ai-terminal-tooltip{position:absolute;right:0;bottom:calc(100% + 8px);z-index:20;width:max-content;max-width:240px;padding:6px 8px;border:1px solid var(--borderFaintColor);border-radius:4px;background:var(--mainBackground);color:var(--textColorPrimary);font-size:12px;line-height:1.4;visibility:hidden;opacity:0;pointer-events:none}.power-ai-terminal-trigger:hover .power-ai-terminal-tooltip,.power-ai-terminal-trigger:focus-within .power-ai-terminal-tooltip{visibility:visible;opacity:1}`}</style>
+      <span className="power-ai-terminal-trigger">
+        <button
+          type="button"
+          aria-describedby={tooltipId}
+          aria-label="Attach terminal output"
+          aria-pressed={attached}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 26,
+            height: 26,
+            minHeight: 26,
+            padding: 0,
+            color: "var(--textColorSecondary)",
+            borderColor: "var(--borderFaintColor)",
+            background: attached ? "color-mix(in srgb, var(--textColorPrimary) 8%, transparent)" : "transparent",
+          }}
+          disabled={disabled || !terminalId}
+          title={tooltip}
+          onClick={() => {
+            if (attached) {
+              onChange(undefined);
+              setPreview(undefined);
+              return;
+            }
+            const snapshot = captureAiTerminal(clusterId, terminalId);
+            setUnavailable(!snapshot);
+            if (!snapshot || !clusterId || !terminalId) return;
+            setPreview(snapshot);
+            onChange({ clusterId, terminalId });
+          }}
+        >
+          <AiIcon material="terminal" size={16} />
+        </button>
+        <span role="tooltip" id={tooltipId} className="power-ai-terminal-tooltip">
+          {tooltip}
+        </span>
+      </span>
       {attached && preview && (
         <details style={{ padding: "0 16px 4px", margin: 0 }}>
           <summary>

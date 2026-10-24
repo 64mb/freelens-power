@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
   );
   return {
     get,
+    permit: vi.fn().mockResolvedValue(undefined),
     text,
     json,
     getResponse,
@@ -68,9 +69,45 @@ vi.mock("../common/store/ai-preferences-store", () => ({
   AiPreferencesStore: { getInstanceOrCreate: () => mocks.preferences },
 }));
 vi.mock("./ai", () => ({ runAiChat: mocks.runAiChat, aiFailureCode: () => "UNAVAILABLE" }));
+vi.mock("./power-logs-budget", () => ({
+  requestPowerLogPermit: mocks.permit,
+  acquirePowerLogStream: vi.fn().mockResolvedValue(undefined),
+  releasePowerLogStream: vi.fn(),
+  renewPowerLogStream: vi.fn(),
+}));
 
 describe("AI IPC native logs compatibility", () => {
+  it("does not start a log request if its sender is destroyed while acquiring a stream lease", async () => {
+    vi.clearAllMocks();
+    const sender = Object.assign(new EventEmitter(), { id: 73 });
+    mocks.runAiChat.mockImplementation(async (_request, resolveCluster, signal) => {
+      const read = resolveCluster("example-cluster").readLogs(
+        {
+          path: "/api/v1/namespaces/default/pods/example-pod/log",
+          query: { tailLines: 100, limitBytes: 65536, follow: false, timestamps: false },
+        },
+        signal,
+      );
+      sender.emit("destroyed");
+      await expect(read).rejects.toThrow("canceled");
+      return { text: "Canceled" };
+    });
+    const stop = startAiIpc();
+    try {
+      const handler = mocks.handle.mock.calls[0][1];
+      await expect(
+        handler(
+          { sender, senderFrame: { url: "https://renderer.freelens.app/" } },
+          { messages: [{ role: "user", text: "Inspect counters" }], context: { clusterId: "example-cluster" } },
+        ),
+      ).rejects.toThrow("FREELENS_AI_");
+      expect(mocks.getResponse).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
   it("invokes the non-callable host factory through call and reads response text in the selected cluster", async () => {
+    vi.clearAllMocks();
     const query = {
       path: "/api/v1/namespaces/default/pods/example-pod/log",
       query: { tailLines: 100, limitBytes: 65536, follow: false, timestamps: false },
@@ -99,9 +136,16 @@ describe("AI IPC native logs compatibility", () => {
       expect(mocks.getResponse).toHaveBeenCalledExactlyOnceWith(
         query.path,
         { query: query.query },
-        { signal: expect.any(AbortSignal) },
+        { signal: expect.any(AbortSignal), size: 65536 },
       );
       expect(mocks.text).toHaveBeenCalledOnce();
+      expect(mocks.permit).toHaveBeenNthCalledWith(1, "example-cluster", undefined, expect.any(AbortSignal));
+      expect(mocks.permit).toHaveBeenNthCalledWith(
+        2,
+        "example-cluster",
+        Buffer.byteLength("ERROR EXAMPLE_KEY=example-sensitive"),
+        expect.any(AbortSignal),
+      );
       expect(mocks.json).not.toHaveBeenCalled();
       expect(response).toEqual({ text: "One error", reads: [{ method: "logs", status: "ok" }] });
       expect(JSON.stringify(response)).not.toContain("example-sensitive");

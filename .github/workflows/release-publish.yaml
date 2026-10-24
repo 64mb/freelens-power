@@ -71,9 +71,10 @@ jobs:
           pnpm lint:check
           pnpm type:check
           pnpm test:unit
+          pnpm test:packaging
           pnpm build
           mkdir -p release-artifacts
-          pnpm pack --json --pack-destination release-artifacts > "${RUNNER_TEMP}/pack-result.json"
+          pnpm --config.ignore-scripts=true pack --json --pack-destination release-artifacts > "${RUNNER_TEMP}/pack-result.json"
           archive="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP + "/pack-result.json", "utf8")).filename')"
           test -f "${archive}"
           printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"

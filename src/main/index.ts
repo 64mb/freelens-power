@@ -6,6 +6,7 @@ import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
 import { ClusterIconsStore } from "../common/store/cluster-icons-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { NodeShellPreferencesStore } from "../common/store/node-shell-preferences-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
@@ -20,6 +21,7 @@ import { startDashboardViews } from "./dashboard-views";
 import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
 import { startMonitoringHistory } from "./monitoring-history";
+import { startPowerLogs } from "./power-logs-ipc";
 import { startResourceSearchIndex } from "./resource-search";
 import { startSettingsExport } from "./settings-export";
 import { startSplashAccentOverride } from "./splash-accent";
@@ -40,6 +42,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
   onActivate() {
     const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
     power.loadExtension(this);
+    LogsPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiShortcutsStore.getInstanceOrCreate().loadExtension(this);
     ReadOnlyPreferencesStore.getInstanceOrCreate().loadExtension(this);
@@ -59,6 +62,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
           ? [
               startMonitoringHistory(this),
               startResourceSearchIndex(),
+              startPowerLogs(),
               startDiagnosticsMenuOrder(),
               startAiIpc(),
               startAiModels(),

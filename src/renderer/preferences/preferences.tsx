@@ -3,6 +3,7 @@ import { EXTENSION_ID } from "../../common/extension-info";
 import { AiPreferences } from "./ai-preferences";
 import { AppearancePreferences } from "./appearance-preferences";
 import { DashboardPreferences } from "./dashboard-preferences";
+import { LogsPreferences } from "./logs-preferences";
 import { MonitoringPreferences } from "./monitoring-preferences";
 import { NodeShellPreferences } from "./node-shell-preferences";
 import { PowerPreferencesToggle } from "./power-preferences";
@@ -17,11 +18,11 @@ const styles = `
   #freelens-power-settings + hr { display: none; }
   .freelens-power-preferences { display: grid; gap: 24px; max-width: 760px; container: power-preferences / inline-size; }
   .freelens-power-preferences .power-preferences-section-links {
-    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; gap: 8px;
+    display:flex; align-items:center; width:100%; gap:8px; overflow-x:auto;
   }
   :root .freelens-power-preferences .power-preferences-section-links button.power-settings-section-link {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    width: 100%; min-width: 0; min-height: 32px; padding: 4px 2px;
+    flex:1 0 auto; width:auto; min-width:max-content; min-height:32px; padding:4px 2px;
     border: 0; border-radius: 4px; background: transparent; box-shadow: none;
     color: var(--textColorSecondary); text-transform: none; white-space: nowrap; cursor: pointer;
   }
@@ -35,12 +36,7 @@ const styles = `
     color: var(--primary); background: transparent; box-shadow: none;
     outline: 2px solid var(--primary); outline-offset: 2px;
   }
-  @container power-preferences (max-width: 660px) {
-    .freelens-power-preferences .power-preferences-section-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  }
-  @container power-preferences (max-width: 360px) {
-    .freelens-power-preferences .power-preferences-section-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
+  @container power-preferences (max-width:660px) { .power-preferences-section-links { font-size:12px; } }
   .freelens-power-preferences section[id] { scroll-margin-top: 16px; }
   .freelens-power-preferences section {
     padding: 24px; border: 1px solid var(--borderFaintColor);
@@ -81,7 +77,8 @@ const sectionLinks = [
   { id: "safety", title: "Safety", icon: "lock_outline" },
   { id: "appearance", title: "Appearance", icon: "palette" },
   { id: "monitoring", title: "Monitoring", icon: "show_chart" },
-  { id: "shell", title: "Node shell", icon: "vpn_key" },
+  { id: "logs", title: "Logs", icon: "subject" },
+  { id: "shell", title: "Shell", icon: "vpn_key" },
   { id: "ai", title: "AI", icon: "chat_bubble_outline" },
   { id: "dashboard", title: "Dashboard", icon: "dashboard" },
 ];
@@ -98,6 +95,7 @@ export const PowerPreferences = () => (
         <Renderer.Component.Button
           key={id}
           className="power-settings-section-link"
+          aria-label={title}
           title={`Jump to ${title} settings`}
           onClick={(event) => {
             event.preventDefault();
@@ -139,6 +137,12 @@ export const PowerPreferences = () => (
         <Renderer.Component.Icon material="show_chart" size={20} /> Monitoring
       </h3>
       <MonitoringPreferences />
+    </section>
+    <section id="freelens-power-logs-section" tabIndex={-1} aria-labelledby="freelens-power-logs-title">
+      <h3 id="freelens-power-logs-title">
+        <Renderer.Component.Icon material="subject" size={20} /> Power Logs
+      </h3>
+      <LogsPreferences />
     </section>
     <section id="freelens-power-shell-section" tabIndex={-1} aria-labelledby="freelens-power-shell-title">
       <h3 id="freelens-power-shell-title">

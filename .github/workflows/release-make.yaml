@@ -36,6 +36,7 @@ jobs:
           pnpm lint:check
           pnpm type:check
           pnpm test:unit
+          pnpm test:packaging
           pnpm build
       - name: Bump version and open release pull request
         env:

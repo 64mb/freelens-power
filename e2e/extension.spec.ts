@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Frame, type Locator, type TestInfo, test } from "@playwright/test";
 import { FreelensSession } from "./app";
 import { applyFixtures, mutateConfigMap, secretSentinel } from "./fixtures";
+import { applyPowerLogsFixtures, logsDaemonSet, logsDeployment, logsSecretSentinel } from "./power-logs-fixtures";
 
 test.beforeAll(() => applyFixtures());
 
@@ -311,4 +312,358 @@ extensionTest("Settings jumps and stable pointer geometry", async (session, fram
   await closeSettings();
   const restoredSearch = await openSearch(activeFrame);
   await restoredSearch.getByRole("button", { name: "Close resource search" }).click();
+});
+
+extensionTest("Power Logs workload sources, captures, SQL and reviewed AI context", async (session, frame, info) => {
+  test.setTimeout(600_000);
+  const samplePodName = applyPowerLogsFixtures();
+  const closeSettings = () =>
+    session.window.locator('div[class*="close-button-module__closeButton--"][aria-label="Close"]').click();
+  const openSettings = async () => {
+    await session.window.locator(".freelens-power-settings-icon").click();
+    const settings = session.window.locator(".freelens-power-preferences");
+    await expect(settings).toBeVisible();
+    return settings;
+  };
+  const settings = await openSettings();
+  for (const label of ["Use Power Logs", "Enable AI features"]) {
+    const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: label });
+    if (!(await toggle.locator("input").isChecked())) await toggle.click();
+    await expect(toggle.locator("input")).toBeChecked();
+  }
+  await closeSettings();
+  const openDeployment = async (active: Frame) => {
+    const dialog = await openSearch(active);
+    await (await search(dialog, logsDeployment, "Deployment")).click();
+    return active.locator(".Drawer").filter({ hasText: logsDeployment }).last();
+  };
+  let drawer = await openDeployment(frame);
+  await drawer
+    .locator(".MenuItem")
+    .filter({ has: frame.locator("[data-power-logs-target]") })
+    .click();
+  const page = frame.getByTestId("power-logs-page");
+  await expect(page).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("6 sources", { timeout: 120_000 });
+  const sourceFilter = page.getByRole("combobox", { name: "Container source", exact: true });
+  await sourceFilter.click();
+  const sourceMenu = frame.getByRole("listbox");
+  await expect(sourceMenu.locator(".power-logs-source-check .Icon")).toHaveCount(1);
+  const menuFits = await sourceMenu.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return box.left >= 0 && box.right <= window.innerWidth && el.scrollWidth <= el.clientWidth + 1;
+  });
+  expect(menuFits).toBe(true);
+  await session.screenshot(info, "power-logs-source-selector");
+  await sourceFilter.press("Escape");
+  await page.getByRole("button", { name: "Open AI assistant", exact: true }).click();
+  const initialAssistant = frame.getByRole("complementary", { name: "AI assistant" });
+  await expect(initialAssistant).toBeVisible();
+  await expect(initialAssistant.locator(".power-ai-message")).toHaveCount(0);
+  await expect(initialAssistant.getByLabel("Selected diagnostic finding")).toContainText("Power Logs");
+  await initialAssistant.getByRole("button", { name: "Close AI assistant", exact: true }).click();
+  await page.locator(".power-logs-options > summary").click();
+  const captureWindow = page.getByRole("combobox", { name: "Capture window", exact: true });
+  await captureWindow.click();
+  await frame.getByRole("option", { name: "5 minutes", exact: true }).click();
+  await expect(page.locator(".power-logs-options")).toContainText("5 minutes");
+  await captureWindow.press("ArrowDown");
+  await expect(frame.getByRole("listbox")).toBeVisible();
+  await captureWindow.press("Escape");
+  await session.screenshot(info, "power-logs-capture-options");
+  await page.getByRole("tab", { name: "Live view", exact: true }).click();
+  await expect(page.locator(".power-logs-options")).not.toHaveAttribute("open", "");
+  await session.screenshot(info, "power-logs-compact-workspace");
+  await page.locator(".power-logs-options > summary").click();
+  await page.getByText("Compact density", { exact: true }).click();
+  await expect
+    .poll(() =>
+      page
+        .locator(".power-log-row")
+        .first()
+        .evaluate((el) => el.getBoundingClientRect().height),
+    )
+    .toBe(24);
+  await page.getByText("Compact density", { exact: true }).click();
+  await session.window.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Capture logs", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Native logs", exact: true })).toHaveCount(0);
+
+  await expect(page.locator(".power-log-row").first()).toBeVisible();
+  await page.getByRole("button", { name: "Live", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const text = await page.locator(".power-logs-muted[role=status]").innerText();
+      return /\/6 active sources/.test(text);
+    })
+    .toBe(true);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Search log messages").fill("fixture failure");
+  await page.getByRole("combobox", { name: "Log level", exact: true }).click();
+  await frame.getByRole("option", { name: "ERROR", exact: true }).click();
+  await page.getByRole("combobox", { name: "Container source", exact: true }).click();
+  await frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · sidecar" }).click();
+  await expect(page.locator(".power-log-row").first()).toContainText("sidecar");
+  await expect(page.locator(".power-log-row").first()).toHaveAttribute("data-level", "error");
+  await page.locator(".power-log-row").first().click();
+  const detail = page.getByLabel("Log line details");
+  await expect(detail).toContainText("Structured fields");
+  const geometry = await page.evaluate((element) => {
+    const stream = element.querySelector(".power-logs-stream")!.getBoundingClientRect();
+    const detail = element.querySelector(".power-logs-detail")!.getBoundingClientRect();
+    const viewport = document.documentElement.clientWidth;
+    return {
+      streamBottom: stream.bottom,
+      detailTop: detail.top,
+      detailLeft: detail.left,
+      detailRight: detail.right,
+      detailWidth: detail.width,
+      width: stream.width,
+      height: stream.height,
+      right: stream.right,
+      viewport,
+      rows: element.querySelectorAll(".power-log-row").length,
+      pageHeight: element.getBoundingClientRect().height,
+      rootScroll: element.scrollHeight - element.clientHeight,
+      footerButtons: element.querySelector(".power-logs-footer")?.querySelectorAll("button,input,select").length ?? 0,
+    };
+  });
+  expect(geometry.width).toBeGreaterThan(100);
+  expect(geometry.height).toBeGreaterThan(geometry.pageHeight * 0.5);
+  expect(geometry.rootScroll).toBeLessThanOrEqual(1);
+  expect(geometry.footerButtons).toBe(0);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.viewport + 1);
+  expect(geometry.rows).toBeLessThan(50);
+  expect(geometry.width).toBeGreaterThanOrEqual(400);
+  expect(geometry.detailTop).toBeLessThan(geometry.streamBottom);
+  expect(geometry.detailWidth).toBeGreaterThan(200);
+  expect(geometry.detailRight).toBeLessThanOrEqual(geometry.viewport + 1);
+  await session.screenshot(info, "power-logs-filtered-line");
+  await page.getByRole("button", { name: "Open AI assistant", exact: true }).click();
+  const assistant = frame.getByLabel("AI assistant", { exact: true });
+  await expect(assistant).toBeVisible();
+  const finding = assistant.getByLabel("Selected diagnostic finding");
+  await expect(finding).toContainText("Log line");
+  await finding.locator("summary").click();
+  await expect(finding.locator("pre")).toContainText(logsDeployment);
+  await expect(finding.locator("pre")).toContainText("[REDACTED]");
+  await expect(finding.locator("pre")).not.toContainText(logsSecretSentinel);
+  await assistant.getByText("Attached context", { exact: true }).click();
+  await expect(assistant.locator(".power-ai-context-preview > details pre")).toContainText(logsDeployment);
+  await expect(assistant.locator(".power-ai-message-user")).toHaveCount(0);
+  await session.screenshot(info, "power-logs-attached-ai-context");
+  await assistant.getByRole("button", { name: "Close AI assistant", exact: true }).click();
+  await page.getByRole("tab", { name: "SQL", exact: true }).click();
+  await page.getByRole("button", { name: "Capture logs", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "SQL" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".power-logs-results")).toContainText("fixture");
+  await expect(page.locator(".power-logs-results th").first()).toHaveText("message");
+  const sqlGeometry = await page.evaluate((element) => {
+    const results = element.querySelector(".power-logs-results")!.getBoundingClientRect();
+    const root = element.getBoundingClientRect();
+    return {
+      ratio: results.height / root.height,
+      visible: results.bottom <= root.bottom,
+      scroll: element.scrollHeight - element.clientHeight,
+    };
+  });
+  expect(sqlGeometry.ratio).toBeGreaterThan(0.4);
+  expect(sqlGeometry.visible).toBe(true);
+  expect(sqlGeometry.scroll).toBeLessThanOrEqual(1);
+  await session.screenshot(info, "power-logs-recent-logs");
+  const sql = page.getByLabel("SQL query");
+  const run = page.getByRole("button", { name: "Run query", exact: true });
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "SQL: Recent", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL: Errors", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL: Timeline", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL: JSON", exact: true })).toBeVisible();
+  await sql.fill("SELECT * FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200");
+  await run.click();
+  await expect(page.locator('th[data-column="fieldsJson"]')).toBeVisible();
+  const pages = page.getByRole("navigation", { name: "SQL result pages" });
+  await expect(pages).toBeVisible();
+  const resultsBox = await page.locator(".power-logs-results").boundingBox();
+  const pagesBox = await pages.boundingBox();
+  expect(pagesBox!.y).toBeGreaterThanOrEqual(resultsBox!.y + resultsBox!.height);
+  await pages.getByRole("button", { name: "Next page", exact: true }).click();
+  await expect(pages).toContainText("Page 2 /");
+  await pages.getByRole("button", { name: "Previous page", exact: true }).click();
+  await page.locator(".power-logs-results").evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+  });
+  const horizontal = await page.locator(".power-logs-results").evaluate((el) => ({
+    left: el.scrollLeft,
+    outer: el.closest(".power-logs")!.scrollWidth - el.closest(".power-logs")!.clientWidth,
+  }));
+  expect(horizontal.left).toBeGreaterThan(0);
+  expect(horizontal.outer).toBeLessThanOrEqual(1);
+  await page.locator("tbody tr").filter({ hasText: "fixture ready" }).first().click();
+  const sqlDetails = page.getByRole("complementary", { name: "Log line details" });
+  await expect(sqlDetails.locator(".power-log-json")).toContainText("fixture ready");
+  await session.screenshot(info, "power-logs-sql-row-json");
+  await session.window.keyboard.press("Escape");
+  await expect(sqlDetails).toHaveCount(0);
+  await page.locator(".power-logs-results").evaluate((el) => {
+    el.scrollLeft = 0;
+  });
+  await sql.focus();
+  expect(await sql.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+
+  await sql.fill(
+    "SELECT count(*) AS lines, count(DISTINCT pod) AS pods, count(DISTINCT container) AS containers FROM logs",
+  );
+  await run.click();
+  await expect(page.locator(".power-logs-results tbody tr")).toHaveCount(1);
+  const counts = await page.locator(".power-logs-results tbody td").allTextContents();
+  expect(Number(counts[0])).toBeGreaterThan(0);
+  expect(counts.slice(1)).toEqual(["3", "2"]);
+  console.info("Power Logs: capture count verified for 3 pods and 2 containers");
+  await sql.fill(
+    "SELECT json_extract(fieldsJson, '$.message') AS extracted_message, count(*) AS lines FROM logs WHERE fieldsJson IS NOT NULL GROUP BY extracted_message ORDER BY extracted_message",
+  );
+  await run.click();
+  await expect(page.locator(".power-logs-results")).toContainText("fixture failure");
+  await expect(page.locator(".power-logs-results")).toContainText("fixture ready");
+  console.info("Power Logs: JSON extraction query verified");
+  await session.screenshot(info, "power-logs-capture-sql");
+  await sql.fill(
+    "WITH RECURSIVE numbers(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM numbers WHERE i < 1000000) SELECT sum(a.i * b.i) FROM numbers a CROSS JOIN numbers b",
+  );
+  await run.click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(run).toBeEnabled();
+  await sql.fill("SELECT count(*) AS reusable FROM logs");
+  await run.click();
+  await expect(page.locator(".power-logs-results th")).toHaveText("reusable");
+  await expect(page.locator(".power-logs-results tbody td")).toHaveText(counts[0]);
+  console.info("Power Logs: cancellation and subsequent query verified");
+  const exportedPath = join(session.profile, "power-logs-export.ndjson");
+  await session.app.evaluate(({ dialog }, destination) => {
+    const scope = globalThis as typeof globalThis & { powerLogsOriginalSaveDialog?: typeof dialog.showSaveDialog };
+    scope.powerLogsOriginalSaveDialog = dialog.showSaveDialog;
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: destination });
+  }, exportedPath);
+  try {
+    await page.getByRole("button", { name: "Export JSON", exact: true }).click();
+    await expect
+      .poll(async () => {
+        try {
+          return (await readFile(exportedPath, "utf8")).trim().split("\n").length;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(Number(counts[0]));
+    const exportedRows = (await readFile(exportedPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(new Set(exportedRows.map((row) => row.pod)).size).toBe(3);
+    expect(new Set(exportedRows.map((row) => row.container)).size).toBe(2);
+    expect(exportedRows.every((row) => typeof row.message === "string" && typeof row.podUid === "string")).toBe(true);
+    console.info("Power Logs: real NDJSON export contents verified");
+  } finally {
+    await session.app.evaluate(({ dialog }) => {
+      const scope = globalThis as typeof globalThis & { powerLogsOriginalSaveDialog?: typeof dialog.showSaveDialog };
+      if (scope.powerLogsOriginalSaveDialog) dialog.showSaveDialog = scope.powerLogsOriginalSaveDialog;
+      delete scope.powerLogsOriginalSaveDialog;
+    });
+  }
+  const snapshotSelect = page.getByRole("combobox", { name: "Capture snapshot", exact: true });
+  await snapshotSelect.click();
+  await snapshotSelect.fill(logsDeployment);
+  await snapshotSelect.press("Alt+Delete");
+  await expect(frame.getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true })).toHaveCount(1);
+  await snapshotSelect.fill("");
+  await snapshotSelect.press("Alt+Delete");
+  await expect(page.locator(".power-logs-results table")).toHaveCount(0);
+  await page.getByRole("button", { name: "Capture logs", exact: true }).click();
+  await expect(page.locator(".power-logs-results tbody tr")).not.toHaveCount(0);
+  await snapshotSelect.click();
+  await frame
+    .getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true })
+    .first()
+    .click();
+  await page.getByRole("combobox", { name: "Capture snapshot", exact: true }).press("Escape");
+  await expect(page.locator(".power-logs-results table")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "SQL" })).toBeVisible();
+  const agentSearch = await openSearch(frame);
+  await (await search(agentSearch, logsDaemonSet, "DaemonSet")).click();
+  const agentDrawer = frame.locator(".Drawer").filter({ hasText: logsDaemonSet }).last();
+  await agentDrawer
+    .locator(".MenuItem")
+    .filter({ has: frame.locator("[data-power-logs-target]") })
+    .click();
+  await expect(page.getByRole("status")).toContainText("1 sources");
+  await page.getByRole("combobox", { name: "Container source", exact: true }).click();
+  await expect(
+    frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · agent" }),
+  ).toBeVisible();
+  await page.getByRole("combobox", { name: "Container source", exact: true }).press("Escape");
+  await expect(page.locator(".power-log-row").first()).toContainText("agent");
+  await session.screenshot(info, "power-logs-daemonset");
+  const containerSearch = await openSearch(frame);
+  await (await search(containerSearch, samplePodName, "Pod")).click();
+  const containerDrawer = frame.locator(".Drawer").filter({ hasText: samplePodName }).last();
+  const podLogsMenu = containerDrawer.locator(".MenuItem").filter({ has: frame.locator("[data-power-logs-target]") });
+  await podLogsMenu.hover();
+  await podLogsMenu
+    .locator(".SubMenu .MenuItem")
+    .filter({ hasText: /^sidecar$/ })
+    .click();
+  await expect(page.getByRole("status")).toContainText("2 sources");
+  await expect(page.locator(".power-logs-filters")).toContainText("All pods / sidecar");
+  await expect(page.locator(".power-log-row").first()).toContainText("sidecar");
+  const visibleOrigins = await page.locator(".power-log-row .power-log-origin").allTextContents();
+  expect(visibleOrigins.length).toBeGreaterThan(0);
+  expect(visibleOrigins.every((origin) => /^sidecar · /.test(origin))).toBe(true);
+  await session.screenshot(info, "power-logs-pod-container");
+  await page.getByRole("button", { name: "Native logs", exact: true }).click();
+  const nativeDock = frame.locator(".Dock.isOpen");
+  await expect(nativeDock).toBeVisible();
+  const nativeTab = nativeDock.locator('[data-testid^="dock-tab-for-"]').filter({ hasText: `Pod ${samplePodName}` });
+  await expect(nativeTab).toBeVisible();
+  await expect(nativeDock.locator('[data-testid^="dock-tab-content-for-"]')).toBeVisible();
+  const download = frame.getByTestId("download-logs-dropdown");
+  await expect(download).toBeVisible();
+  const nativeAccent = await download.evaluate((el) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--primary)";
+    document.body.append(probe);
+    const expected = getComputedStyle(probe).color;
+    probe.remove();
+    return { actual: getComputedStyle(el).color, expected };
+  });
+  expect(nativeAccent.actual).toBe(nativeAccent.expected);
+  await session.screenshot(info, "power-logs-native-fallback");
+  await nativeTab.locator('[data-testid^="dock-tab-close-for-"]').click();
+  console.info("Power Logs: DaemonSet, per-container Pod menu and native fallback verified");
+  const disabledSettings = await openSettings();
+  const toggle = disabledSettings.locator('label[data-testid="switch"]').filter({ hasText: "Use Power Logs" });
+  await toggle.click();
+  await expect(toggle.locator("input")).not.toBeChecked();
+  await closeSettings();
+  const podSearch = await openSearch(frame);
+  await (await search(podSearch, samplePodName, "Pod")).click();
+  drawer = frame.locator(".Drawer").filter({ hasText: samplePodName }).last();
+  await expect(drawer.locator("[data-power-logs-target]")).toHaveCount(0);
+  await expect(
+    drawer.locator(".MenuItem").filter({ has: frame.locator(".title", { hasText: /^Logs$/ }) }),
+  ).toBeVisible();
+  await session.screenshot(info, "power-logs-native-restored");
+  if (process.env.E2E_LANE === "extended") {
+    await session.close(info, false);
+    await session.start(info);
+    await session.cluster(info);
+    const persisted = await openSettings();
+    await expect(
+      persisted.locator('label[data-testid="switch"]').filter({ hasText: "Use Power Logs" }).locator("input"),
+    ).not.toBeChecked();
+    await expect(
+      persisted.locator('label[data-testid="switch"]').filter({ hasText: "Enable AI features" }).locator("input"),
+    ).toBeChecked();
+    await closeSettings();
+  }
 });

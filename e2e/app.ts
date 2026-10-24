@@ -3,6 +3,7 @@ import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron, type ElectronApplication, expect, type Frame, type Page, type TestInfo } from "@playwright/test";
+import { cleanupTestProxies } from "./proxy-cleanup";
 
 export class FreelensSession {
   app!: ElectronApplication;
@@ -12,6 +13,8 @@ export class FreelensSession {
   private diagnostics = "";
 
   async start(info: TestInfo) {
+    if (process.platform === "darwin" && process.env.E2E_ALLOW_VISIBLE_UI !== "1")
+      throw new Error("Run UI tests in Linux with Xvfb. Visible macOS tests require E2E_ALLOW_VISIBLE_UI=1.");
     const executablePath = process.env.FREELENS_EXECUTABLE;
     const kubeconfig = process.env.KUBECONFIG;
     if (!executablePath || !kubeconfig || !process.env.EXTENSION_ARCHIVE) {
@@ -46,7 +49,7 @@ export class FreelensSession {
           "--ignore-scripts",
           "--store-dir",
           join(tmpdir(), "freelens-power-ui-pnpm-store"),
-          archive,
+          `link:${discoveryDirectory}`,
         ],
         {
           env: { PATH: process.env.PATH, HOME: home },
@@ -55,6 +58,9 @@ export class FreelensSession {
         },
       );
       const installedScope = join(appData, "node_modules", "@64mb");
+      if ((await realpath(join(installedScope, "freelens-power"))) !== (await realpath(discoveryDirectory))) {
+        throw new Error("Expected the native host extension link to the extracted archive");
+      }
       await writeFile(
         join(appData, "lens-extensions.json"),
         JSON.stringify({
@@ -198,7 +204,15 @@ export class FreelensSession {
           this.tracing = false;
         }
       } finally {
-        await this.app.close();
+        const child = this.app.process();
+        const reap = () => cleanupTestProxies(this.profile);
+        if (process.platform === "linux") child.once("exit", reap);
+        try {
+          if (process.platform === "linux" && (child.exitCode !== null || child.signalCode !== null)) reap();
+          await this.app.close();
+        } finally {
+          child.removeListener("exit", reap);
+        }
       }
     }
     if (final && this.profile) await rm(this.profile, { recursive: true, force: true });

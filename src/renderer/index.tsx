@@ -11,6 +11,7 @@ import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { NodeShellPreferencesStore } from "../common/store/node-shell-preferences-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
@@ -33,6 +34,8 @@ import { startMonitoringCollector } from "./monitoring-collector";
 import { startMonitoringHistoryCollection } from "./monitoring-history-collection";
 import { NodeMonitoringDetails } from "./node-monitoring";
 import { startPodMonitoring } from "./pod-monitoring";
+import { PowerLogsPage } from "./power-logs";
+import { PowerLogsMenu, startPowerLogsEntrypoints } from "./power-logs-entrypoints";
 import { PowerPreferences } from "./preferences/preferences";
 import { startReadOnlyMode } from "./read-only";
 import { ResourceRelationshipsPage } from "./resource-relationships";
@@ -69,6 +72,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   onActivate() {
     const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
     power.loadExtension(this);
+    LogsPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiShortcutsStore.getInstanceOrCreate().loadExtension(this);
     ReadOnlyPreferencesStore.getInstanceOrCreate().loadExtension(this);
@@ -95,6 +99,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startWelcomeOverride,
             startAiChat,
             startResourceSearch,
+            startPowerLogsEntrypoints,
           ]) {
             try {
               disposers.push(start());
@@ -150,6 +155,16 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   ];
 
   clusterPages = [
+    {
+      id: "power-logs",
+      components: {
+        Page: () => (
+          <PowerEnabled>
+            <PowerLogsPage />
+          </PowerEnabled>
+        ),
+      },
+    },
     { id: "relationships", components: { Page: () => <RelationshipsPage /> } },
     {
       id: "diagnostics",
@@ -187,6 +202,20 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
       orderNumber: 6,
       components: {
         Icon: () => <Renderer.Component.Icon material="account_tree" tooltip="Resource relationships" />,
+      },
+    },
+    {
+      id: "power-logs",
+      visible: computed(
+        () =>
+          PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled &&
+          LogsPreferencesStore.getInstanceOrCreate<LogsPreferencesStore>().enabled,
+      ),
+      target: { pageId: "power-logs" },
+      title: "Power Logs",
+      orderNumber: 7,
+      components: {
+        Icon: () => <Renderer.Component.Icon material="subject" tooltip="Workload logs and SQL captures" />,
       },
     },
   ];
@@ -291,6 +320,17 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   ];
 
   kubeObjectMenuItems = [
+    ...(["Pod", "Deployment", "DaemonSet", "StatefulSet", "ReplicaSet", "Job", "CronJob"] as const).map((kind) => ({
+      kind,
+      apiVersions: kind === "Pod" ? ["v1"] : kind === "Job" || kind === "CronJob" ? ["batch/v1"] : ["apps/v1"],
+      components: {
+        MenuItem: (props: Renderer.Component.KubeObjectMenuProps<Renderer.K8sApi.KubeObject>) => (
+          <PowerEnabled>
+            <PowerLogsMenu {...props} />
+          </PowerEnabled>
+        ),
+      },
+    })),
     {
       kind: "Node",
       apiVersions: ["v1"],
