@@ -12,6 +12,7 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, per-card 10-second refresh including pinned windows, and optional background refresh
 - **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts using metrics-server and Kubernetes APIs
 - **Resource diagnostics:** CPU/memory consumers, grouped warning timelines, Pending and Not ready triage, Service/HPA checks, operational resource and namespace summaries, scoped AI handoff, and incident-summary copying
+- **Power Logs:** opt-in colored workload logs with structured fields, source and level filters, bounded live collection, temporary SQLite captures, cancellable read-only SQL, compact density, configurable limits, NDJSON export and reviewable AI context with SQL drafts; native Pod logs remain available
 - **Resource relationships:** a focused Service graph connects Ingress and installed Gateway API routes/listeners to selected Pods, published endpoints, owners and node references, with acceptance and cross-namespace reference evidence, resource links and saved upstream visibility
 - **Fast resource search:** double Shift searches all discoverable resource types, including Secrets, ConfigMaps and custom resources, through a persistent local metadata index with gentle background refresh, type and namespace filters, name-part and typo matching, resource links and explicit AI attachment; search and background indexing can be disabled together in Monitoring settings
 - **Local metric history:** opt-in SQLite storage, up to seven days within a 100 MiB budget, with aggregated ranges and explicit collection gaps
@@ -20,7 +21,9 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 - **Master switch:** restores the native interface while preserving all settings
 - **Settings:** native switches, compact dashboard editors, and JSON backup and restore of cards and prompt shortcuts
 
-AI tool results exclude environment values and Secret payloads; logs are reduced locally to numeric issue counters. Terminal output is sent only when explicitly attached; review its masked preview before sending. Websites run in isolated Electron views. Every dashboard card also opens in your browser.
+AI tool results exclude environment values and Secret payloads; automatic log summaries contain numeric issue counters. Power Logs lines and SQL results attach to a reviewable context block when the AI action is clicked. Drafted SQL is inserted into the editor without execution. Terminal output is sent only when explicitly attached; review its masked preview before sending. Websites run in isolated Electron views. Every dashboard card also opens in your browser.
+
+Power Logs captures stay on the local disk for one hour by default, with configurable retention, and are removed when the feature stops. Collection follows current Kubernetes permissions and retained container logs. Large workloads use rotating bounded tails, so busy sources can have gaps; coverage and partial captures are reported in the interface.
 
 Monitoring history is collected while Freelens is running and the cluster view is active. Cluster and node series are retained automatically when enabled. History cannot backfill periods without collection. Timelines combine retained Kubernetes events with changes observed while the diagnostics page is open. Local Pending checks explain available evidence and do not reproduce the full scheduler.
 

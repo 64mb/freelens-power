@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Common, Main } from "@freelensapp/extensions";
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from "electron";
 import { reaction } from "mobx";
@@ -7,6 +8,12 @@ import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { aiFailureCode, runAiChat } from "./ai";
 import { discoverAiResources } from "./ai-discovery";
 import { aiReadPath } from "./ai-resources";
+import {
+  acquirePowerLogStream,
+  releasePowerLogStream,
+  renewPowerLogStream,
+  requestPowerLogPermit,
+} from "./power-logs-budget";
 
 function trusted(event: IpcMainInvokeEvent): boolean {
   const window = BrowserWindow.fromWebContents(event.sender);
@@ -68,12 +75,38 @@ export function startAiIpc(): () => void {
               return discoverAiResources((path) => api.get(path, undefined, { signal }), signal);
             },
             readLogs: async (query, signal) => {
-              // the host exposes [forCluster] through a non-callable legacy proxy whose methods remain callable
-              const response = await Main.K8sApi.KubeJsonApi.forCluster
-                .call(undefined, id)
-                .getResponse(query.path, { query: query.query }, { signal });
-              if (!response.ok) throw new Error("Log summary is unavailable");
-              return response.text();
+              const streamId = randomUUID();
+              const controller = new AbortController();
+              const abort = () => controller.abort();
+              signal?.addEventListener("abort", abort, { once: true });
+              if (signal?.aborted) abort();
+              const timeout = setTimeout(abort, 30000);
+              let renewal: ReturnType<typeof setInterval> | undefined;
+              try {
+                await acquirePowerLogStream(id, streamId, false, controller.signal);
+                renewal = setInterval(() => {
+                  try {
+                    renewPowerLogStream(id, streamId);
+                  } catch {
+                    abort();
+                  }
+                }, 10000);
+                await requestPowerLogPermit(id, undefined, controller.signal);
+                if (controller.signal.aborted) throw new Error("AI request canceled");
+                // the host exposes [forCluster] through a non-callable legacy proxy whose methods remain callable
+                const response = await Main.K8sApi.KubeJsonApi.forCluster
+                  .call(undefined, id)
+                  .getResponse(query.path, { query: query.query }, { signal: controller.signal, size: 65536 });
+                if (!response.ok) throw new Error("Log summary is unavailable");
+                const text = await response.text();
+                if (text.length) await requestPowerLogPermit(id, Buffer.byteLength(text), controller.signal);
+                return text;
+              } finally {
+                clearTimeout(timeout);
+                clearInterval(renewal);
+                signal?.removeEventListener("abort", abort);
+                releasePowerLogStream(id, streamId);
+              }
             },
             read: async (query) => {
               if (controller.signal.aborted) throw new Error("AI request canceled");

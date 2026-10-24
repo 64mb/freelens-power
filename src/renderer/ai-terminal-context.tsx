@@ -2,7 +2,6 @@ import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useState } from "react";
 import { type AiTerminalSnapshot, sanitizeAiTerminalSnapshot } from "../common/ai-terminal-context";
 import { formatDateTime } from "../common/date-time";
-import { AiIcon } from "./ai-icon";
 
 type TerminalBuffer = {
   length: number;
@@ -144,6 +143,11 @@ export function AiTerminalContext({
     if (!subscription) polling = window.setInterval(update, 1000);
     return stop;
   }, [attached, attachment, clusterId, onChange]);
+  const tooltip = attached
+    ? "Detach terminal output from this question"
+    : terminalId
+      ? "Attach terminal output to this question"
+      : "Open a connected terminal in this cluster";
   return (
     <div className="power-ai-terminal-context" style={{ fontSize: 11 }}>
       <button
@@ -166,13 +170,7 @@ export function AiTerminalContext({
           background: attached ? "color-mix(in srgb, var(--textColorPrimary) 8%, transparent)" : "transparent",
         }}
         disabled={disabled || !terminalId}
-        title={
-          attached
-            ? "Detach terminal output from this question"
-            : terminalId
-              ? "Attach terminal output to this question"
-              : "Open a connected terminal in this cluster"
-        }
+        title={tooltip}
         onClick={() => {
           if (attached) {
             onChange(undefined);
@@ -186,7 +184,7 @@ export function AiTerminalContext({
           onChange({ clusterId, terminalId });
         }}
       >
-        <AiIcon material="terminal" size={16} />
+        <Renderer.Component.Icon material="terminal" size={16} tooltip={tooltip} tooltipOverrideDisabled />
       </button>
       {attached && preview && (
         <details style={{ padding: "0 16px 4px", margin: 0 }}>

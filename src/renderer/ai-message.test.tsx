@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AiCopyAnswer } from "./ai-copy-answer";
 import { AiMessageContent, terminalInsertText } from "./ai-message";
@@ -29,12 +29,56 @@ vi.mock("@freelensapp/extensions", () => ({
   },
 }));
 afterEach(() => {
+  window.history.replaceState({}, "", "/");
   cleanup();
   vi.clearAllMocks();
   mocks.isConnected.mockReturnValue(false);
   mocks.getTerminalApi.mockImplementation(() => ({ isReady: true, isConnected: () => true }));
 });
 describe("AI message content", () => {
+  it("updates the unchanged SQL message action when the logs workspace opens and closes", () => {
+    const text = "```sql\nSELECT message FROM logs\n```";
+    render(<AiMessageContent text={text} />);
+    expect(screen.queryByRole("button", { name: "Insert into SQL" })).toBeNull();
+    window.history.replaceState({}, "", "/power-logs");
+    act(() => {
+      window.dispatchEvent(new CustomEvent("power-logs-workspace-change", { detail: { active: true } }));
+    });
+    expect(screen.getByRole("button", { name: "Insert into SQL" })).toBeTruthy();
+    window.history.replaceState({}, "", "/overview");
+    act(() => {
+      window.dispatchEvent(new CustomEvent("power-logs-workspace-change", { detail: { active: false } }));
+    });
+    expect(screen.queryByRole("button", { name: "Insert into SQL" })).toBeNull();
+  });
+  it("inserts exact SQL draft text only after a click and closes the assistant", () => {
+    window.history.replaceState({}, "", "/power-logs");
+    const sql = "SELECT message FROM logs\nWHERE level = 'error';\n";
+    const draft = vi.fn();
+    const close = vi.fn();
+    window.addEventListener("power-logs-sql-draft", draft);
+    window.addEventListener("power-ai-close", close);
+    try {
+      render(<AiMessageContent text={`\`\`\`sqlite\n${sql}\`\`\``} />);
+      expect(draft).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Insert into SQL" }));
+      expect(draft).toHaveBeenCalledOnce();
+      expect((draft.mock.calls[0][0] as CustomEvent).detail).toEqual({ sql });
+      expect(close).toHaveBeenCalledOnce();
+      expect(mocks.sendCommand).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("power-logs-sql-draft", draft);
+      window.removeEventListener("power-ai-close", close);
+    }
+  });
+  it("limits SQL insertion to the logs workspace and bounded SQL fences", () => {
+    const first = render(<AiMessageContent text={"```sql\nSELECT 1\n```"} />);
+    expect(screen.queryByRole("button", { name: "Insert into SQL" })).toBeNull();
+    first.unmount();
+    window.history.replaceState({}, "", "/power-logs");
+    render(<AiMessageContent text={`\`\`\`sql\n${"x".repeat(65537)}\n\`\`\``} />);
+    expect((screen.getByRole("button", { name: "Insert into SQL" }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("renders formatting as safe React text and copies exact fenced contents only on click", () => {
     const command = 'printf "<example> & text"\n';
     const { container } = render(

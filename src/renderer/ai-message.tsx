@@ -4,6 +4,7 @@ import MarkdownIt, { type Token } from "markdown-it";
 import { autorun } from "mobx";
 import { createElement, Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { AiIcon } from "./ai-icon";
+import { isPowerLogsWorkspace, usePowerLogsWorkspace } from "./ai-logs-sql";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
 const markdownTags = new Set([
@@ -170,6 +171,8 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
   const [inserting, setInserting] = useState(false);
   const shell = ["", "bash", "sh", "shell", "zsh", "console", "terminal"].includes(language.toLowerCase());
   const command = terminalInsertText(text);
+  const logsWorkspace = usePowerLogsWorkspace();
+  const sqlDraft = ["sql", "sqlite"].includes(language.toLowerCase()) && logsWorkspace;
   const insert = async () => {
     const activeTerminal = visibleTerminalId();
     if (!shell || !command || !activeTerminal || inserting) return;
@@ -203,6 +206,21 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
           >
             <AiIcon material="content_copy" size={14} /> Copy
           </button>
+          {sqlDraft && (
+            <button
+              type="button"
+              aria-label="Insert into SQL"
+              title="Insert into the SQL editor without running"
+              disabled={!text.trim() || text.length > 65536}
+              onClick={() => {
+                if (!isPowerLogsWorkspace() || !text.trim() || text.length > 65536) return;
+                window.dispatchEvent(new CustomEvent("power-logs-sql-draft", { detail: { sql: text } }));
+                window.dispatchEvent(new Event("power-ai-close"));
+              }}
+            >
+              <AiIcon material="post_add" size={14} /> Insert into SQL
+            </button>
+          )}
           {shell && terminalId && (
             <button
               type="button"

@@ -49,6 +49,24 @@ describe("application accent override", () => {
     return Array.from(style?.sheet?.cssRules ?? []) as CSSStyleRule[];
   }
 
+  it("scopes the native log download accent and restores its host color when disabled", () => {
+    dispose = startAppearanceOverride();
+    const downloadRule = () =>
+      rules().find((rule) => rule.selectorText.includes('[data-testid="download-logs-dropdown"]'));
+    expect(downloadRule()?.style.getPropertyValue("--accent-color")).toBe("var(--primary)");
+    expect(accentRule()?.style.getPropertyValue("--colorInfo")).toBe("");
+    runInAction(() => {
+      preferences.accentColor = "default";
+    });
+    expect(downloadRule()).toBeUndefined();
+    runInAction(() => {
+      preferences.accentColor = DEFAULT_ACCENT_COLOR;
+    });
+    expect(downloadRule()).toBeDefined();
+    dispose();
+    expect(downloadRule()).toBeUndefined();
+  });
+
   it.each(
     ACCENT_COLOR_OPTIONS.filter((option) => option.value !== "default"),
   )("persists and applies the $label accent preset", ({ value, color }) => {
