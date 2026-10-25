@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 const singleton = vi.hoisted(() => ({ store: undefined as unknown }));
 vi.mock("@freelensapp/extensions", () => ({
@@ -17,21 +17,27 @@ vi.mock("@freelensapp/extensions", () => ({
   },
   Renderer: {
     Component: {
-      Input: ({
+      Select: ({
+        options,
+        value,
         onChange,
-        onSubmit,
+        isSearchable: _isSearchable,
+        isClearable: _isClearable,
         ...props
-      }: Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "onSubmit"> & {
-        onChange(value: string): void;
-        onSubmit(): void;
+      }: {
+        options: { value: string; label: string }[];
+        value: string;
+        onChange(option: { value: string } | null): void;
+        isSearchable: boolean;
+        isClearable: boolean;
       }) => (
-        <input
-          {...props}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") onSubmit();
-          }}
-        />
+        <select {...props} value={value} onChange={(event) => onChange({ value: event.target.value })}>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       ),
       Switch: ({
         checked,
@@ -54,7 +60,7 @@ vi.mock("@freelensapp/extensions", () => ({
 }));
 
 import { POWER_LOGS_DEFAULT_LIMITS, POWER_LOGS_LIMITS } from "../../common/power-logs";
-import { applyPowerLogsLimits, LOG_LIMIT_FIELDS } from "../../common/power-logs-limits";
+import { applyPowerLogsLimits } from "../../common/power-logs-limits";
 import { LogsPreferencesStore } from "../../common/store/logs-preferences-store";
 import { LogsPreferences } from "./logs-preferences";
 
@@ -69,48 +75,71 @@ afterEach(() => {
   applyPowerLogsLimits(undefined);
 });
 
-it("renders every limit and commits a clamped draft only on blur", () => {
+it("renders five native selects with the default presets and no number inputs", () => {
   render(<LogsPreferences />);
-  expect(screen.getAllByRole("spinbutton")).toHaveLength(LOG_LIMIT_FIELDS.length);
-  const input = screen.getByRole("spinbutton", { name: "Live logs: Buffered rows" }) as HTMLInputElement;
-  fireEvent.change(input, { target: { value: "-5" } });
-  expect(preferences.limits.liveRows).toBe(POWER_LOGS_DEFAULT_LIMITS.liveRows);
-  expect(POWER_LOGS_LIMITS.liveRows).toBe(POWER_LOGS_DEFAULT_LIMITS.liveRows);
-  fireEvent.blur(input);
-  expect(input.value).toBe("1");
-  expect(preferences.toJSON().limits.liveRows).toBe(1);
-  expect(POWER_LOGS_LIMITS.liveRows).toBe(1);
-});
-
-it("converts displayed units and commits on Enter", () => {
-  render(<LogsPreferences />);
-  const input = screen.getByRole("spinbutton", { name: "Live logs: Buffer size" }) as HTMLInputElement;
-  fireEvent.change(input, { target: { value: "12.5" } });
-  fireEvent.keyDown(input, { key: "Enter" });
-  expect(preferences.toJSON().limits.liveBytes).toBe(12.5 * 1024 * 1024);
-  expect(POWER_LOGS_LIMITS.liveBytes).toBe(12.5 * 1024 * 1024);
-});
-
-it("restores the previous value when a draft is empty or invalid", () => {
-  preferences.fromStore({ limits: { liveRows: 321 } });
-  applyPowerLogsLimits(preferences.limits);
-  render(<LogsPreferences />);
-  const input = screen.getByRole("spinbutton", { name: "Live logs: Buffered rows" }) as HTMLInputElement;
-  for (const value of ["", "NaN"]) {
-    fireEvent.change(input, { target: { value } });
-    fireEvent.blur(input);
-    expect(input.value).toBe("321");
-    expect(preferences.toJSON().limits.liveRows).toBe(321);
-    expect(POWER_LOGS_LIMITS.liveRows).toBe(321);
+  expect(screen.getAllByRole("combobox")).toHaveLength(5);
+  expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
+  for (const [name, value] of [
+    ["Live buffer", "2"],
+    ["History per container", "1"],
+    ["Capture size", "2"],
+    ["Saved captures", "1"],
+    ["Retention", "1"],
+  ]) {
+    expect((screen.getByRole("combobox", { name }) as HTMLSelectElement).value).toBe(value);
   }
+  expect(preferences.toJSON().limits).toEqual(POWER_LOGS_DEFAULT_LIMITS);
 });
 
-it("resets persisted limits, runtime limits and rendered values together", () => {
+it("preserves custom values and hidden limits when opening settings", () => {
+  preferences.fromStore({
+    limits: {
+      ...POWER_LOGS_DEFAULT_LIMITS,
+      liveRows: 321,
+      liveBytes: 1234567,
+      historyBytes: 234567,
+      captureBytes: 12345678,
+      captures: 7,
+      ttlMs: 123000,
+      batchRows: 42,
+      resultRows: 23,
+    },
+  });
+  applyPowerLogsLimits(preferences.limits);
+  const previous = preferences.toJSON().limits;
+  render(<LogsPreferences />);
+  expect(preferences.toJSON().limits).toEqual(previous);
+  expect(POWER_LOGS_LIMITS).toEqual(previous);
+  for (const select of screen.getAllByRole("combobox") as HTMLSelectElement[]) {
+    expect(select.value).toBe("custom");
+    expect(select.selectedOptions[0].textContent).toMatch(/^Custom:/);
+  }
+  expect(screen.getByRole("option", { name: /^Custom: 1,000 lines \/ / })).toBeTruthy();
+});
+
+it.each([
+  ["Live buffer", "1", { liveRows: 5000, liveBytes: 8 * 1024 * 1024 }],
+  ["History per container", "0", { historyLines: 500, historyBytes: 512 * 1024 }],
+  ["Capture size", "3", { captureBytes: 512 * 1024 * 1024 }],
+  ["Saved captures", "3", { captures: 10 }],
+  ["Retention", "4", { ttlMs: 3 * 24 * 60 * 60 * 1000 }],
+])("changes only the selected %s preset keys", (name, value, patch) => {
+  preferences.fromStore({
+    limits: { ...POWER_LOGS_DEFAULT_LIMITS, liveRows: 321, historyBytes: 234567, batchRows: 42, resultRows: 23 },
+  });
+  const previous = preferences.toJSON().limits;
+  render(<LogsPreferences />);
+  fireEvent.change(screen.getByRole("combobox", { name }), { target: { value } });
+  expect(preferences.toJSON().limits).toEqual({ ...previous, ...patch });
+  expect(POWER_LOGS_LIMITS).toEqual({ ...previous, ...patch });
+});
+
+it("resets all limits only when explicitly requested", () => {
   preferences.fromStore({
     enabled: true,
     gentle: false,
     compactRows: true,
-    limits: { liveRows: 321, liveBytes: 1024 * 1024 },
+    limits: { liveRows: 321, liveBytes: 1024 * 1024, resultRows: 23 },
   });
   applyPowerLogsLimits(preferences.limits);
   render(<LogsPreferences />);
@@ -122,8 +151,5 @@ it("resets persisted limits, runtime limits and rendered values together", () =>
     limits: POWER_LOGS_DEFAULT_LIMITS,
   });
   expect(POWER_LOGS_LIMITS).toEqual(POWER_LOGS_DEFAULT_LIMITS);
-  expect((screen.getByRole("spinbutton", { name: "Live logs: Buffered rows" }) as HTMLInputElement).value).toBe(
-    "10000",
-  );
-  expect((screen.getByRole("spinbutton", { name: "Live logs: Buffer size" }) as HTMLInputElement).value).toBe("16");
+  expect((screen.getByRole("combobox", { name: "Live buffer" }) as HTMLSelectElement).value).toBe("2");
 });

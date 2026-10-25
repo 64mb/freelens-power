@@ -17,11 +17,11 @@ describe("sqlRowDetails", () => {
     const row = ["{broken", "42", "true", "null", '"text"', 5];
     const result = sqlRowDetails(columns, row);
     expect(result.jsonColumn).toBeUndefined();
-    expect(result.record.fieldsJson).toBeNull();
-    expect(JSON.parse(result.record.message)).toEqual(
+    expect(result.record.fieldsJson).not.toBeNull();
+    expect(JSON.parse(result.record.fieldsJson!)).toEqual(
       Object.fromEntries(columns.map((name, index) => [name, row[index]])),
     );
-    expect(result.record.message).toContain("\n");
+    expect(result.record.message).toBe("");
   });
 
   it("accepts arrays without duplicating their contents in the message", () => {
@@ -63,5 +63,17 @@ describe("sqlRowDetails", () => {
       level: "unknown",
       previous: false,
     });
+  });
+});
+
+it("keeps original fallback column names and values in structured details without enabling JSON column filters", () => {
+  const result = sqlRowDetails(["message", "a.b", 'quoted"key', "missing"], ["request complete", 2, false]);
+  expect(result.jsonColumn).toBeUndefined();
+  expect(result.record.message).toBe("");
+  expect(JSON.parse(result.record.fieldsJson!)).toEqual({
+    message: "request complete",
+    "a.b": 2,
+    'quoted"key': false,
+    missing: null,
   });
 });

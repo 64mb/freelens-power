@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import { COMMON_RESOURCE_KINDS } from "../common/resource-search-kind-priority";
 import { ResourceSearchDatabase } from "./resource-search-database";
 
 import type { SearchIndexRequest } from "../common/resource-search";
@@ -15,10 +16,10 @@ export class ResourceSearchWorker {
       `const {parentPort,workerData}=require('node:worker_threads');
       const Engine=${ResourceSearchDatabase.toString()};let engine;
       parentPort.on('message',({id,request})=>{
-        try { engine??=new Engine(workerData);parentPort.postMessage({id,result:engine.run(request)}); }
+        try { engine??=new Engine(workerData.path,undefined,workerData.commonKinds);parentPort.postMessage({id,result:engine.run(request)}); }
         catch(error) { parentPort.postMessage({id,error:error?.errcode===13?'Search storage is full; clear the local search cache to continue':'Search index operation failed'}); }
       });`,
-      { eval: true, workerData: path },
+      { eval: true, workerData: { path, commonKinds: COMMON_RESOURCE_KINDS } },
     );
     this.worker.on("message", ({ id, result, error }) => {
       const pending = this.pending.get(id);

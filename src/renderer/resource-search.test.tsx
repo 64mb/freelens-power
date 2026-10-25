@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -24,6 +24,42 @@ vi.mock("../common/store/monitoring-preferences-store", () => ({
       },
     }),
   },
+}));
+vi.mock("react-select", () => ({
+  default: ({
+    options,
+    value,
+    onChange,
+    onMenuOpen,
+    onMenuClose,
+    "aria-label": label,
+  }: {
+    options: { value: string; label: string }[];
+    value: { value: string; label: string } | null;
+    onChange: (option: { value: string; label: string } | undefined) => void;
+    onMenuOpen: () => void;
+    onMenuClose: () => void;
+    "aria-label": string;
+  }) => (
+    <select
+      aria-label={label}
+      value={value?.value ?? ""}
+      onMouseDown={onMenuOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onMenuClose();
+        }
+      }}
+      onChange={(event) => onChange(options.find((option) => option.value === event.target.value))}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
@@ -117,6 +153,15 @@ it("supports keyboard selection and safe identity AI attachments", async () => {
   fireEvent.keyDown(input, { key: "Enter" });
   await waitFor(() => expect(state.open).toHaveBeenCalledWith(resource("beta")));
 });
+it("closes an open select before the dialog even when closed selects also prevent Escape", async () => {
+  await launch();
+  const kind = screen.getByRole("combobox", { name: "Kind" });
+  fireEvent.mouseDown(kind);
+  fireEvent.keyDown(kind, { key: "Escape" });
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  fireEvent.keyDown(kind, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
 it("requests a larger bounded result page without a Kubernetes request per key", async () => {
   await launch(undefined, true);
   fireEvent.click(screen.getByText("Show more matches"));
@@ -153,12 +198,24 @@ it("starts background inventory independently of opening the dialog", () => {
 
 it("passes exact type and namespace filters to the persistent query rather than filtering a truncated page", async () => {
   await launch();
-  fireEvent.change(screen.getByLabelText("Filter by exact resource kind"), { target: { value: "Secret" } });
-  fireEvent.change(screen.getByLabelText("Filter by exact namespace"), { target: { value: "default" } });
+  act(() =>
+    state.coverage({
+      scanned: 1,
+      discovered: 1,
+      denied: 0,
+      unavailable: 0,
+      unsupported: 0,
+      indexing: false,
+      kinds: ["Secret"],
+      namespaces: ["default"],
+    }),
+  );
+  fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "Secret" } });
+  fireEvent.change(screen.getByLabelText("Namespace"), { target: { value: "default" } });
   await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 100, { kind: "Secret", namespace: "default" }));
 });
 
-it("offers native discovered suggestions and canonicalizes lowercase kind input", async () => {
+it("offers discovered kinds and namespaces through labeled native controls", async () => {
   await launch();
   act(() =>
     state.coverage({
@@ -169,22 +226,29 @@ it("offers native discovered suggestions and canonicalizes lowercase kind input"
       unsupported: 0,
       indexing: false,
       completedAt: Date.now(),
-      kinds: ["Pod", "Secret"],
+      kinds: ["Zebra", "Secret", "Pod", "Alpha", "Deployment", "PersistentVolumeClaim"],
       namespaces: ["default"],
     }),
   );
-  expect(document.querySelector('#power-search-kinds option[value="Pod"]')).not.toBeNull();
-  expect(document.querySelector('#power-search-namespaces option[value="default"]')).not.toBeNull();
-  fireEvent.change(screen.getByLabelText("Filter by exact resource kind"), { target: { value: "pod" } });
+  expect(screen.getByRole("option", { name: "Pod" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "default" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "All types" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "All namespaces" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Cluster scoped" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("combobox", { name: "Kind" }))
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["All types", "Pod", "Deployment", "Secret", "PersistentVolumeClaim", "Alpha", "Zebra"]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "Pod" } });
   await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 100, { kind: "Pod" }));
   expect(screen.getByRole("status").textContent).toContain("Updated");
   expect(screen.queryByText(/Aggregated APIs may transfer/)).toBeNull();
-  expect(screen.getByText("Search options").parentElement?.hasAttribute("open")).toBe(false);
 });
 it("reports cache clearing failures instead of leaving an unhandled rejection", async () => {
   await launch();
   state.clear.mockRejectedValueOnce(new Error("Unavailable"));
-  fireEvent.click(screen.getByText("Clear local search cache"));
+  fireEvent.click(screen.getByRole("button", { name: "Clear local search cache" }));
   await screen.findByRole("alert");
   expect(screen.getByRole("alert").textContent).toContain("Could not clear");
 });

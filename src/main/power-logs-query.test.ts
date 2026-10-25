@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
+import { type JSONValue, matchesAllJsonFilters } from "../common/power-log-field-filters";
+import { buildJsonFilterSql, type SqlJsonFieldFilter } from "../common/power-log-json-filter-sql";
+import { buildJsonProjectionSql, JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
 import { POWER_LOGS_LIMITS } from "../common/power-logs";
 import { runPowerLogsQuery } from "./power-logs-query";
 
@@ -87,4 +90,87 @@ it("requires a runtime with SQL authorization before preparing queries and still
     close.mockRestore();
   }
   expect(query("SELECT message FROM logs").rows).toEqual([["example"]]);
+});
+
+it("runs generated typed JSON filters through the production SQL authorizer", () => {
+  const directory = mkdtempSync(join(tmpdir(), "log-json-query-test-"));
+  directories.push(directory);
+  const path = join(directory, "logs.sqlite");
+  const database = new DatabaseSync(path);
+  database.exec("CREATE TABLE logs(id INTEGER, fields TEXT COLLATE NOCASE); CREATE TABLE unrelated(secret TEXT)");
+  const fields: JSONValue[] = [
+    { value: 1, group: "api" },
+    { value: "1", group: "api" },
+    { value: null, group: "api" },
+    { group: "worker" },
+    { value: true, group: "api" },
+    { value: { a: 1, b: [false, null] }, group: "api" },
+    { value: { b: [false, null], a: 1 }, group: "worker" },
+    { 'dot["key"]': [{ "quote'key": "quoted'value" }], group: "api" },
+    { value: "API", group: "api" },
+    { value: "api", group: "api" },
+    { value: { Kind: "API" }, group: "api" },
+    { value: { kind: "api" }, group: "api" },
+  ];
+  const insert = database.prepare("INSERT INTO logs(id, fields) VALUES (?, ?)");
+  fields.forEach((value, id) => insert.run(id, JSON.stringify(value)));
+  database.close();
+  for (const value of [1, "1", null, true, "API", { b: [false, null], a: 1 }, { Kind: "API" }] as JSONValue[]) {
+    for (const operator of ["eq", "neq"] as const) {
+      for (const extra of [[], [{ column: "fields", path: ["group"], operator: "eq" as const, value: "api" }]]) {
+        const filters: SqlJsonFieldFilter[] = [{ column: "fields", path: ["value"], operator, value }, ...extra];
+        const result = runPowerLogsQuery(path, buildJsonFilterSql("SELECT id, fields FROM logs ORDER BY id", filters));
+        expect(result.error).toBeUndefined();
+        expect(result.rows.map((row) => row[0])).toEqual(
+          fields.flatMap((field, id) => (matchesAllJsonFilters(field, filters) ? [id] : [])),
+        );
+      }
+    }
+  }
+  const quoted: SqlJsonFieldFilter[] = [
+    { column: "fields", path: ['dot["key"]', 0, "quote'key"], operator: "eq", value: "quoted'value" },
+    { column: "fields", path: ["group"], operator: "eq", value: "api" },
+  ];
+  expect(
+    runPowerLogsQuery(path, buildJsonFilterSql("SELECT id FROM (SELECT * FROM logs)", quoted)).error,
+  ).toBeDefined();
+  expect(
+    runPowerLogsQuery(path, buildJsonFilterSql("SELECT id, fields FROM logs", quoted)).rows.map((row) => row[0]),
+  ).toEqual([7]);
+  for (const sql of [
+    "SELECT * FROM sqlite_master",
+    "SELECT * FROM pragma_table_info('logs')",
+    "SELECT * FROM unrelated",
+    "SELECT value FROM json_tree('{}')",
+    "SELECT json FROM json_each('{}')",
+    "SELECT root FROM json_each('{}')",
+    "SELECT value FROM json_each(readfile('example'))",
+    "SELECT value FROM json_each('{}'); ATTACH 'example' AS other",
+  ]) {
+    try {
+      expect(runPowerLogsQuery(path, sql).error).toBeDefined();
+    } catch (error) {
+      expect(String(error)).toMatch(/read-only|single SELECT/);
+    }
+  }
+});
+
+it("executes original JSON presets through the production read-only authorizer", () => {
+  const directory = mkdtempSync(join(tmpdir(), "log-preset-test-"));
+  directories.push(directory);
+  const path = join(directory, "logs.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE logs(timestamp INTEGER, fieldsJson TEXT, message TEXT)");
+  db.prepare("INSERT INTO logs VALUES (?,?,?)").run(1, '{"msg":"ready","levelname":"DEBUG"}', "ready");
+  db.prepare("INSERT INTO logs VALUES (?,?,?)").run(2, null, "plain");
+  db.close();
+  const schema = runPowerLogsQuery(path, JSON_KEY_DISCOVERY_SQL);
+  expect(schema.error).toBeUndefined();
+  const keys = schema.rows.map((row) => String(row[0]));
+  expect(keys).toEqual(expect.arrayContaining(["msg", "levelname", "message"]));
+  const projected = runPowerLogsQuery(path, buildJsonProjectionSql(keys, { recent: true }));
+  expect(projected.error).toBeUndefined();
+  expect(projected.columns).toContain("msg");
+  expect(projected.rows[0][projected.columns.indexOf("message")]).toBe("plain");
+  expect(projected.rows[1][projected.columns.indexOf("msg")]).toBe("ready");
 });

@@ -93,6 +93,13 @@ export function runPowerLogsQuery(path: string, sql: string): LogQueryResult {
       if (action === constants.SQLITE_SELECT || action === constants.SQLITE_RECURSIVE) return constants.SQLITE_OK;
       if (action === constants.SQLITE_READ && (db === "main" || db === null) && table === "logs")
         return constants.SQLITE_OK;
+      if (
+        action === constants.SQLITE_READ &&
+        (db === "main" || db === null) &&
+        table === "json_each" &&
+        (name === "key" || name === "value" || name === "type")
+      )
+        return constants.SQLITE_OK;
       // SQLite uses an empty column and no database for constant projections from a CTE
       if (action === constants.SQLITE_READ && db === null && name === "" && table && !/^(sqlite_|pragma_)/i.test(table))
         return constants.SQLITE_OK;

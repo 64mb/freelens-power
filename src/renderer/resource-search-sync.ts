@@ -226,7 +226,8 @@ export function createSearchSynchronizer(options: {
                         seen.add(token);
                       } while (token);
                     } catch {
-                      status.message = "Namespace discovery denied or incomplete; add a known namespace to continue";
+                      status.message =
+                        "Namespace discovery denied or incomplete; search is limited to accessible namespaces";
                     }
                     fallbackNamespaces = namespaces;
                   }

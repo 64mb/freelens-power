@@ -1,8 +1,10 @@
+import { resourceKindPriority } from "../common/resource-search-kind-priority";
 import { boundedNameDistance } from "./resource-search-distance";
 
 import type { SearchField } from "./resource-search-fields";
 export interface SearchResource {
   kind: string;
+  group?: string;
   aliases?: string[];
   name: string;
   namespace?: string;
@@ -46,7 +48,14 @@ function rankResources(resources: SearchResource[], tokens: string[]) {
       );
     }, 0);
 
-  return resources.sort((a, b) => score(a) - score(b) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  return resources.sort(
+    (a, b) =>
+      score(a) - score(b) ||
+      resourceKindPriority(a.kind) - resourceKindPriority(b.kind) ||
+      a.kind.localeCompare(b.kind) ||
+      (a.group ?? "").localeCompare(b.group ?? "") ||
+      a.name.localeCompare(b.name),
+  );
 }
 
 export function createResourceSearchIndex(resources: SearchResource[]) {
