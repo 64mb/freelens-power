@@ -15,11 +15,12 @@ export function AiContextPreview({
   finding?: DiagnosticFinding;
   onRemoveFinding?: () => void;
 }) {
+  const [removeFindingId] = useState(() => `power-ai-remove-finding-${crypto.randomUUID()}`);
   return (
     <div className="power-ai-context-preview" style={{ padding: "8px 16px", fontSize: 11 }}>
       {finding && (
         <div className="power-ai-context-finding" aria-label="Selected diagnostic finding">
-          <AiIcon material="insights" size={14} />
+          <AiIcon material={finding.source === "logs" ? "subject" : "insights"} size={14} />
           <details key={`${finding.clusterId}:${finding.title}:${finding.summary}`}>
             <summary title="Review the selected evidence attached to your next message">{finding.title}</summary>
             <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 140, overflow: "auto" }}>
@@ -31,11 +32,12 @@ export function AiContextPreview({
             type="button"
             className="power-ai-remove-context"
             aria-label="Remove diagnostic finding"
-            title="Remove attached finding"
+            id={removeFindingId}
             onClick={onRemoveFinding}
           >
             <AiIcon material="close" size={14} />
           </button>
+          <Renderer.Component.Tooltip targetId={removeFindingId}>Remove attached finding</Renderer.Component.Tooltip>
         </div>
       )}
       <details>

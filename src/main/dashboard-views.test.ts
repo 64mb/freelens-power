@@ -11,7 +11,12 @@ const mocks = vi.hoisted(() => ({
   nextDebugger: undefined as any,
   backgroundThrottling: true,
   floating: [] as any[],
-  window: { isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } },
+  window: {
+    on: vi.fn(),
+    removeListener: vi.fn(),
+    isDestroyed: () => false,
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  },
   external: vi.fn().mockResolvedValue(undefined),
   store: {
     cards: [
@@ -1544,6 +1549,42 @@ it("releases changed pinned selectors while unrelated resources keep the page lo
         'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
       ),
     );
+  } finally {
+    dispose();
+  }
+});
+
+it("refreshes auto-refresh cards on activation and keeps the loading skeleton during an existing refresh", async () => {
+  mocks.window.on.mockClear();
+  mocks.store.cards[0].refreshEvery10Seconds = true;
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    const view = mocks.views[0];
+    const container = mocks.window.contentView.addChildView.mock.calls[0][0];
+    const skeleton = container.addChildView.mock.calls[1][0];
+    let loaded!: () => void;
+    mocks.nextLoad = new Promise<void>((resolve) => {
+      loaded = resolve;
+    });
+    const focus = mocks.window.on.mock.calls.find(([name]) => name === "focus")![1];
+    const blur = mocks.window.on.mock.calls.find(([name]) => name === "blur")![1];
+    focus();
+    expect(view.webContents.loadURL).toHaveBeenCalledOnce();
+    blur();
+    focus();
+    const refresh = mocks.handlers.get(sync)(owner, payload);
+    await vi.waitFor(() => expect(view.webContents.loadURL).toHaveBeenCalledTimes(2));
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    blur();
+    focus();
+    const pending = mocks.handlers.get(sync)(owner, payload);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(true);
+    expect(view.webContents.loadURL).toHaveBeenCalledTimes(2);
+    loaded();
+    await Promise.all([refresh, pending]);
+    expect(skeleton.setVisible).toHaveBeenLastCalledWith(false);
   } finally {
     dispose();
   }

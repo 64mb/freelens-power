@@ -20,7 +20,7 @@ const styles = `
   .freelens-power-dashboard .power-dashboard-pin-placeholder { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 0; background: var(--mainBackground); color: var(--textColorSecondary); cursor: pointer; font: inherit; }
   .freelens-power-dashboard .power-dashboard-pin-placeholder:hover { color: var(--textColorAccent); }
 
-  .ClusterManager main.freelens-power-dashboard, .freelens-power-dashboard { display: block; position: relative; z-index: 2; flex: 1; background: var(--mainBackground); padding: 28px; color: var(--textColorPrimary); min-width: 0; height: 100%; overflow: auto; box-sizing: border-box; }
+  .ClusterManager main.freelens-power-dashboard, .freelens-power-dashboard { display: block; position: relative; z-index: 2; flex: 1; background: var(--mainBackground); padding: 28px; color: var(--textColorPrimary); min-width: 0; min-height: 0; height: auto; overflow: auto; box-sizing: border-box; }
   .freelens-power-dashboard .power-dashboard-header {
     display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px;
   }
@@ -299,6 +299,24 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
           container.style.setProperty(property, String(value));
       }
       const containerBounds = container.getBoundingClientRect();
+      const viewport = {
+        left: Math.max(0, containerBounds.left),
+        top: Math.max(0, containerBounds.top),
+        right: Math.min(window.innerWidth, containerBounds.right),
+        bottom: Math.min(window.innerHeight, containerBounds.bottom),
+      };
+      for (let ancestor = container.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const style = window.getComputedStyle(ancestor);
+        const rect = ancestor.getBoundingClientRect();
+        if (/^(auto|scroll|hidden|clip)$/.test(style.overflowX || style.overflow)) {
+          viewport.left = Math.max(viewport.left, rect.left + ancestor.clientLeft);
+          viewport.right = Math.min(viewport.right, rect.left + ancestor.clientLeft + ancestor.clientWidth);
+        }
+        if (/^(auto|scroll|hidden|clip)$/.test(style.overflowY || style.overflow)) {
+          viewport.top = Math.max(viewport.top, rect.top + ancestor.clientTop);
+          viewport.bottom = Math.min(viewport.bottom, rect.top + ancestor.clientTop + ancestor.clientHeight);
+        }
+      }
       const overlayOpen = Array.from(
         document.querySelectorAll<HTMLElement>('.Dialog, [role="dialog"], [role="menu"], .Menu, .power-ai-panel'),
       ).some((element) => {
@@ -311,10 +329,10 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
         : Array.from(container.querySelectorAll<HTMLElement>(".power-dashboard-embed")).flatMap((element) => {
             if (expandedRef.current && element.dataset.cardId !== expandedRef.current) return [];
             const rect = element.getBoundingClientRect();
-            const x = Math.ceil(Math.max(0, rect.left, containerBounds.left));
-            const y = Math.ceil(Math.max(0, rect.top, containerBounds.top));
-            const right = Math.floor(Math.min(window.innerWidth, rect.right, containerBounds.right));
-            const bottom = Math.floor(Math.min(window.innerHeight, rect.bottom, containerBounds.bottom));
+            const x = Math.ceil(Math.max(rect.left, viewport.left));
+            const y = Math.ceil(Math.max(rect.top, viewport.top));
+            const right = Math.floor(Math.min(rect.right, viewport.right));
+            const bottom = Math.floor(Math.min(rect.bottom, viewport.bottom));
             const bounds = {
               x: Math.floor(rect.left),
               y: Math.floor(rect.top),
@@ -359,6 +377,10 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
     const schedule = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
     };
+    const activate = () => {
+      if (document.visibilityState === "hidden") return;
+      schedule();
+    };
     const mutations = new MutationObserver(schedule);
     mutations.observe(document.body, {
       childList: true,
@@ -368,17 +390,23 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
     });
     const observer = new ResizeObserver(schedule);
     observer.observe(container);
+    for (let ancestor = container.parentElement; ancestor; ancestor = ancestor.parentElement)
+      observer.observe(ancestor);
     for (const element of container.querySelectorAll(".power-dashboard-embed")) observer.observe(element);
-    container.addEventListener("scroll", schedule);
+    document.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
+    window.addEventListener("focus", activate);
+    document.addEventListener("visibilitychange", activate);
     schedule();
     return () => {
       active = false;
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       mutations.disconnect();
-      container.removeEventListener("scroll", schedule);
+      document.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("focus", activate);
+      document.removeEventListener("visibilitychange", activate);
       void ipcRenderer.invoke(DASHBOARD_VIEWS_CLEAR).catch(() => {});
     };
   }, [cardIdentity]);
@@ -405,7 +433,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
           </button>
           <button type="button" className="power-dashboard-action" onClick={onOpenPreferences}>
             <span aria-hidden="true">
-              <Renderer.Component.Icon material="settings" size={16} />
+              <Renderer.Component.Icon material="tune" size={16} />
             </span>{" "}
             Settings
           </button>

@@ -72,6 +72,10 @@ export function validateLogRequest(input: unknown): LogRequest {
   if (!("captureId" in r) || !identifier(r.captureId)) return fail();
   const scoped = { ...partition, captureId: r.captureId };
   if (r.operation === "delete" || r.operation === "export") return { ...scoped, operation: r.operation };
+  if (r.operation === "save-sql") {
+    if (!text(r.sql, 65536)) return fail();
+    return { ...scoped, operation: "save-sql", sql: r.sql };
+  }
   if (r.operation === "query") {
     if (!identifier(r.queryId) || !text(r.sql, 65536) || !r.sql.trim()) return fail();
     return { ...scoped, operation: "query", queryId: r.queryId, sql: r.sql };

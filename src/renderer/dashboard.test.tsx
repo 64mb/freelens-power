@@ -271,6 +271,61 @@ describe("DashboardPage", () => {
     );
   });
 
+  it("clips native views to the host scroll area and updates after ancestor scrolling", async () => {
+    mocks.preferences.cards = [{ id: "card", title: "Tool", url: "https://example.com", size: "s" }];
+    const page = render(
+      <div style={{ overflowX: "auto", overflowY: "auto" }} data-testid="host-main">
+        <DashboardPage onOpenPreferences={vi.fn()} />
+      </div>,
+    );
+    const host = screen.getByTestId("host-main");
+    Object.defineProperties(host, {
+      clientWidth: { configurable: true, value: 300 },
+      clientHeight: { configurable: true, value: 220 },
+    });
+    fireEvent.scroll(host);
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:dashboard-views:sync", {
+        cards: [
+          {
+            id: "card",
+            bounds: { x: 0, y: 0, width: 300, height: 300 },
+            clip: { x: 0, y: 0, width: 300, height: 220 },
+          },
+        ],
+      }),
+    );
+    mocks.invoke.mockClear();
+    Object.defineProperty(host, "clientHeight", { configurable: true, value: 0 });
+    fireEvent.scroll(host);
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:dashboard-views:sync", { cards: [] }),
+    );
+    page.unmount();
+  });
+
+  it("resyncs native visibility when returning to the application", async () => {
+    mocks.preferences.cards = [{ id: "card", title: "Tool", url: "https://example.com", size: "s" }];
+    render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalled());
+    mocks.invoke.mockClear();
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith(
+        "freelens-power:dashboard-views:sync",
+        expect.objectContaining({ cards: expect.any(Array) }),
+      ),
+    );
+    mocks.invoke.mockClear();
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith(
+        "freelens-power:dashboard-views:sync",
+        expect.objectContaining({ cards: expect.any(Array) }),
+      ),
+    );
+  });
+
   it("adapts column counts and card spans to the available dashboard width", async () => {
     render(<DashboardPage onOpenPreferences={vi.fn()} />);
     const dashboard = document.querySelector("main")!;

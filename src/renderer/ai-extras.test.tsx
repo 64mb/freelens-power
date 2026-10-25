@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { attachedAiContext } from "../common/ai-extras";
+
+import type { ReactNode } from "react";
 
 const state = vi.hoisted(() => ({
   clusterId: "cluster-a",
@@ -12,10 +14,25 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
+    Component: {
+      Tooltip: ({ targetId, children }: { targetId: string; children?: ReactNode }) => (
+        <span role="tooltip" data-target-id={targetId}>
+          {children}
+        </span>
+      ),
+    },
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.clusterId } }) } },
     K8sApi: { apiManager: { getApiByKind: state.getApi } },
     Navigation: { showDetails: state.showDetails },
   },
+}));
+
+vi.mock("./ai-icon", () => ({
+  AiIcon: ({ material }: { material: string }) => (
+    <span role="img" aria-label={material} aria-hidden={!["subject", "insights"].includes(material) || undefined}>
+      {material}
+    </span>
+  ),
 }));
 
 import { AiContextPreview, AiResourceReferences, openAiResourceReference } from "./ai-extras";
@@ -115,5 +132,40 @@ it("keeps selected evidence in one removable row within Attached context", () =>
   expect(row.querySelector("details")?.open).toBe(false);
   fireEvent.click(screen.getByLabelText("Remove diagnostic finding"));
   expect(remove).toHaveBeenCalledOnce();
+  view.unmount();
+});
+
+it("distinguishes attached log context from diagnostic findings by its icon", () => {
+  const finding = { clusterId: "cluster-a", title: "Selected evidence", summary: "Selected read-only evidence" };
+  const view = render(<AiContextPreview context={{}} finding={{ ...finding, source: "logs" }} />);
+  const chip = within(screen.getByLabelText("Selected diagnostic finding"));
+  expect(chip.getByRole("img", { name: "subject" })).toBeTruthy();
+  expect(chip.queryByRole("img", { name: "insights" })).toBeNull();
+  view.rerender(<AiContextPreview context={{}} finding={finding} />);
+  expect(chip.getByRole("img", { name: "insights" })).toBeTruthy();
+  expect(chip.queryByRole("img", { name: "subject" })).toBeNull();
+});
+
+it("uses the common tooltip for removing context without a duplicate native title", () => {
+  const remove = vi.fn();
+  const finding = { clusterId: "cluster-a", title: "Selected evidence", summary: "Read-only evidence" };
+  const view = render(<AiContextPreview context={{}} finding={finding} onRemoveFinding={remove} />);
+  const button = within(view.container).getByRole("button", { name: "Remove diagnostic finding" });
+  const tooltip = within(view.container).getByRole("tooltip");
+  expect(button.hasAttribute("title")).toBe(false);
+  expect(button.id).not.toBe("");
+  expect(tooltip.getAttribute("data-target-id")).toBe(button.id);
+  expect(tooltip.textContent).toBe("Remove attached finding");
+  const targetId = button.id;
+  view.rerender(
+    <AiContextPreview
+      context={{ screen: "/pods" }}
+      finding={{ ...finding, title: "Updated evidence" }}
+      onRemoveFinding={remove}
+    />,
+  );
+  expect(within(view.container).getByRole("button", { name: "Remove diagnostic finding" }).id).toBe(targetId);
+  fireEvent.click(button);
+  expect(remove).toHaveBeenCalledTimes(1);
   view.unmount();
 });

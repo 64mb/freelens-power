@@ -6,6 +6,7 @@ export const AI_DIAGNOSTIC_EVENT = "power-ai-diagnostic";
 
 export interface DiagnosticFinding {
   clusterId: string;
+  source?: "logs";
   title: string;
   summary: string;
   resource?: { kind: string; namespace?: string; name: string };
@@ -38,7 +39,13 @@ export function sanitizeDiagnosticFinding(value: unknown): DiagnosticFinding | u
     )
       resource = { kind, name, ...(namespace === undefined ? {} : { namespace }) };
   }
-  return { clusterId: input.clusterId, title, summary, ...(resource ? { resource } : {}) };
+  return {
+    clusterId: input.clusterId,
+    title,
+    summary,
+    ...(input.source === "logs" ? { source: "logs" } : {}),
+    ...(resource ? { resource } : {}),
+  };
 }
 
 export function diagnosticQuestion(question: string, finding?: DiagnosticFinding): string {

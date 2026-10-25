@@ -23,6 +23,8 @@ export function startAppearanceOverride(): () => void {
         :root { --primary: ${color} !important; --buttonPrimaryBackground: ${color} !important; --menuSelectedOptionBgc: ${color} !important; --select-option-focused-bgc: color-mix(in srgb, ${color} 24%, var(--contentColor)) !important; --icon-focus-color: ${color} !important; }
         :root .Checkbox, :root .Drawer .drawer-title, :root .DrawerParamToggler .param-link, :root .Drawer .ResizingAnchor { --blue: var(--primary); }
         :root [role="treeitem"][class*="catalog-tree-module__selected--"] { --blue: var(--primary); }
+        :root [class*="main-layout-module__sidebar--"] > .ResizingAnchor { --blue: var(--primary); }
+        :root .MenuItem:is(.create-terminal-tab, .create-resource-tab) { --bgc-active: var(--primary); }
         :root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled) { border-color: ${color} !important; box-shadow: 0 0 0 1px ${color} !important; }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--textColorAccent) !important; }
         :root .NamespaceSelectMenu .Select__option { margin-block: 2px; }

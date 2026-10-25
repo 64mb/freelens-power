@@ -3,6 +3,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { clipboard } from "electron";
 import { observer } from "mobx-react";
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useEffect,
@@ -15,6 +16,7 @@ import { formatDateTime } from "../common/date-time";
 import { compileJsonFilters, type JsonFieldFilter, jsonValuesEqual } from "../common/power-log-field-filters";
 import { buildJsonFilterSql, type SqlJsonFieldFilter } from "../common/power-log-json-filter-sql";
 import { buildJsonProjectionSql, JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
+import { sqlCellLevel } from "../common/power-log-sql-level";
 import {
   POWER_LOGS_LIMITS as L,
   type LogCapture,
@@ -33,15 +35,17 @@ import { LogJson } from "./power-log-json";
 import { LogJsonCell } from "./power-log-json-cell";
 import { formatJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
 import { LogMessage } from "./power-log-message";
+import { SqlEditor } from "./power-log-sql-editor";
 import { powerLogsStyles } from "./power-logs.css";
 import { createPowerLogsClient } from "./power-logs-client";
 import { collectHistoricalLogs, type LiveLogCoverage, resolveLogSources, startLiveLogs } from "./power-logs-collector";
 import { openPowerLogs, parsePowerLogsTarget } from "./power-logs-entrypoints";
+import { CaptureSqlDrafts } from "./power-logs-sql-drafts";
 import { sqlRowDetails } from "./power-logs-sql-row";
 import { createPowerLogsTransport } from "./power-logs-transport";
 import { searchContextId } from "./resource-search-client";
 
-const Icon = (props: { material: string; size?: number }) => (
+const Icon = (props: { material: string; size?: number; tooltip?: string }) => (
   <span aria-hidden="true" style={{ display: "inline-flex" }}>
     <Renderer.Component.Icon {...props} />
   </span>
@@ -57,7 +61,7 @@ const examples = [
   ],
   [
     "Timeline",
-    "SELECT strftime('%Y-%m-%d %H:%M', timestamp / 1000, 'unixepoch') AS minute, level, count(*) AS lines FROM logs GROUP BY minute, level ORDER BY minute",
+    "SELECT strftime('%Y-%m-%d %H:%M', timestamp / 1000, 'unixepoch') AS minute, UPPER(level) AS level, count(*) AS lines FROM logs GROUP BY minute, level ORDER BY minute",
   ],
   ["JSON", "SELECT fieldsJson FROM logs WHERE fieldsJson IS NOT NULL LIMIT 100"],
 ] as const;
@@ -166,7 +170,7 @@ const SourcePicker = observer(() => {
   );
   return (
     <div className="power-logs-source">
-      <span>Resource</span>
+      <span className="power-logs-control-label">Resource</span>
       <LogSelect
         label="Resource"
         value={value}
@@ -226,6 +230,10 @@ function LogRows({
       setTop(viewport.current.scrollTop);
     }
   }, [records, follow, compact]);
+  const levelCharacters = useMemo(
+    () => records.reduce((width, record) => Math.max(width, record.level.length), 4),
+    [records],
+  );
   const rowHeight = compact ? 20 : 34;
   const start = Math.max(0, Math.floor(top / rowHeight) - 5);
   const visible = records.slice(start, start + Math.ceil(height / rowHeight) + 10);
@@ -234,6 +242,7 @@ function LogRows({
       <div
         className="power-logs-stream"
         ref={viewport}
+        style={{ "--power-log-level-ch": levelCharacters } as CSSProperties}
         aria-label="Log lines"
         aria-busy={loading}
         onScroll={(event) => {
@@ -260,9 +269,12 @@ function LogRows({
                   {record.timestamp !== null ? formatDateTime(record.timestamp).slice(-8) : "—"}
                 </span>
                 <span className="power-log-level">{record.level}</span>
-                <span className="power-log-origin" title={sourceKey(record)}>
-                  {record.container}
-                  {record.previous ? " (previous)" : ""} · {record.pod}
+                <span className="power-log-origin" id={`power-log-source-${record.key}`}>
+                  {record.pod}
+                  {record.previous ? " (previous)" : ""}
+                  <Renderer.Component.Tooltip targetId={`power-log-source-${record.key}`}>
+                    {sourceKey(record)}
+                  </Renderer.Component.Tooltip>
                 </span>
                 <LogMessage text={record.message} />
               </button>
@@ -305,7 +317,9 @@ function LogDetails({
           <Icon material="close" size={16} />
         </button>
       </header>
-      <p className="power-logs-muted">{[record.pod && sourceKey(record), record.level].filter(Boolean).join(" · ")}</p>
+      <p className="power-logs-muted">
+        {[record.pod && sourceKey(record), record.level.toUpperCase()].filter(Boolean).join(" · ")}
+      </p>
       {record.message && (
         <pre>
           <LogMessage text={record.message} />
@@ -386,12 +400,27 @@ function FieldFilters({
 
 function Workspace({ clusterId, contextId }: { clusterId: string; contextId: string }) {
   const client = useMemo(() => createPowerLogsClient({ clusterId, contextId }), [clusterId, contextId]);
+  const drafts = useMemo(
+    () =>
+      new CaptureSqlDrafts(
+        (id, query) => client.saveSql(id, query),
+        () => setError("Could not save the SQL draft. Your edits remain available in this workspace."),
+      ),
+    [client],
+  );
+  useEffect(
+    () => () => {
+      void drafts.dispose();
+    },
+    [drafts],
+  );
   const [target, setTarget] = useState(initialTarget);
   const [records, setRecords] = useState<ViewRecord[]>([]);
   const [sources, setSources] = useState<LogSource[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [status, setStatus] = useState("Choose a resource to read its logs");
   const [error, setError] = useState("");
+  const [sqlError, setSqlError] = useState("");
   const [tab, setTab] = useState<"live" | "captures">("live");
   const [text, setText] = useState("");
   const [level, setLevel] = useState("");
@@ -411,6 +440,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     applyPowerLogsLimits(preferences.limits);
   }, [preferences.limits]);
   const [compact, setCompact] = useState(preferences.compactRows === true);
+  const [hideResourceName, setHideResourceName] = useState(preferences.hideResourceNameColumn === true);
   const [selected, setSelected] = useState<ViewRecord>();
   const [selectedSqlRow, setSelectedSqlRow] = useState<
     ReturnType<typeof sqlRowDetails> & { row: LogQueryResult["rows"][number] }
@@ -423,8 +453,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [captureId, updateCaptureId] = useState("");
   const captureSelection = useRef(captureId);
   captureSelection.current = captureId;
-  const setCaptureId = (id: string) => {
+  const setCaptureId = (id: string, snapshot = captures.find((item) => item.id === id)) => {
+    if (id !== captureSelection.current) void drafts.flush();
     captureSelection.current = id;
+    const query = snapshot ? drafts.read(snapshot, examples[0][1]) : examples[0][1];
+    sqlDraft.current = query;
+    updateSql(query);
     updateCaptureId(id);
   };
   const deleting = useRef(new Set<string>());
@@ -439,6 +473,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const setSql = (query: string) => {
     sqlDraft.current = query;
     updateSql(query);
+    if (captureSelection.current) drafts.set(captureSelection.current, query);
   };
   const captureKeys = useRef(new Map<string, string[]>());
   useEffect(() => {
@@ -447,7 +482,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     );
   }, [sql, captureId]);
   const [result, setResult] = useState<LogQueryResult>();
-  const [resultEvidence, setResultEvidence] = useState<{ capture: LogCapture; sql: string }>();
+  const [resultEvidence, setResultEvidence] = useState<{ capture: LogCapture; sql: string; error?: string }>();
   const [resultPage, setResultPage] = useState(0);
   const [queryId, setQueryId] = useState("");
   const captureOptions = useRef<HTMLDetailsElement>(null);
@@ -750,7 +785,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             [...new Set(captureNotes)].slice(0, 20),
           );
           if (alive.current) {
-            setCaptureId(saved.id);
+            setCaptureId(saved.id, saved);
             setCaptures((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
             setTab("captures");
             setSql(examples[0][1]);
@@ -779,19 +814,24 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     setError("");
     setResult(undefined);
     setSelectedSqlRow(undefined);
+    setSqlError("");
     setResultEvidence({ capture: captured, sql: query });
     setResultPage(0);
     try {
       const value = await client.query(captured.id, id, query);
       if (alive.current && queryRef.current === id) {
-        if (value.error) setError(value.error);
-        else setResult(value);
+        if (value.error) {
+          setSqlError(value.error);
+          setResultEvidence({ capture: captured, sql: query, error: value.error });
+        } else setResult(value);
       }
     } catch {
-      if (alive.current && queryRef.current === id)
-        setError(
-          "Query stopped or failed. Use one read-only SELECT or EXPLAIN; external files, networking and extensions are disabled.",
-        );
+      if (alive.current && queryRef.current === id) {
+        const message =
+          "Query stopped or failed. Use one read-only SELECT or EXPLAIN; external files, networking and extensions are disabled.";
+        setSqlError(message);
+        setResultEvidence({ capture: captured, sql: query, error: message });
+      }
     } finally {
       if (queryRef.current === id) {
         if (alive.current) setQueryId("");
@@ -801,6 +841,14 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   };
   const applyPreset = async (title: "Recent" | "JSON", selectedCapture?: LogCapture, execute = false) => {
     const captured = selectedCapture ?? captures.find((item) => item.id === captureId);
+    if (queryRef.current || (!selectedCapture && captureController.current)) return;
+    if (title === "Recent") {
+      const query = examples[0][1];
+      setSql(query);
+      setSelectedSqlRow(undefined);
+      if (execute && captured) void runQuery(captured, query);
+      return;
+    }
     if (
       queryRef.current ||
       (!selectedCapture && captureController.current) ||
@@ -813,7 +861,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     const id = randomUUID();
     queryRef.current = id;
     setQueryId(id);
-    setError("");
+    setSqlError("");
     let prepared: string | undefined;
     try {
       let keys = captureKeys.current.get(captured.id);
@@ -831,14 +879,14 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       }
       if (!alive.current || queryRef.current !== id || captureSelection.current !== captured.id) return;
       if (sqlDraft.current !== draft) {
-        setError("SQL draft changed while detecting JSON fields. Select the preset again to replace it.");
+        setSqlError("SQL draft changed while detecting JSON fields. Select the preset again to replace it.");
         return;
       }
-      prepared = buildJsonProjectionSql(keys, { recent: title === "Recent" });
+      prepared = buildJsonProjectionSql(keys);
       setSql(prepared);
       setSelectedSqlRow(undefined);
     } catch {
-      if (alive.current) setError("Could not detect JSON fields for this snapshot. Try the preset again.");
+      if (alive.current) setSqlError("Could not detect JSON fields for this snapshot. Try the preset again.");
     } finally {
       if (queryRef.current === id) {
         queryRef.current = "";
@@ -870,7 +918,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const applySqlFilters = (filters: SqlJsonFieldFilter[]) => {
     if (queryRef.current || captureController.current || sqlFilteringDisabled) return;
     if (!resultEvidence || resultEvidence.sql !== sql) {
-      setError("Run the edited SQL query before filtering its results");
+      setSqlError("Run the edited SQL query before filtering its results");
       return;
     }
     try {
@@ -880,19 +928,19 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       setSql(query);
       void runQuery(undefined, query);
     } catch {
-      setError("This JSON filter cannot be added to the query. Check the field path and value size.");
+      setSqlError("This JSON filter cannot be added to the query. Check the field path and value size.");
     }
   };
   const addSqlFilter = (column: string, filter: JsonFieldFilter) => {
     const columnNames = result?.columns.map((name) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase())) ?? [];
     if (!result?.columns.includes(column) || new Set(columnNames).size !== columnNames.length) {
-      setError("JSON filters require unique result column names, ignoring case");
+      setSqlError("JSON filters require unique result column names, ignoring case");
       return;
     }
     const filters = activeSqlFilters?.filters ?? [];
     if (filters.some((current) => current.column === column && sameFieldFilter(current, filter))) return;
     if (filters.length >= 32) {
-      setError("Up to 32 JSON filters can be combined");
+      setSqlError("Up to 32 JSON filters can be combined");
       return;
     }
     applySqlFilters([...filters, { ...filter, column }]);
@@ -935,30 +983,41 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       const sql = (event as CustomEvent<{ sql?: unknown }>).detail?.sql;
       if (typeof sql !== "string" || !sql.trim() || sql.length > 65536) return;
       setTab("captures");
-      setSql(sql);
       setSelectedSqlRow(undefined);
       if (!captureId) {
         const latest = captures.find((item) => item.state !== "collecting" && item.target.uid === target?.uid);
         if (latest) setCaptureId(latest.id);
       }
+      setSql(sql);
       requestAnimationFrame(() => document.getElementById("power-logs-sql")?.focus());
     };
     window.addEventListener("power-logs-sql-draft", insert);
     return () => window.removeEventListener("power-logs-sql-draft", insert);
   }, [captureId, captures, target?.uid]);
   const attachAi = () => {
+    const queryEvidence =
+      result ??
+      (resultEvidence?.error
+        ? {
+            columns: [],
+            rows: [],
+            truncated: false,
+            elapsedMs: 0,
+            error: resultEvidence.error,
+          }
+        : undefined);
     const resource =
       tab === "captures"
-        ? result && resultEvidence
+        ? queryEvidence && resultEvidence
           ? resultEvidence.capture.target
           : (chosenCapture?.target ?? target)
         : target;
     const summary =
-      tab === "captures" && result && resultEvidence
+      tab === "captures" && queryEvidence && resultEvidence
         ? powerLogQueryEvidence(
             resultEvidence.capture,
             resultEvidence.sql,
-            selectedSqlRow ? { ...result, rows: [selectedSqlRow.row], truncated: false } : result,
+            selectedSqlRow ? { ...queryEvidence, rows: [selectedSqlRow.row], truncated: false } : queryEvidence,
           )
         : tab === "live" && selected
           ? powerLogLineEvidence(resource, selected)
@@ -971,6 +1030,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     if (
       !explainDiagnosticFinding({
         clusterId,
+        source: "logs",
         title: tab === "captures" ? (selectedSqlRow ? "SQL row" : "SQL query") : selected ? "Log line" : "Power Logs",
         summary: summary.slice(0, 6000),
         ...(resource ? { resource: { kind: resource.kind, name: resource.name, namespace: resource.namespace } } : {}),
@@ -983,7 +1043,9 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     deleting.current.add(id);
     setDeletingCount(deleting.current.size);
     try {
+      await drafts.flush();
       await client.delete(id);
+      drafts.forget(id);
       if (id === captureSelection.current) {
         setCaptureId("");
         setResult(undefined);
@@ -1017,7 +1079,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     else setError("Open the Pod in the native resource view to use its Logs action");
   };
   return (
-    <div className="power-logs" data-testid="power-logs-page" data-compact={compact || undefined}>
+    <div
+      className="power-logs"
+      data-testid="power-logs-page"
+      data-compact={compact || undefined}
+      data-hide-resource-name={hideResourceName || undefined}
+    >
       <style>{powerLogsStyles}</style>
       <header>
         <h1 className="power-logs-page-title">Power Logs</h1>
@@ -1054,8 +1121,6 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               );
               if (!captureId && latest && !capturePending) {
                 setCaptureId(latest.id);
-                setSql(examples[0][1]);
-                void applyPreset("Recent", latest, true);
               }
               void refreshCaptures();
             }}
@@ -1096,6 +1161,15 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                   }}
                 >
                   Compact density
+                </Renderer.Component.Switch>
+                <Renderer.Component.Switch
+                  checked={hideResourceName}
+                  onChange={(value) => {
+                    setHideResourceName(value);
+                    preferences.hideResourceNameColumn = value;
+                  }}
+                >
+                  Hide resource name column
                 </Renderer.Component.Switch>
               </div>
             </details>
@@ -1256,6 +1330,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       ) : (
         <>
           <div className="power-logs-toolbar power-logs-snapshot-bar">
+            <span className="power-logs-control-label">Snapshot</span>
             <LogSelect
               label="Capture snapshot"
               onKeyDown={(event) => {
@@ -1321,11 +1396,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 setResult(undefined);
                 setResultEvidence(undefined);
                 setSelectedSqlRow(undefined);
-                const snapshot = captures.find((item) => item.id === value);
-                if (snapshot) {
-                  setSql(examples[0][1]);
-                  void applyPreset("Recent", snapshot, true);
-                }
+                setSqlError("");
               }}
               options={[
                 { value: "", label: "Choose a snapshot" },
@@ -1357,6 +1428,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
           <div className="power-logs-toolbar power-logs-sql-tools">
             <label
               htmlFor="power-logs-sql"
+              className="power-logs-control-label"
               title={`Read-only SELECT · ${limits.queryMs / 1000} s · ${limits.resultRows.toLocaleString()} rows · Schema: logs(timestamp INTEGER in milliseconds, pod, podUid, container, level, message, fieldsJson, previous INTEGER 0 or 1)`}
             >
               SQL query
@@ -1403,7 +1475,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                   }
                   size={16}
                 />{" "}
-                SQL: {title}
+                SQL · {title}
               </button>
             ))}
           </div>
@@ -1413,31 +1485,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             disabled={sqlFilteringDisabled}
             onRemove={(index) => applySqlFilters((activeSqlFilters?.filters ?? []).filter((_, item) => item !== index))}
           />
-          <textarea
-            rows={2}
-            id="power-logs-sql"
-            value={sql}
-            maxLength={65536}
-            onChange={(event) => setSql(event.target.value)}
-            spellCheck={false}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (event.detail >= 3) {
-                event.preventDefault();
-                window.getSelection()?.removeAllRanges();
-                event.currentTarget.select();
-              }
-            }}
-            onMouseDown={(event) => {
-              event.stopPropagation();
-              if (event.detail >= 3) {
-                event.preventDefault();
-                window.getSelection()?.removeAllRanges();
-                event.currentTarget.focus();
-                event.currentTarget.select();
-              }
-            }}
-          />
+          <SqlEditor id="power-logs-sql" value={sql} onChange={setSql} />
+          {sqlError && (
+            <div role="alert" className="power-logs-notice power-logs-error power-logs-query-error">
+              {sqlError}
+            </div>
+          )}
           {result ? (
             <>
               <div className="power-logs-toolbar power-logs-results-bar">
@@ -1492,11 +1545,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                             <td
                               key={j}
                               data-column={result.columns[j]}
-                              data-level={result.columns[j] === "level" ? String(cell) : undefined}
+                              data-level={sqlCellLevel(result.columns[j], cell)}
                             >
                               <LogJsonCell
                                 value={cell === null ? null : String(cell)}
-                                message={result.columns[j] === "message"}
+                                column={result.columns[j]}
+                                rawValue={cell}
                                 Icon={Icon}
                                 onFilter={
                                   sqlFilteringDisabled ? undefined : (filter) => addSqlFilter(result.columns[j], filter)
@@ -1512,7 +1566,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                     <div className="power-logs-empty">
                       {chosenCapture?.rows === 0
                         ? "This snapshot contains no log lines. Try a longer capture window."
-                        : "This query returned no rows. Adjust the query or choose SQL: Recent."}
+                        : "This query returned no rows. Adjust the query or choose SQL · Recent."}
                     </div>
                   )}
                 </div>

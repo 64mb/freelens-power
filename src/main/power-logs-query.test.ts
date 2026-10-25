@@ -160,17 +160,24 @@ it("executes original JSON presets through the production read-only authorizer",
   directories.push(directory);
   const path = join(directory, "logs.sqlite");
   const db = new DatabaseSync(path);
-  db.exec("CREATE TABLE logs(timestamp INTEGER, fieldsJson TEXT, message TEXT)");
-  db.prepare("INSERT INTO logs VALUES (?,?,?)").run(1, '{"msg":"ready","levelname":"DEBUG"}', "ready");
-  db.prepare("INSERT INTO logs VALUES (?,?,?)").run(2, null, "plain");
+  db.exec("CREATE TABLE logs(timestamp INTEGER, fieldsJson TEXT, message TEXT, level TEXT, container TEXT, pod TEXT)");
+  db.prepare("INSERT INTO logs(timestamp, fieldsJson, message) VALUES (?,?,?)").run(
+    1,
+    '{"msg":"ready","levelname":"DEBUG"}',
+    "ready",
+  );
+  db.prepare("INSERT INTO logs(timestamp, fieldsJson, message) VALUES (?,?,?)").run(2, null, "plain");
   db.close();
   const schema = runPowerLogsQuery(path, JSON_KEY_DISCOVERY_SQL);
   expect(schema.error).toBeUndefined();
   const keys = schema.rows.map((row) => String(row[0]));
-  expect(keys).toEqual(expect.arrayContaining(["msg", "levelname", "message"]));
+  expect(keys).toEqual(expect.arrayContaining(["msg", "levelname"]));
   const projected = runPowerLogsQuery(path, buildJsonProjectionSql(keys, { recent: true }));
   expect(projected.error).toBeUndefined();
-  expect(projected.columns).toContain("msg");
+  expect(projected.columns).toContain("message");
   expect(projected.rows[0][projected.columns.indexOf("message")]).toBe("plain");
-  expect(projected.rows[1][projected.columns.indexOf("msg")]).toBe("ready");
+  expect(projected.rows[1][projected.columns.indexOf("message")]).toBe("ready");
+  const json = runPowerLogsQuery(path, buildJsonProjectionSql(keys));
+  expect(json.columns).toEqual(["msg"]);
+  expect(json.rows).toEqual([["ready"]]);
 });

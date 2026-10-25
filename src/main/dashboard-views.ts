@@ -514,6 +514,32 @@ export function startDashboardViews(): () => void {
         },
       };
       owners.set(sender, owner);
+      const activeOwner = owner;
+      let backgrounded = false;
+      const blur = () => {
+        backgrounded = true;
+      };
+      const focus = () => {
+        if (!backgrounded) return;
+        backgrounded = false;
+        if (!dashboardUrl(sender.getURL())) return;
+        for (const [id, card] of activeOwner.cards) {
+          const configured = configuredCards().find((item) => item.id === id);
+          if (!card.visible || card.floating || !configured) continue;
+          card.skeleton.view.setVisible(card.loading);
+          card.container.setVisible(!card.failed || card.loading);
+          if ((configured.refreshEvery10Seconds || configured.autoRefresh) && !card.loading)
+            void reload(card, configured.url);
+        }
+      };
+      window.on("blur", blur);
+      window.on("focus", focus);
+      const cleanup = owner.cleanup;
+      owner.cleanup = () => {
+        window.removeListener("blur", blur);
+        window.removeListener("focus", focus);
+        cleanup();
+      };
     }
     if (payload && typeof payload === "object" && "hidden" in payload && payload.hidden === true) {
       hide(event.sender);
@@ -719,6 +745,7 @@ export function startDashboardViews(): () => void {
         void applyWebsiteStyles(card);
       }
       card.visible = true;
+      card.skeleton.view.setVisible(card.loading);
       card.container.setVisible(!card.failed && (card.loading || card.url === configured.url));
       const zoom = event.sender.getZoomFactor();
       card.container.setBorderRadius(Math.round(12 * zoom));

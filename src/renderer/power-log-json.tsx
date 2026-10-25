@@ -1,5 +1,5 @@
 import { clipboard } from "electron";
-import { type ComponentType, type ReactNode, useMemo, useState } from "react";
+import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { type JsonField, jsonFieldLiteral, jsonFields, maxJsonTokens } from "./power-log-json-fields";
 
 import type { JsonFieldFilter } from "../common/power-log-field-filters";
@@ -8,11 +8,41 @@ export interface LogJsonProps {
   text: string;
   fieldText?: string;
   fieldsEnabled?: boolean;
-  Icon?: ComponentType<{ material: string; size?: number }>;
+  Icon?: ComponentType<{ material: string; size?: number; tooltip?: string }>;
   onFilter?: (filter: JsonFieldFilter) => void;
 }
 
+const fieldButtonStyle: CSSProperties = {
+  width: 20,
+  height: 20,
+  minHeight: 0,
+  minWidth: 0,
+  padding: 0,
+  margin: 0,
+  border: 0,
+  borderRadius: 0,
+  background: "transparent",
+  color: "inherit",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+};
+
 export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter }: LogJsonProps) {
+  const leaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
+  const keepOpen = () => {
+    clearTimeout(leaveTimer.current);
+    clearTimeout(hoverTimer.current);
+  };
+  useEffect(
+    () => () => {
+      clearTimeout(leaveTimer.current);
+      clearTimeout(hoverTimer.current);
+    },
+    [],
+  );
   const identity = fieldText ?? text;
   const interactive = fieldsEnabled && Boolean(Icon || onFilter);
   const fields = useMemo(
@@ -20,6 +50,8 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
     [identity, interactive],
   );
   const [active, setActive] = useState<{ field: JsonField; text: string; x: number; y: number }>();
+  const activeField = useRef(active);
+  activeField.current = active;
   const [feedback, setFeedback] = useState("");
   const selected = fieldsEnabled && active?.text === identity ? active : undefined;
   const tokens = useMemo(() => {
@@ -45,12 +77,42 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
       const field = fields.get(start);
       const activate = (element: HTMLElement) => {
         if (!field) return;
+        clearTimeout(leaveTimer.current);
         const rect = element.getBoundingClientRect();
+        let lineRight = rect.right;
+        const pre = element.closest("pre");
+        if (pre) {
+          const lineEnd = text.indexOf("\n", start);
+          let remaining = lineEnd < 0 ? text.length : lineEnd;
+          const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (remaining > (node.textContent?.length ?? 0)) {
+              remaining -= node.textContent?.length ?? 0;
+              continue;
+            }
+            const range = document.createRange();
+            range.setStart(element, 0);
+            range.setEnd(node, remaining);
+            if (typeof range.getClientRects === "function") {
+              for (const fragment of Array.from(range.getClientRects())) {
+                if (Math.abs(fragment.top - rect.top) < Math.max(1, rect.height / 2)) {
+                  lineRight = Math.max(lineRight, fragment.right);
+                }
+              }
+            }
+            break;
+          }
+        }
+        const wrapperRight = element.closest(".power-log-json-fields")?.getBoundingClientRect().right;
+        const visibleRight = Math.min(
+          window.innerWidth,
+          wrapperRight && wrapperRight > 0 ? wrapperRight : window.innerWidth,
+        );
         setActive({
           field,
           text: identity,
-          x: Math.max(4, Math.min(rect.left, window.innerWidth - 250)),
-          y: Math.max(4, Math.min(rect.bottom, window.innerHeight - 40)),
+          x: Math.max(4, Math.min(lineRight + 4, visibleRight - 64)),
+          y: Math.max(0, Math.min(rect.top, window.innerHeight - 20)),
         });
         setFeedback("");
       };
@@ -59,8 +121,26 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
           key={start}
           data-token={kind}
           tabIndex={field ? 0 : undefined}
-          onMouseEnter={field ? (event) => activate(event.currentTarget) : undefined}
-          onFocus={field ? (event) => activate(event.currentTarget) : undefined}
+          onMouseEnter={
+            field
+              ? (event) => {
+                  keepOpen();
+                  const element = event.currentTarget;
+                  if (activeField.current?.text === identity && activeField.current.field !== field) {
+                    hoverTimer.current = setTimeout(() => activate(element), 180);
+                  } else activate(element);
+                }
+              : undefined
+          }
+          onMouseLeave={field ? () => clearTimeout(hoverTimer.current) : undefined}
+          onFocus={
+            field
+              ? (event) => {
+                  keepOpen();
+                  activate(event.currentTarget);
+                }
+              : undefined
+          }
           onKeyDown={
             field
               ? (event) => {
@@ -90,7 +170,11 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
   return (
     <div
       className="power-log-json-fields"
-      onMouseLeave={() => setActive(undefined)}
+      style={{ paddingRight: 76 }}
+      onMouseEnter={keepOpen}
+      onMouseLeave={() => {
+        leaveTimer.current = setTimeout(() => setActive(undefined), 150);
+      }}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node)) setActive(undefined);
       }}
@@ -112,12 +196,14 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
             top: selected.y,
             zIndex: 1000,
             display: "flex",
-            gap: 4,
-            padding: 4,
-            background: "var(--mainBackground, #252525)",
-            border: "1px solid var(--borderColor, #666)",
-            borderRadius: 4,
+            gap: 2,
+            padding: 0,
+            background: "transparent",
+            border: 0,
+            alignItems: "center",
+            height: 20,
           }}
+          onMouseEnter={keepOpen}
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
             event.stopPropagation();
@@ -126,7 +212,8 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
         >
           <button
             type="button"
-            title="Copy value"
+            style={fieldButtonStyle}
+            title={Icon ? undefined : "Copy value"}
             aria-label="Copy value"
             onClick={() => {
               try {
@@ -138,29 +225,35 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
               }
             }}
           >
-            {Icon ? <Icon material="content_copy" size={14} /> : "⧉"}
+            {Icon ? <Icon material="content_copy" size={14} tooltip="Copy value" /> : "⧉"}
           </button>
           {onFilter && (
             <>
               <button
                 type="button"
-                title="Include value"
+                style={fieldButtonStyle}
+                title={Icon ? undefined : "Include value"}
                 aria-label="Include value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "eq" })}
               >
-                =
+                {Icon ? <Icon material="filter_alt" size={14} tooltip="Include value" /> : "="}
               </button>
               <button
                 type="button"
-                title="Exclude value"
+                style={fieldButtonStyle}
+                title={Icon ? undefined : "Exclude value"}
                 aria-label="Exclude value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "neq" })}
               >
-                !=
+                {Icon ? <Icon material="filter_alt_off" size={14} tooltip="Exclude value" /> : "!="}
               </button>
             </>
           )}
-          {feedback && <span role="status">{feedback}</span>}
+          {feedback && (
+            <span role="status" style={{ position: "absolute", top: 22, right: 0, whiteSpace: "nowrap" }}>
+              {feedback}
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -42,3 +42,26 @@ it("redacts sensitive SQL columns and structured string cells, preserving snapsh
   expect(evidence).toContain("Limited source");
   expect(evidence).toContain('"createdAt": 1000');
 });
+
+it("keeps a redacted query failure ahead of a long SQL draft", () => {
+  const capture: LogCapture = {
+    id: "capture-failed",
+    target,
+    createdAt: 1000,
+    expiresAt: 2000,
+    state: "ready",
+    notes: [],
+    rows: 0,
+    bytes: 0,
+  };
+  const evidence = powerLogQueryEvidence(capture, `SELECT '${"x".repeat(65500)}'`, {
+    columns: [],
+    rows: [],
+    truncated: false,
+    elapsedMs: 1,
+    error: "Query stopped or failed. Check SQL syntax.",
+  });
+  expect(evidence.length).toBeLessThanOrEqual(6000);
+  expect(evidence).toContain('"state": "Query failed"');
+  expect(evidence).toContain("Query stopped or failed. Check SQL syntax.");
+});

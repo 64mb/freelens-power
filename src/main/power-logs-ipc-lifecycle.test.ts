@@ -177,3 +177,24 @@ describe("trusted log IPC lifecycle", () => {
     }
   });
 });
+
+it("applies enabled and trusted-renderer guards to SQL draft storage without using query execution", async () => {
+  const stop = startPowerLogs();
+  const request = { ...partition, operation: "save-sql", captureId: "capture-example", sql: "SELECT '" };
+  try {
+    mocks.preferences.enabled = false;
+    await expect(invoke(request)).rejects.toThrow("unavailable");
+    mocks.preferences.enabled = true;
+    mocks.trusted.mockReturnValue(false);
+    await expect(invoke(request)).rejects.toThrow("unavailable");
+    expect(mocks.call).not.toHaveBeenCalled();
+    mocks.trusted.mockReturnValue(true);
+    mocks.call.mockResolvedValue({ id: "capture-example", lastSql: request.sql });
+    await expect(invoke(request)).resolves.toEqual({ id: "capture-example", lastSql: request.sql });
+    expect(mocks.call).toHaveBeenCalledExactlyOnceWith({ ...request, contextId: expect.any(String) }, undefined);
+  } finally {
+    stop();
+  }
+  await expect(invoke(request)).rejects.toThrow("unavailable");
+  expect(mocks.call).toHaveBeenCalledTimes(1);
+});

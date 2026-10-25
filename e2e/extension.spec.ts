@@ -460,7 +460,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.getByRole("tab", { name: "SQL" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".power-logs-results")).toContainText("fixture");
   await expect(page.locator('th[data-column="message"]')).toBeVisible();
-  await expect(page.locator('th[data-column="sequence"]')).toBeVisible();
+  await expect(page.locator('th[data-column="pod"]')).toBeVisible();
   const sqlGeometry = await page.evaluate((element) => {
     const results = element.querySelector(".power-logs-results")!.getBoundingClientRect();
     const root = element.getBoundingClientRect();
@@ -477,10 +477,10 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   const sql = page.getByLabel("SQL query");
   const run = page.getByRole("button", { name: "Run query", exact: true });
   await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "SQL: Recent", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "SQL: Errors", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "SQL: Timeline", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "SQL: JSON", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · Recent", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · Errors", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · Timeline", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · JSON", exact: true })).toBeVisible();
   await sql.fill("SELECT * FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200");
   await run.click();
   await expect(page.locator('th[data-column="fieldsJson"]')).toBeVisible();

@@ -53,6 +53,7 @@ export function powerLogQueryEvidence(capture: LogCapture, sql: string, result: 
     project({
       observedAt: new Date().toISOString(),
       capture: { target: capture.target, createdAt: capture.createdAt, state: capture.state, notes: capture.notes },
+      ...(result.error ? { state: "Query failed", error: result.error } : {}),
       sql,
       rows,
       truncated: result.truncated || result.rows.length > 30,

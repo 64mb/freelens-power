@@ -76,3 +76,11 @@ describe("diagnostic finding boundary", () => {
     expect(question).not.toContain("cluster-a");
   });
 });
+
+it("retains only the bounded log source tag and leaves existing diagnostic findings unchanged", () => {
+  expect(sanitizeDiagnosticFinding({ ...finding(), source: "logs" })).toEqual({ ...finding(), source: "logs" });
+  expect(sanitizeDiagnosticFinding(finding())).toEqual(finding());
+  for (const source of ["diagnostic", "LOGS", "logs-extra", "x".repeat(1000), {}, null, 1]) {
+    expect(sanitizeDiagnosticFinding({ ...finding(), source })).toEqual(finding());
+  }
+});

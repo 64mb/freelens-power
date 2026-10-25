@@ -1,19 +1,24 @@
 import { clipboard } from "electron";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
+import { sqlCellLevel } from "../common/power-log-sql-level";
 import { LogJson } from "./power-log-json";
 import { compactJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
 import { LogMessage } from "./power-log-message";
 
 import type { JsonFieldFilter } from "../common/power-log-field-filters";
+import type { LogCell } from "../common/power-logs";
 
 export function LogJsonCell({
   value,
-  message = false,
+  column,
+  rawValue,
   Icon,
   onFilter,
 }: {
   value: string | null;
   message?: boolean;
+  column?: string;
+  rawValue?: LogCell;
   onFilter?: (filter: JsonFieldFilter) => void;
   Icon: ComponentType<{ material: string; size?: number }>;
 }) {
@@ -35,9 +40,18 @@ export function LogJsonCell({
   const [feedback, setFeedback] = useState("");
   useEffect(() => setFeedback(""), [value]);
   if (preview === null) {
+    const level = sqlCellLevel(column ?? "", rawValue === undefined ? value : rawValue);
     return (
       <span className="power-logs-cell" title={value ?? "NULL"}>
-        {value === null ? "NULL" : message ? <LogMessage text={value} /> : value}
+        {value === null ? (
+          "NULL"
+        ) : level !== "unknown" ? (
+          <span className="power-logs-level-label" data-level={level}>
+            {typeof rawValue === "number" ? value : value.toUpperCase()}
+          </span>
+        ) : (
+          <LogMessage text={value} />
+        )}
       </span>
     );
   }

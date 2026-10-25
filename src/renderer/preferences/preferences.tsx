@@ -8,6 +8,7 @@ import { MonitoringPreferences } from "./monitoring-preferences";
 import { NodeShellPreferences } from "./node-shell-preferences";
 import { PowerPreferencesToggle } from "./power-preferences";
 import { ReadOnlyPreferences } from "./read-only-preferences";
+import { focusPreferencesSection } from "./section-navigation";
 import { SettingsExport } from "./settings-export";
 
 const styles = `
@@ -99,12 +100,7 @@ export const PowerPreferences = () => (
           title={`Jump to ${title} settings`}
           onClick={(event) => {
             event.preventDefault();
-            const section = document.getElementById(`freelens-power-${id}-section`);
-            requestAnimationFrame(() => {
-              if (!section?.isConnected) return;
-              section.focus({ preventScroll: true });
-              section.scrollIntoView({ block: "start", behavior: "instant" });
-            });
+            focusPreferencesSection(id);
           }}
         >
           <Renderer.Component.Icon material={icon} size={16} /> {title}
