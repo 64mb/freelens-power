@@ -60,6 +60,24 @@ it("applies common kind priority before pagination only when relevance is equal"
   }
 });
 
+it("pages through all ranked matches beyond the maximum query batch", () => {
+  const db = new ResourceSearchDatabase(databasePath());
+  try {
+    const documents = Array.from({ length: 1105 }, (_, index) => document(`match-${String(index).padStart(4, "0")}`));
+    scan(db, documents);
+    const first = db.query(partition.clusterId, partition.contextId, "", 1000);
+    const second = db.query(partition.clusterId, partition.contextId, "", 1000, { offset: 1000 });
+    expect(first.documents).toHaveLength(1000);
+    expect(first.hasMore).toBe(true);
+    expect(second.documents).toHaveLength(105);
+    expect(second.total).toBe(1105);
+    expect(second.hasMore).toBe(false);
+    expect(new Set([...first.documents, ...second.documents].map((item) => item.path)).size).toBe(1105);
+  } finally {
+    db.close();
+  }
+});
+
 describe("persistent resource search", () => {
   it("finds Secrets and objects beyond the old inventory cap, including ordered parts and typos", () => {
     const db = new ResourceSearchDatabase(databasePath());

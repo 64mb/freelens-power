@@ -13,6 +13,7 @@ import {
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
 import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
+import { NativeTooltip } from "./native-tooltip";
 
 export {
   aggregateMetrics,
@@ -223,7 +224,6 @@ export function MetricChart({
         }}
         style={{ width: "100%", height: 250, color: "#c93dce", display: "block" }}
       >
-        <title>Click to pin tooltip · click again or Escape to unpin</title>
         {[0, 0.5, 1].map((fraction) => (
           <g key={fraction}>
             <line
@@ -293,27 +293,23 @@ export function MetricChart({
                 strokeDasharray={line.key === "capacity" || line.key === "allocatable" ? "5 3" : undefined}
               />
               {gaps && (
-                <path
-                  data-monitoring-gap={line.key}
-                  d={gaps}
-                  fill="none"
-                  stroke={line.color}
-                  strokeWidth="2"
-                  strokeDasharray="3 4"
-                  opacity=".65"
-                >
-                  <title>Dashed connections span missing measurements; intermediate values are unknown</title>
-                </path>
+                <NativeTooltip title="Dashed connections span missing measurements; intermediate values are unknown">
+                  <path
+                    data-monitoring-gap={line.key}
+                    d={gaps}
+                    fill="none"
+                    stroke={line.color}
+                    strokeWidth="2"
+                    strokeDasharray="3 4"
+                    opacity=".65"
+                  />
+                </NativeTooltip>
               )}
             </g>
           );
         })}
         {samples.map((sample) => (
-          <circle key={sample.time} cx={x(sample)} cy={y(sample)} r="2" fill="currentColor">
-            <title>
-              {formatDateTime(sample.time)}: {format(sample[metric])}
-            </title>
-          </circle>
+          <circle key={sample.time} cx={x(sample)} cy={y(sample)} r="2" fill="currentColor" />
         ))}
         {samples.length > 0 &&
           [0, 0.5, 1].map((fraction) => (
@@ -556,17 +552,21 @@ function ResourceDonut({
       )}
       <div aria-label={`${label} resource totals`} style={{ display: "grid", gap: 6, fontSize: 12 }}>
         {rings.map((ring) => (
-          <div
+          <NativeTooltip
             key={ring.label}
             title={`${ring.label} relative to allocatable capacity. ${ring.label === "Usage" ? `Unused allocatable (usage): ${unused}` : `Unrequested: ${unrequested}`}`}
           >
-            <span style={{ color: ring.color }}>●</span> {ring.label}: {available(ring.value)}
-            {percentage(ring.value) !== undefined && <span> ({percentage(ring.value)!.toFixed(1)}%)</span>}
-          </div>
+            <div>
+              <span style={{ color: ring.color }}>●</span> {ring.label}: {available(ring.value)}
+              {percentage(ring.value) !== undefined && <span> ({percentage(ring.value)!.toFixed(1)}%)</span>}
+            </div>
+          </NativeTooltip>
         ))}
-        <div title={allocationDetail}>
-          <span style={{ color: "#5486b5" }}>●</span> Allocatable: {available(denominator)}
-        </div>
+        <NativeTooltip title={allocationDetail}>
+          <div>
+            <span style={{ color: "#5486b5" }}>●</span> Allocatable: {available(denominator)}
+          </div>
+        </NativeTooltip>
       </div>
       {(status || sample?.resourceStatus) && (
         <div role="status" style={{ color: "var(--textColorSecondary)", fontSize: 11, marginTop: 8 }}>

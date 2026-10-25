@@ -46,7 +46,7 @@ export function tokenizeSql(value: string): SqlToken[] {
 }
 
 const styles = `
-.power-logs .power-logs-sql-editor{position:relative;box-sizing:border-box;width:100%;height:56px;min-height:48px;max-height:120px;flex-shrink:0;resize:vertical;overflow:hidden;border:1px solid var(--borderColor);border-radius:4px;background:var(--inputControlBackground,var(--contentColor));--sql-string:#e6a28c;--sql-number:#98c78e;--sql-function:#81b9e6;--sql-identifier:var(--textColorPrimary)}
+.power-logs .power-logs-sql-editor{position:relative;box-sizing:border-box;width:100%;height:56px;min-height:48px;max-height:max(120px,60vh);flex-shrink:0;resize:vertical;overflow:hidden;border:1px solid var(--borderColor);border-radius:4px;background:var(--inputControlBackground,var(--contentColor));--sql-string:#e6a28c;--sql-number:#98c78e;--sql-function:#81b9e6;--sql-identifier:var(--textColorPrimary)}
 .power-logs .power-logs-sql-editor::-webkit-resizer{border:0;background:linear-gradient(135deg,transparent 45%,var(--borderColor) 46% 53%,transparent 54% 70%,var(--borderColor) 71% 78%,transparent 79%) center/10px 10px no-repeat}
 .theme-light .power-logs-sql-editor{--sql-string:#9e2b1a;--sql-number:#17642d;--sql-function:#005a9e;--sql-identifier:#684c9b}
 .power-logs .power-logs-sql-editor>textarea,.power-logs .power-logs-sql-editor>pre{position:absolute;inset:0;box-sizing:border-box;width:100%;height:100%;min-height:0;max-height:none;margin:0;padding:4px 8px;border:0;border-radius:0;font:12px/1.6 var(--font-monospace,monospace);letter-spacing:normal;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2;overflow:auto;scrollbar-gutter:stable;resize:none}

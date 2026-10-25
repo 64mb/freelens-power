@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: Apache-2.0
+
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { tooltipText } from "./native-tooltip.test-utils";
 import { startWelcomeOverride } from "./welcome";
 
 let dispose: (() => void) | undefined;
@@ -51,7 +54,7 @@ describe("welcome content override", () => {
       "🔒",
     ]);
     expect(content?.textContent).toContain("IPv6 and Colima");
-    expect(content?.querySelector("li")?.title).toContain("IPv6 and automatic Colima");
+    expect(tooltipText(content?.querySelector("li"))).toContain("IPv6 and automatic Colima");
     expect(content?.textContent).toContain("Certificate details in Secrets");
     expect(content?.textContent).toContain("Themes and cluster icon studio");
     expect(content?.textContent).not.toContain("macOS");
@@ -106,3 +109,12 @@ describe("welcome content override", () => {
     expect(customContent(later)).toBeNull();
   });
 });
+
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: {
+    Component: {
+      Tooltip: ({ targetId, children }: any) =>
+        createElement("span", { role: "tooltip", "data-target-id": targetId }, children),
+    },
+  },
+}));

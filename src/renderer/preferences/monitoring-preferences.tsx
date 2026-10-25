@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { HISTORY_MAX_BYTES, type HistoryStatus } from "../../common/monitoring-history";
 import { MonitoringPreferencesStore } from "../../common/store/monitoring-preferences-store";
 import { monitoringHistory } from "../monitoring-history";
+import { NativeTooltip } from "../native-tooltip";
 
 export const MonitoringPreferences = observer(() => {
   const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
@@ -84,12 +85,9 @@ export const MonitoringPreferences = observer(() => {
         >
           Keep local history
         </Renderer.Component.Switch>
-        <div
-          className="power-settings-hint"
-          title="SQLite storage. Collects while the cluster view is active. Resolution: 30 seconds for 2 hours, 5 minutes for 24 hours, 30 minutes for 7 days. Disabling preserves saved history."
-        >
-          Up to 7 days, limited to 100 MiB.
-        </div>
+        <NativeTooltip title="SQLite storage. Collects while the cluster view is active. Resolution: 30 seconds for 2 hours, 5 minutes for 24 hours, 30 minutes for 7 days. Disabling preserves saved history.">
+          <div className="power-settings-hint">Up to 7 days, limited to 100 MiB.</div>
+        </NativeTooltip>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }} role="status">
@@ -129,6 +127,7 @@ export const MonitoringPreferences = observer(() => {
           </div>
         </div>
         <Renderer.Component.Button
+          tooltip="Delete locally collected metric history without changing other settings"
           style={{
             flexShrink: 0,
             display: "inline-flex",
@@ -144,7 +143,6 @@ export const MonitoringPreferences = observer(() => {
             background: "var(--contentColor)",
             color: "var(--textColorSecondary)",
           }}
-          title="Delete locally collected metric history without changing other settings"
           onClick={() => {
             void monitoringHistory
               .clear()

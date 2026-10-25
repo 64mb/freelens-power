@@ -31,6 +31,7 @@ import { applyPowerLogsLimits, normalizePowerLogsLimits } from "../common/power-
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
+import { NativeTooltip } from "./native-tooltip";
 import { LogJson } from "./power-log-json";
 import { LogJsonCell } from "./power-log-json-cell";
 import { formatJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
@@ -265,9 +266,11 @@ function LogRows({
                 key={record.key}
                 onClick={() => onSelect(record)}
               >
-                <span title={record.timestamp !== null ? formatDateTime(record.timestamp) : "Timestamp unavailable"}>
-                  {record.timestamp !== null ? formatDateTime(record.timestamp).slice(-8) : "—"}
-                </span>
+                <NativeTooltip
+                  title={record.timestamp !== null ? formatDateTime(record.timestamp) : "Timestamp unavailable"}
+                >
+                  <span>{record.timestamp !== null ? formatDateTime(record.timestamp).slice(-8) : "—"}</span>
+                </NativeTooltip>
                 <span className="power-log-level">{record.level}</span>
                 <span className="power-log-origin" id={`power-log-source-${record.key}`}>
                   {record.pod}
@@ -308,17 +311,17 @@ function LogDetails({
     <aside className="power-logs-detail" aria-label="Log line details">
       <header>
         <strong>Line details</strong>
-        <button
-          className="power-logs-detail-close"
-          aria-label="Close line details"
-          title="Close line details"
-          onClick={onClose}
-        >
-          <Icon material="close" size={16} />
-        </button>
+        <NativeTooltip title="Close line details">
+          <button className="power-logs-detail-close" aria-label="Close line details" onClick={onClose}>
+            <Icon material="close" size={16} />
+          </button>
+        </NativeTooltip>
       </header>
       <p className="power-logs-muted">
-        {[record.pod && sourceKey(record), record.level.toUpperCase()].filter(Boolean).join(" · ")}
+        {record.pod && <>{sourceKey(record)} · </>}
+        <span className="power-logs-level-label" data-level={record.level}>
+          {record.level.toUpperCase()}
+        </span>
       </p>
       {record.message && (
         <pre>
@@ -329,22 +332,23 @@ function LogDetails({
         <>
           <div className="power-logs-structured-heading">
             <strong>{jsonColumn ? `Structured fields · ${jsonColumn}` : "Structured fields"}</strong>
-            <button
-              type="button"
-              className="power-logs-detail-copy"
-              aria-label="Copy structured JSON"
-              title={copyFeedback || "Copy structured JSON"}
-              onClick={() => {
-                try {
-                  clipboard.writeText(structuredFields);
-                  setCopyFeedback("Copied");
-                } catch {
-                  setCopyFeedback("Unable to copy JSON");
-                }
-              }}
-            >
-              <Icon material={copyFeedback === "Copied" ? "check" : "content_copy"} size={16} />
-            </button>
+            <NativeTooltip title={copyFeedback || "Copy structured JSON"}>
+              <button
+                type="button"
+                className="power-logs-detail-copy"
+                aria-label="Copy structured JSON"
+                onClick={() => {
+                  try {
+                    clipboard.writeText(structuredFields);
+                    setCopyFeedback("Copied");
+                  } catch {
+                    setCopyFeedback("Unable to copy JSON");
+                  }
+                }}
+              >
+                <Icon material={copyFeedback === "Copied" ? "check" : "content_copy"} size={16} />
+              </button>
+            </NativeTooltip>
             <span className="power-logs-muted" aria-live="polite">
               {copyFeedback}
             </span>
@@ -381,17 +385,17 @@ function FieldFilters({
       {filters.map((filter, index) => {
         const label = `${filter.column ? `${filter.column} ` : ""}${fieldFilterLabel(filter)}`;
         return (
-          <button
-            type="button"
-            key={index}
-            disabled={disabled}
-            title={label}
-            aria-label={`Remove JSON filter ${label}`}
-            onClick={() => onRemove(index)}
-          >
-            <span>{label}</span>
-            <Icon material="close" size={14} />
-          </button>
+          <NativeTooltip key={index} title={label}>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`Remove JSON filter ${label}`}
+              onClick={() => onRemove(index)}
+            >
+              <span>{label}</span>
+              <Icon material="close" size={14} />
+            </button>
+          </NativeTooltip>
         );
       })}
     </div>
@@ -1132,9 +1136,11 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
         <div className="power-logs-actions">
           <div className="power-logs-toolbar power-logs-capture">
             <details ref={captureOptions} className="power-logs-options">
-              <summary title={`Capture window: ${captureMinutes} minutes`}>
-                <Icon material="tune" size={16} /> Options
-              </summary>
+              <NativeTooltip title={`Capture window: ${captureMinutes} minutes`}>
+                <summary>
+                  <Icon material="tune" size={16} /> Options
+                </summary>
+              </NativeTooltip>
               <div>
                 {" "}
                 <label>
@@ -1205,22 +1211,23 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             </button>
           )}
           {target?.kind === "Pod" && (
-            <button type="button" aria-label="Native logs" title="Native logs" onClick={native}>
-              <Renderer.Component.Icon material="open_in_new" size={16} tooltip="Native logs" tooltipOverrideDisabled />
-            </button>
+            <NativeTooltip title="Native logs">
+              <button type="button" aria-label="Native logs" onClick={native}>
+                <Renderer.Component.Icon material="open_in_new" size={16} />
+              </button>
+            </NativeTooltip>
           )}
         </div>
       </header>
       {target ? (
-        <div
-          className="power-logs-target power-logs-muted"
-          title={`${target.kind} / ${target.name} · ${target.namespace} · UID ${target.uid}`}
-        >
-          <strong>
-            {target.kind} / {target.name}
-          </strong>{" "}
-          · {target.namespace}
-        </div>
+        <NativeTooltip title={`${target.kind} / ${target.name} · ${target.namespace} · UID ${target.uid}`}>
+          <div className="power-logs-target power-logs-muted">
+            <strong>
+              {target.kind} / {target.name}
+            </strong>{" "}
+            · {target.namespace}
+          </div>
+        </NativeTooltip>
       ) : (
         <SourcePicker />
       )}
@@ -1251,24 +1258,31 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             <LogSelect
               label="Container source"
               renderOption={(option, context) => {
-                if (context !== "menu") return <span title={option.label}>{option.label}</span>;
+                if (context !== "menu")
+                  return (
+                    <NativeTooltip title={option.label}>
+                      <span>{option.label}</span>
+                    </NativeTooltip>
+                  );
                 const item = sources.find((item) => sourceKey(item) === option.value);
                 return (
-                  <span className="power-logs-source-option" title={option.label}>
-                    <Icon material={item ? "view_in_ar" : "layers"} size={16} />
-                    <span className="power-logs-option-text">
-                      <strong>{item ? item.pod : option.value ? "All pods" : option.label}</strong>
-                      <small>
-                        {option.value
-                          ? `Container · ${item?.container ?? option.value.slice(10)}`
-                          : "Every pod and container"}
-                        {item?.previous ? " · Previous" : ""}
-                      </small>
+                  <NativeTooltip title={option.label}>
+                    <span className="power-logs-source-option">
+                      <Icon material={item ? "view_in_ar" : "layers"} size={16} />
+                      <span className="power-logs-option-text">
+                        <strong>{item ? item.pod : option.value ? "All pods" : option.label}</strong>
+                        <small>
+                          {option.value
+                            ? `Container · ${item?.container ?? option.value.slice(10)}`
+                            : "Every pod and container"}
+                          {item?.previous ? " · Previous" : ""}
+                        </small>
+                      </span>
+                      <span className="power-logs-source-check" aria-hidden="true">
+                        {source === option.value && <Icon material="check" size={16} />}
+                      </span>
                     </span>
-                    <span className="power-logs-source-check" aria-hidden="true">
-                      {source === option.value && <Icon material="check" size={16} />}
-                    </span>
-                  </span>
+                  </NativeTooltip>
                 );
               }}
               value={source}
@@ -1303,15 +1317,15 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             filters={fieldFilters}
             onRemove={(index) => setFieldFilters(fieldFilters.filter((_, item) => item !== index))}
           />
-          <div
-            className="power-logs-muted power-logs-status"
-            role="status"
+          <NativeTooltip
             title={`${status} · Viewer retains up to ${limits.liveRows.toLocaleString()} lines / ${limits.liveBytes / 1048576} MiB`}
           >
-            <span>{filtered.length.toLocaleString()} matching lines</span> · {status}
-            {liveCoverage && live ? ` · ${liveCoverage.active}/${liveCoverage.total} active sources` : ""} · Viewer
-            retains up to {limits.liveRows.toLocaleString()} lines / {limits.liveBytes / 1048576} MiB
-          </div>
+            <div className="power-logs-muted power-logs-status" role="status">
+              <span>{filtered.length.toLocaleString()} matching lines</span> · {status}
+              {liveCoverage && live ? ` · ${liveCoverage.active}/${liveCoverage.total} active sources` : ""} · Viewer
+              retains up to {limits.liveRows.toLocaleString()} lines / {limits.liveBytes / 1048576} MiB
+            </div>
+          </NativeTooltip>
           <div className="power-logs-workspace">
             <LogRows
               records={filtered}
@@ -1353,39 +1367,37 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 const item = captures.find((item) => item.id === option.value);
                 if (context !== "menu" || !item) return option.label;
                 return (
-                  <span className="power-logs-snapshot-option" title={option.label}>
-                    <span className="power-logs-option-text">
-                      <strong>{item.target.name}</strong>
-                      <small>
-                        {formatDateTime(item.createdAt)} · {item.rows.toLocaleString()} lines ·{" "}
-                        {item.state[0].toUpperCase()}
-                        {item.state.slice(1)}
-                      </small>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`Delete snapshot ${item.target.name}`}
-                      title="Delete snapshot (Alt+Delete)"
-                      data-capture-delete={item.id}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      disabled={!!queryId || capturePending || deletingCount > 0 || item.state === "collecting"}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        void deleteCapture(item.id);
-                      }}
-                    >
-                      <Renderer.Component.Icon
-                        material="delete_outline"
-                        size={16}
-                        tooltip="Delete snapshot"
-                        tooltipOverrideDisabled
-                      />
-                    </button>
+                  <span className="power-logs-snapshot-option">
+                    <NativeTooltip title={option.label}>
+                      <span className="power-logs-option-text">
+                        <strong>{item.target.name}</strong>
+                        <small>
+                          {formatDateTime(item.createdAt)} · {item.rows.toLocaleString()} lines ·{" "}
+                          {item.state[0].toUpperCase()}
+                          {item.state.slice(1)}
+                        </small>
+                      </span>
+                    </NativeTooltip>
+                    <NativeTooltip title="Delete snapshot (Alt+Delete)">
+                      <button
+                        type="button"
+                        aria-label={`Delete snapshot ${item.target.name}`}
+                        data-capture-delete={item.id}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        disabled={!!queryId || capturePending || deletingCount > 0 || item.state === "collecting"}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void deleteCapture(item.id);
+                        }}
+                      >
+                        <Renderer.Component.Icon material="delete_outline" size={16} />
+                      </button>
+                    </NativeTooltip>
                   </span>
                 );
               }}
@@ -1406,16 +1418,17 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 })),
               ]}
             />
-            <button
-              type="button"
-              disabled={!captureId || !!queryId || deleting.current.has(captureId)}
-              title="Export JSON Lines (NDJSON)"
-              onClick={() => {
-                void client.export(captureId).catch(() => setError("Could not export capture"));
-              }}
-            >
-              <Icon material="download" size={16} /> Export JSON
-            </button>
+            <NativeTooltip title="Export JSON Lines (NDJSON)">
+              <button
+                type="button"
+                disabled={!captureId || !!queryId || deleting.current.has(captureId)}
+                onClick={() => {
+                  void client.export(captureId).catch(() => setError("Could not export capture"));
+                }}
+              >
+                <Icon material="download" size={16} /> Export JSON
+              </button>
+            </NativeTooltip>
           </div>
           {!!chosenCapture?.notes.length && (
             <details className="power-logs-snapshot-notes power-logs-muted">
@@ -1426,13 +1439,13 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             </details>
           )}
           <div className="power-logs-toolbar power-logs-sql-tools">
-            <label
-              htmlFor="power-logs-sql"
-              className="power-logs-control-label"
+            <NativeTooltip
               title={`Read-only SELECT · ${limits.queryMs / 1000} s · ${limits.resultRows.toLocaleString()} rows · Schema: logs(timestamp INTEGER in milliseconds, pod, podUid, container, level, message, fieldsJson, previous INTEGER 0 or 1)`}
             >
-              SQL query
-            </label>
+              <label htmlFor="power-logs-sql" className="power-logs-control-label">
+                SQL query
+              </label>
+            </NativeTooltip>
             <button
               type="button"
               disabled={
@@ -1585,33 +1598,35 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </div>
               {result.rows.length > 50 && (
                 <nav className="power-logs-toolbar power-logs-pagination" aria-label="SQL result pages">
-                  <button
-                    type="button"
-                    aria-label="Previous page"
-                    title="Previous page"
-                    disabled={resultPage === 0}
-                    onClick={() => {
-                      setResultPage(resultPage - 1);
-                      setSelectedSqlRow(undefined);
-                    }}
-                  >
-                    <Icon material="chevron_left" size={16} />
-                  </button>
+                  <NativeTooltip title="Previous page">
+                    <button
+                      type="button"
+                      aria-label="Previous page"
+                      disabled={resultPage === 0}
+                      onClick={() => {
+                        setResultPage(resultPage - 1);
+                        setSelectedSqlRow(undefined);
+                      }}
+                    >
+                      <Icon material="chevron_left" size={16} />
+                    </button>
+                  </NativeTooltip>
                   <span className="power-logs-muted">
                     Page {resultPage + 1} / {Math.max(1, Math.ceil(result.rows.length / 50))}
                   </span>
-                  <button
-                    type="button"
-                    aria-label="Next page"
-                    title="Next page"
-                    disabled={(resultPage + 1) * 50 >= result.rows.length}
-                    onClick={() => {
-                      setResultPage(resultPage + 1);
-                      setSelectedSqlRow(undefined);
-                    }}
-                  >
-                    <Icon material="chevron_right" size={16} />
-                  </button>
+                  <NativeTooltip title="Next page">
+                    <button
+                      type="button"
+                      aria-label="Next page"
+                      disabled={(resultPage + 1) * 50 >= result.rows.length}
+                      onClick={() => {
+                        setResultPage(resultPage + 1);
+                        setSelectedSqlRow(undefined);
+                      }}
+                    >
+                      <Icon material="chevron_right" size={16} />
+                    </button>
+                  </NativeTooltip>
                 </nav>
               )}
             </>
@@ -1627,20 +1642,23 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
         </>
       )}
       <div className="power-logs-muted power-logs-footer">
-        <span
-          className="power-logs-caption"
+        <NativeTooltip
           title={`Gentle collection: ${limits.requestsPerSecond} requests/s, ${limits.bytesPerSecond / 1048576} MiB/s. Captures: ${limits.captureSourceLines.toLocaleString()} lines / ${limits.captureSourceBytes / 1048576} MiB per source, ${limits.captureBytes / 1048576} MiB total. Up to ${limits.captures} snapshots retained for ${limits.ttlMs / 60000} minutes.`}
         >
-          Gentle collection · {limits.requestsPerSecond} requests/s · {limits.bytesPerSecond / 1048576} MiB/s · Captures
-          limited to {limits.captureSourceLines.toLocaleString()} lines / {limits.captureSourceBytes / 1048576} MiB per
-          source and {limits.captureBytes / 1048576} MiB total · Up to {limits.captures} temporary snapshots, retained
-          for {limits.ttlMs / 60000} min
-        </span>
-        {collectionNotes.length > 0 && (
-          <span role="note" className="power-logs-notice power-logs-collection-note" title={collectionNotes.join("\n")}>
-            <Icon material="warning_amber" size={14} />
-            <span>{collectionNotes.join(" · ")}</span>
+          <span className="power-logs-caption">
+            Gentle collection · {limits.requestsPerSecond} requests/s · {limits.bytesPerSecond / 1048576} MiB/s ·
+            Captures limited to {limits.captureSourceLines.toLocaleString()} lines /{" "}
+            {limits.captureSourceBytes / 1048576} MiB per source and {limits.captureBytes / 1048576} MiB total · Up to{" "}
+            {limits.captures} temporary snapshots, retained for {limits.ttlMs / 60000} min
           </span>
+        </NativeTooltip>
+        {collectionNotes.length > 0 && (
+          <NativeTooltip title={collectionNotes.join("\n")}>
+            <span role="note" className="power-logs-notice power-logs-collection-note">
+              <Icon material="warning_amber" size={14} />
+              <span>{collectionNotes.join(" · ")}</span>
+            </span>
+          </NativeTooltip>
         )}
       </div>
     </div>

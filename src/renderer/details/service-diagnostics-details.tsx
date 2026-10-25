@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import { useEffect, useState } from "react";
 import { diagnoseService } from "../../common/service-diagnostics";
+import { NativeTooltip } from "../native-tooltip";
 
 const { DrawerTitle, DrawerItem, Icon } = Renderer.Component;
 type Evidence = { pods?: Renderer.K8sApi.Pod[]; slices?: Renderer.K8sApi.EndpointSlice[]; loaded: boolean };
@@ -65,29 +66,30 @@ export const ServiceDiagnosticsDetails = observer(
           >
             <span style={{ flex: 1, minWidth: 0 }}>Service backend diagnostics</span>
             {!external && (
-              <button
-                type="button"
-                title="Refresh backend evidence"
-                aria-label="Refresh evidence"
-                disabled={!evidence.loaded}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 32,
-                  height: 32,
-                  flexShrink: 0,
-                  padding: 0,
-                  background: "transparent",
-                  border: 0,
-                  color: "var(--textColorSecondary)",
-                  cursor: evidence.loaded ? "pointer" : "default",
-                  opacity: evidence.loaded ? 1 : 0.4,
-                }}
-                onClick={() => setRefresh((value) => value + 1)}
-              >
-                <Icon material="refresh" tooltip="Refresh backend evidence" size={18} />
-              </button>
+              <NativeTooltip title="Refresh backend evidence">
+                <button
+                  type="button"
+                  aria-label="Refresh evidence"
+                  disabled={!evidence.loaded}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 32,
+                    height: 32,
+                    flexShrink: 0,
+                    padding: 0,
+                    background: "transparent",
+                    border: 0,
+                    color: "var(--textColorSecondary)",
+                    cursor: evidence.loaded ? "pointer" : "default",
+                    opacity: evidence.loaded ? 1 : 0.4,
+                  }}
+                  onClick={() => setRefresh((value) => value + 1)}
+                >
+                  <Icon material="refresh" size={18} />
+                </button>
+              </NativeTooltip>
             )}
           </span>
         </DrawerTitle>

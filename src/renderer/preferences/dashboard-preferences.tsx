@@ -7,6 +7,7 @@ import { DASHBOARD_PICK_ELEMENT, type DashboardPickerResult } from "../../common
 import { dashboardSelectorLimit, normalizeDashboardSelector } from "../../common/dashboard-selector";
 import { DASHBOARD_SITE_ICONS, type DashboardSiteIcon } from "../../common/dashboard-views";
 import { DashboardPreferencesStore } from "../../common/store/dashboard-preferences-store";
+import { NativeTooltip } from "../native-tooltip";
 import { SettingsIconAction } from "./settings-icon-action";
 import { SettingsField, SettingsModal } from "./settings-modal";
 
@@ -266,30 +267,31 @@ export const DashboardPreferences = observer(() => {
             opacity: draggingId === card.id ? 0.5 : 1,
           }}
         >
-          <button
-            type="button"
-            className="power-dashboard-drag-handle"
-            draggable
-            aria-label={`Reorder ${card.title}`}
-            title="Drag to reorder, or use the Up and Down arrow keys"
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", card.id);
-              setDraggingId(card.id);
-            }}
-            onDragEnd={finishDrag}
-            onKeyDown={(event) => {
-              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-              event.preventDefault();
-              event.stopPropagation();
-              moveCard(
-                card,
-                Math.max(0, Math.min(preferences.cards.length - 1, index + (event.key === "ArrowUp" ? -1 : 1))),
-              );
-            }}
-          >
-            <Icon material="drag_indicator" />
-          </button>
+          <NativeTooltip title="Drag to reorder, or use the Up and Down arrow keys">
+            <button
+              type="button"
+              className="power-dashboard-drag-handle"
+              draggable
+              aria-label={`Reorder ${card.title}`}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", card.id);
+                setDraggingId(card.id);
+              }}
+              onDragEnd={finishDrag}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                event.preventDefault();
+                event.stopPropagation();
+                moveCard(
+                  card,
+                  Math.max(0, Math.min(preferences.cards.length - 1, index + (event.key === "ArrowUp" ? -1 : 1))),
+                );
+              }}
+            >
+              <Icon material="drag_indicator" />
+            </button>
+          </NativeTooltip>
           <WebsiteIcon
             key={card.url}
             url={card.url}
@@ -298,19 +300,19 @@ export const DashboardPreferences = observer(() => {
             }
           />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              title={card.title}
-              style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            >
-              {card.title}
-            </div>
-            <div
-              className="power-settings-hint"
-              title={card.url}
-              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 3 }}
-            >
-              {card.url}
-            </div>
+            <NativeTooltip title={card.title}>
+              <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {card.title}
+              </div>
+            </NativeTooltip>
+            <NativeTooltip title={card.url}>
+              <div
+                className="power-settings-hint"
+                style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 3 }}
+              >
+                {card.url}
+              </div>
+            </NativeTooltip>
           </div>
           <span
             aria-label={`Card size ${card.size.toUpperCase()}`}

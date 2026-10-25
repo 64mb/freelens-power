@@ -82,6 +82,7 @@ export function validateSearchRequest(input: unknown): SearchIndexRequest {
       request.query.length > 300 ||
       (request.limit !== undefined &&
         (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 1000)) ||
+      (request.offset !== undefined && (!Number.isSafeInteger(request.offset) || request.offset < 0)) ||
       (request.kind !== undefined && !/^[a-zA-Z0-9_.:-]{1,253}$/.test(request.kind)) ||
       (request.namespace !== undefined && !/^[a-zA-Z0-9_.:-]{0,253}$/.test(request.namespace))
     )
@@ -91,6 +92,7 @@ export function validateSearchRequest(input: unknown): SearchIndexRequest {
       operation: "query",
       query: request.query,
       limit: request.limit,
+      offset: request.offset,
       kind: request.kind,
       namespace: request.namespace,
     };

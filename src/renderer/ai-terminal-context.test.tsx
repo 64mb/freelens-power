@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AiTerminalContext, activeAiTerminal, captureAiTerminal } from "./ai-terminal-context";
+import { MockTooltip } from "./native-tooltip.test-utils";
 
 const mocks = vi.hoisted(() => ({
   clusterId: "cluster-a",
@@ -16,6 +18,7 @@ vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: mocks.clusterId } }) } },
     Component: {
+      Tooltip: (props: any) => <MockTooltip {...props} />,
       Icon: () => {
         throw new Error("Native icons require the host UI provider");
       },
@@ -74,10 +77,10 @@ describe("terminal snapshot capture", () => {
     const onChange = vi.fn();
     render(<AiTerminalContext clusterId="cluster-a" onChange={onChange} disabled={false} />);
     const button = screen.getByLabelText("Attach terminal output") as HTMLButtonElement;
-    const tooltip = screen.getByRole("tooltip", { hidden: true });
+    const tooltip = document.querySelector(`[data-target-id="${button.id}"]`)!;
     expect(button.disabled).toBe(true);
-    expect(button.getAttribute("aria-describedby")).toBe(tooltip.id);
-    expect(tooltip.textContent).toBe("Open a connected terminal in this cluster");
+    expect(tooltip.getAttribute("data-target-id")).toBe(button.id);
+    expect(tooltip.getAttribute("data-tooltip-text")).toBe("Open a connected terminal in this cluster");
     fireEvent.click(button);
     expect(onChange).not.toHaveBeenCalled();
     expect(mocks.sendCommand).not.toHaveBeenCalled();

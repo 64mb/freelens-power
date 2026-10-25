@@ -63,6 +63,7 @@ vi.mock("react-select", () => ({
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
+    Component: { Tooltip: () => null },
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.id }, spec: {} }) } },
     K8sApi: Object.fromEntries(
       [
@@ -164,12 +165,83 @@ it("closes an open select before the dialog even when closed selects also preven
 });
 it("requests a larger bounded result page without a Kubernetes request per key", async () => {
   await launch(undefined, true);
-  fireEvent.click(screen.getByText("Show more matches"));
-  await waitFor(() => expect(state.query).toHaveBeenCalledWith("", 200, {}));
+  fireEvent.click(screen.getByText("Show all matches"));
+  await waitFor(() => expect(state.query).toHaveBeenCalledWith("", 1000, {}));
   fireEvent.change(screen.getByLabelText("Resource name, namespace, kind, label or indexed text"), {
     target: { value: "credentials" },
   });
-  await waitFor(() => expect(state.query).toHaveBeenCalledWith("credentials", 200, {}));
+  await waitFor(() => expect(state.query).toHaveBeenCalledWith("credentials", 100, {}));
+});
+it.each(["success", "failure"])("shows pending pagination and restores the control after %s", async (outcome) => {
+  await launch([resource("alpha"), resource("beta")], true);
+  let resolve!: (value: unknown) => void;
+  let reject!: (error: Error) => void;
+  state.query.mockImplementationOnce(
+    () =>
+      new Promise((done, fail) => {
+        resolve = done;
+        reject = fail;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Show all matches" }));
+  const pending = screen.getByRole("button", { name: "Loading matches… 2 / 2" }) as HTMLButtonElement;
+  expect(pending.disabled).toBe(true);
+  expect(pending.getAttribute("aria-busy")).toBe("true");
+  fireEvent.click(pending);
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, {}));
+  expect(state.query).toHaveBeenCalledTimes(2);
+  const input = screen.getByLabelText("Resource name, namespace, kind, label or indexed text");
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  await act(async () => {
+    if (outcome === "success")
+      resolve({ documents: [resource("alpha"), resource("beta"), resource("gamma")], total: 3, hasMore: false });
+    else reject(new Error("unavailable"));
+  });
+  if (outcome === "failure") {
+    const ready = screen.getByRole("button", { name: "Show all matches" }) as HTMLButtonElement;
+    expect(ready.disabled).toBe(false);
+    expect(ready.getAttribute("aria-busy")).toBe("false");
+  } else expect(screen.queryByRole("button", { name: /Loading matches/ })).toBeNull();
+  if (outcome === "success") expect(screen.getByText("gamma")).toBeTruthy();
+  else expect(screen.getByText(/Search cache unavailable/)).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(state.open).toHaveBeenCalledWith(resource("beta")));
+});
+it("loads every remaining page with one click and reports page progress", async () => {
+  await launch([resource("alpha")], true);
+  let finish!: (value: unknown) => void;
+  state.query.mockResolvedValueOnce({ documents: [resource("alpha"), resource("beta")], total: 3, hasMore: true });
+  state.query.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Show all matches" }));
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 2 }));
+  expect(screen.getByRole("button", { name: "Loading matches… 2 / 3" })).toBeTruthy();
+  await act(async () => finish({ documents: [resource("gamma")], total: 3, hasMore: false }));
+  expect(screen.getByText("gamma")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /matches/ })).toBeNull();
+});
+it.each(["query", "close"])("stops loading all pages after %s changes", async (change) => {
+  await launch([resource("alpha")], true);
+  let finish!: (value: unknown) => void;
+  state.query.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Show all matches" }));
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, {}));
+  const input = screen.getByLabelText("Resource name, namespace, kind, label or indexed text");
+  if (change === "query") fireEvent.change(input, { target: { value: "beta" } });
+  else fireEvent.keyDown(input, { key: "Escape" });
+  await act(async () => finish({ documents: [resource("stale")], total: 3, hasMore: true }));
+  expect(screen.queryByText("stale")).toBeNull();
+  expect(state.query.mock.calls.some((call) => call[2]?.offset)).toBe(false);
+  if (change === "query") await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("beta", 100, {}));
 });
 it("closes on cluster change and ignores replies from the old partition", async () => {
   await launch();

@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
+
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { MockTooltip } from "./native-tooltip.test-utils";
 
-vi.mock("@freelensapp/extensions", () => ({ Common: { Store: { ExtensionStore: class {} } } }));
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: { Component: { Tooltip: (props: any) => <MockTooltip {...props} /> } },
+  Common: { Store: { ExtensionStore: class {} } },
+}));
 
 import { IconColorPicker, MATCHING_ICON_COLORS } from "./cluster-icon-colors";
 

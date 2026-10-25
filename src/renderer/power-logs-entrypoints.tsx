@@ -141,8 +141,8 @@ export const PowerLogsMenu = observer(
                     }}
                   >
                     <Renderer.Component.StatusBrick
+                      tooltip={status}
                       className={status.toLowerCase().replaceAll(" ", "-")}
-                      title={status}
                     />
                     <span>{pod.getName()}</span>
                   </Renderer.Component.MenuItem>

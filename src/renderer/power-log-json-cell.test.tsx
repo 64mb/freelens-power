@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 import { LogJsonCell } from "./power-log-json-cell";
 
 const mocks = vi.hoisted(() => ({ writeText: vi.fn() }));
@@ -19,7 +21,7 @@ it.each([
   const { container, getByRole } = render(<LogJsonCell value={value} Icon={Icon} />);
   expect(container.querySelector(".power-log-json")?.textContent).toBe(JSON.stringify(JSON.parse(value)));
   expect(container.querySelector("[data-token]")).not.toBeNull();
-  expect(getByRole("button", { name: "Copy JSON" }).title).toBe("Copy JSON");
+  expect(tooltipText(getByRole("button", { name: "Copy JSON" }))).toBe("Copy JSON");
   expect(container.querySelector('[data-icon="content_copy"]')).not.toBeNull();
 });
 
@@ -157,7 +159,7 @@ it("reports clipboard failures and resets feedback when the cell changes", () =>
   const { getByRole, container, rerender } = render(<LogJsonCell value='{"a":1}' Icon={Icon} />);
   fireEvent.click(getByRole("button", { name: "Copy JSON" }));
   expect(getByRole("status").textContent).toBe("Unable to copy JSON");
-  expect(getByRole("button").title).toBe("Unable to copy JSON");
+  expect(tooltipText(getByRole("button"))).toBe("Unable to copy JSON");
   expect(container.querySelector('[data-icon="check"]')).toBeNull();
   rerender(<LogJsonCell value="[]" Icon={Icon} />);
   expect(getByRole("status").textContent).toBe("");
@@ -199,3 +201,7 @@ it("copies exact unsafe integer and nested numeric literals from complete field 
   fireEvent.click(getByRole("button", { name: "Copy value" }));
   expect(mocks.writeText).toHaveBeenLastCalledWith(value.slice(value.indexOf('{"n"', 1), -1));
 });
+
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: { Component: { Tooltip: (props: any) => <MockTooltip {...props} /> } },
+}));

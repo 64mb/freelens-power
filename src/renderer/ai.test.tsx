@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+
 import { serialize } from "node:v8";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
 import { act } from "react-dom/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aiLauncherBottom, aiLauncherLeft, readAiContext, startAiChat } from "./ai";
+import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
 const mocks = vi.hoisted(() => ({
   clusterId: "cluster-a",
@@ -46,7 +48,7 @@ vi.mock("../common/store/ai-preferences-store", () => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
-      Tooltip: () => null,
+      Tooltip: (props: any) => <MockTooltip {...props} />,
       Icon: ({ material }: { material: string }) => (
         <span className="Icon material">
           <span className="icon">{material}</span>
@@ -95,10 +97,10 @@ describe("AI chat", () => {
     expect(triggerStyle.right).toBe(triggerStyle.top);
     expect(attach.style.borderColor).toBe("var(--borderFaintColor)");
     expect(attach.style.color).toBe("var(--textColorSecondary)");
-    expect(attach.title).toBe("Attach terminal output to this question");
+    expect(tooltipText(attach)).toBe("Attach terminal output to this question");
     fireEvent.click(attach);
     expect(attach.getAttribute("aria-pressed")).toBe("true");
-    expect(attach.title).toBe("Detach terminal output from this question");
+    expect(tooltipText(attach)).toBe("Detach terminal output from this question");
     fireEvent.click(screen.getByLabelText("Close AI assistant"));
     mocks.terminalOutput = "fresh reopened output";
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
@@ -738,16 +740,16 @@ it("explains chat controls on hover while leaving Send and Stop without tooltips
       }) as never,
   );
   stop = startAiChat(() => true);
-  expect(screen.getByLabelText("Open AI assistant").getAttribute("title")).toContain("Open AI assistant");
+  expect(tooltipText(screen.getByLabelText("Open AI assistant"))).toContain("Open AI assistant");
   fireEvent.click(screen.getByLabelText("Open AI assistant"));
   for (const button of document.querySelectorAll<HTMLButtonElement>(".power-ai-panel button")) {
     if (button.getAttribute("aria-label") === "Send") expect(button.hasAttribute("title")).toBe(false);
-    else expect(button.title).not.toBe("");
+    else expect(tooltipText(button)).not.toBe("");
   }
-  expect(document.querySelector(".power-ai-context-preview summary")?.getAttribute("title")).toContain("metadata");
-  expect(screen.getByRole("separator").getAttribute("title")).toContain("Drag to resize");
+  expect(tooltipText(document.querySelector(".power-ai-context-preview summary"))).toContain("metadata");
+  expect(tooltipText(screen.getByRole("separator"))).toContain("Drag to resize");
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "/" } });
-  for (const option of screen.getAllByRole("option")) expect(option.getAttribute("title")).toContain("Insert /");
+  for (const option of screen.getAllByRole("option")) expect(tooltipText(option)).toContain("Insert /");
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Stop response" })).toBeTruthy());
@@ -780,7 +782,7 @@ it("shortens the overview action only beside horizontal custom metrics and track
     stop = startAiChat(() => true);
     const button = screen.getByRole("button", { name: "Ask AI about cluster" });
     expect(button.textContent).toContain("Ask AI");
-    expect(button.title).toContain("cluster");
+    expect(tooltipText(button)).toContain("cluster");
     width = 600;
     act(() => callbacks.get(overview)?.());
     expect(button.textContent).toContain("Ask about cluster");

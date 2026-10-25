@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
+
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { IncidentCopyButton } from "./incident-copy-button";
+import { MockTooltip } from "./native-tooltip.test-utils";
 
 const mocks = vi.hoisted(() => ({ write: vi.fn(), clusterId: "cluster-a", clusterName: "Sample cluster" }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
+    Component: { Tooltip: (props: any) => <MockTooltip {...props} /> },
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: mocks.clusterId, name: mocks.clusterName } }) } },
   },
 }));

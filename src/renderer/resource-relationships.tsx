@@ -9,6 +9,7 @@ import {
 } from "../common/resource-relationships";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { loadGatewayInventory } from "./gateway-relationships-client";
+import { NativeTooltip } from "./native-tooltip";
 import { resourceRelationshipsStyles } from "./resource-relationships.css";
 import { createResourceSearchTransport } from "./resource-search-client";
 import { openSearchResource } from "./resource-search-routing";
@@ -129,18 +130,19 @@ function ResourceCard({
         {node.inferred && " · reference"}
       </div>
       {node.selfLink ? (
-        <button
-          type="button"
-          className="resource-name"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpen(node.selfLink as string);
-          }}
-          title={`Open ${node.kind} ${node.name}`}
-        >
-          {node.name}
-        </button>
+        <NativeTooltip title={`Open ${node.kind} ${node.name}`}>
+          <button
+            type="button"
+            className="resource-name"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpen(node.selfLink as string);
+            }}
+          >
+            {node.name}
+          </button>
+        </NativeTooltip>
       ) : (
         <strong>{node.name}</strong>
       )}
@@ -276,25 +278,24 @@ export function RelationshipGraph({
             </marker>
           </defs>
           {paths.map((edge) => (
-            <path
+            <NativeTooltip
               key={`${edge.from}/${edge.to}/${edge.label}`}
-              data-edge-from={edge.from}
-              data-edge-to={edge.to}
-              className={
-                highlight
-                  ? edge.from === highlight || edge.to === highlight
-                    ? "connection highlighted"
-                    : "connection dimmed"
-                  : "connection"
-              }
-              d={edge.path}
-              markerEnd="url(#relationship-arrow)"
+              title={`${graph.nodes.find((node) => node.id === edge.from)?.name} → ${edge.label} → ${graph.nodes.find((node) => node.id === edge.to)?.name}`}
             >
-              <title>
-                {graph.nodes.find((node) => node.id === edge.from)?.name} → {edge.label} →{" "}
-                {graph.nodes.find((node) => node.id === edge.to)?.name}
-              </title>
-            </path>
+              <path
+                data-edge-from={edge.from}
+                data-edge-to={edge.to}
+                className={
+                  highlight
+                    ? edge.from === highlight || edge.to === highlight
+                      ? "connection highlighted"
+                      : "connection dimmed"
+                    : "connection"
+                }
+                d={edge.path}
+                markerEnd="url(#relationship-arrow)"
+              />
+            </NativeTooltip>
           ))}
         </svg>
         {visibleRoles.map((role) => (
@@ -521,27 +522,29 @@ function EnabledResourceRelationshipsPage() {
             isDisabled={!graph?.podOptions.length}
           />
         </label>
-        <button
-          type="button"
-          className="graph-option"
-          aria-pressed={hideUpstreams}
-          onClick={toggleUpstreams}
-          title={hideUpstreams ? "Show upstream references" : "Hide upstream references"}
-          disabled={!clusterId.current}
-        >
-          <Icon material={hideUpstreams ? "visibility_off" : "visibility"} size={16} />
-          Hide Upstream
-        </button>
-        <button
-          type="button"
-          className="refresh"
-          onClick={() => (service ? setRefresh((value) => value + 1) : setScopeRefresh((value) => value + 1))}
-          disabled={loading || scopeLoading}
-          title="Refresh scoped API evidence"
-        >
-          <Icon material="refresh" size={18} />
-          Refresh
-        </button>
+        <NativeTooltip title={hideUpstreams ? "Show upstream references" : "Hide upstream references"}>
+          <button
+            type="button"
+            className="graph-option"
+            aria-pressed={hideUpstreams}
+            onClick={toggleUpstreams}
+            disabled={!clusterId.current}
+          >
+            <Icon material={hideUpstreams ? "visibility_off" : "visibility"} size={16} />
+            Hide Upstream
+          </button>
+        </NativeTooltip>
+        <NativeTooltip title="Refresh scoped API evidence">
+          <button
+            type="button"
+            className="refresh"
+            onClick={() => (service ? setRefresh((value) => value + 1) : setScopeRefresh((value) => value + 1))}
+            disabled={loading || scopeLoading}
+          >
+            <Icon material="refresh" size={18} />
+            Refresh
+          </button>
+        </NativeTooltip>
       </div>
       {namespaceMessage && (
         <div className="notice" role="status">
