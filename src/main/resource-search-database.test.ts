@@ -34,6 +34,32 @@ function scan(db: ResourceSearchDatabase, documents: SearchDocument[], scanId = 
   db.run({ ...partition, operation: "append", scope, scanId, documents });
 }
 
+it("applies common kind priority before pagination only when relevance is equal", () => {
+  const db = new ResourceSearchDatabase(databasePath());
+  try {
+    scan(
+      db,
+      [
+        document("target-other", "Custom"),
+        document("target-other", "Service"),
+        document("target-other", "Pod"),
+        document("target", "Custom"),
+      ].map((item) => ({ ...item, path: `/${item.kind}/${item.name}` })),
+    );
+    expect(db.query(partition.clusterId, partition.contextId, "target", 3).documents.map((item) => item.kind)).toEqual([
+      "Custom",
+      "Pod",
+      "Service",
+    ]);
+    expect(db.query(partition.clusterId, partition.contextId, "", 2).documents.map((item) => item.kind)).toEqual([
+      "Pod",
+      "Service",
+    ]);
+  } finally {
+    db.close();
+  }
+});
+
 describe("persistent resource search", () => {
   it("finds Secrets and objects beyond the old inventory cap, including ordered parts and typos", () => {
     const db = new ResourceSearchDatabase(databasePath());

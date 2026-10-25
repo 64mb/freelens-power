@@ -1,3 +1,5 @@
+import { COMMON_RESOURCE_KINDS } from "../common/resource-search-kind-priority";
+
 import type { SearchDocument, SearchIndexRequest, SearchQueryResult } from "../common/resource-search";
 
 export class ResourceSearchDatabase {
@@ -6,6 +8,7 @@ export class ResourceSearchDatabase {
   constructor(
     private path: string,
     maxBytes = 256 * 1024 * 1024,
+    commonKinds: readonly string[] = COMMON_RESOURCE_KINDS,
   ) {
     const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
     this.db = new DatabaseSync(path);
@@ -36,6 +39,10 @@ export class ResourceSearchDatabase {
     this.db.function("search_distance", { deterministic: true }, (left, right, limit) =>
       this.distance(String(left), String(right), Number(limit)),
     );
+    this.db.function("search_kind_priority", { deterministic: true }, (kind) => {
+      const index = commonKinds.indexOf(String(kind));
+      return index < 0 ? commonKinds.length : index;
+    });
     this.db.function("search_parts", { deterministic: true }, (name, token) => this.parts(String(name), String(token)));
     try {
       require("node:fs").chmodSync(path, 0o600);
@@ -252,7 +259,7 @@ export class ResourceSearchDatabase {
       WHERE d.cluster=? AND d.context=? ${[...filtersSql, ...conditions].length ? `AND ${[...filtersSql, ...conditions].join(" AND ")}` : ""}
       ORDER BY ${penalties.length ? penalties.map((penalty) => `(${penalty})`).join("+") : "NULL"},
       CASE WHEN LOWER(d.name)=? THEN 0 WHEN LOWER(d.name) LIKE ? ESCAPE '\\' THEN 1
-      WHEN LOWER(d.kind)=? THEN 2 WHEN instr(LOWER(d.name),?)>0 THEN 3 ELSE 4 END,d.kind,d.name,d.path LIMIT ?`)
+      WHEN LOWER(d.kind)=? THEN 2 WHEN instr(LOWER(d.name),?)>0 THEN 3 ELSE 4 END,search_kind_priority(d.kind),d.kind,json_extract(d.json,'$.group'),d.name,d.path LIMIT ?`)
       .all(...args, ...rankingArgs, name, `${escapeLike(name)}%`, name, name, limit);
     const total = Number(rows[0]?.total ?? 0);
     return {

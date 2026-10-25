@@ -13,6 +13,20 @@ const key = (name: string, type = "keydown", repeat = false) => ({
   ctrlKey: false,
   metaKey: false,
 });
+it("uses common kind priority only after matching relevance", () => {
+  const candidates: SearchResource[] = [
+    { kind: "Custom", name: "target", labels: {}, path: "/exact" },
+    { kind: "Pod", name: "target-other", labels: {}, path: "/prefix" },
+    { kind: "Service", name: "target-other", labels: {}, path: "/service" },
+    { kind: "Alpha", name: "target-other", labels: {}, path: "/custom" },
+  ];
+  expect(matchResources(candidates, "target").map((item) => item.path)).toEqual([
+    "/exact",
+    "/prefix",
+    "/service",
+    "/custom",
+  ]);
+});
 describe("resource search", () => {
   it("matches every token across names, namespaces, kinds and label selectors", () => {
     expect(matchResources(items, "POD staging APP=backend")).toEqual([items[0]]);

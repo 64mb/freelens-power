@@ -3,6 +3,8 @@ import { reaction } from "mobx";
 import { observer } from "mobx-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
+import Select from "react-select";
+import { resourceKindPriority } from "../common/resource-search-kind-priority";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
@@ -38,6 +40,32 @@ const inventory = () =>
     ["HorizontalPodAutoscaler", Renderer.K8sApi.hpaStore, "swap_vert"],
   ] as const;
 const icons = new Map(inventory().map(([kind, , icon]) => [kind as string, icon]));
+
+function SearchFilterSelect({
+  value,
+  options,
+  ...props
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  "aria-label": string;
+  onMenuOpen(): void;
+  onMenuClose(): void;
+  onChange(option: { value: string; label: string } | null): void;
+}) {
+  return (
+    <Select
+      {...props}
+      className={`Select theme-${Renderer.Theme?.activeTheme?.get()?.type ?? "dark"}`}
+      classNamePrefix="Select"
+      value={options.find((option) => option.value === value) ?? null}
+      options={options}
+      isClearable={false}
+      tabSelectsValue={false}
+      menuPlacement="auto"
+    />
+  );
+}
 
 export const ResourceSearchLauncher = observer(() => {
   if (!MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>().resourceSearchEnabled) return null;
@@ -75,7 +103,6 @@ function SearchSnippet({ field, query }: { field?: { label: string; text: string
 
 function SearchDialog({ close, clusterId }: { close: () => void; clusterId: string }) {
   const [query, setQuery] = useState("");
-  const [knownNamespace, setKnownNamespace] = useState("");
   const [kindFilter, setKindFilter] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("");
   const [resources, setResources] = useState<SearchResource[]>([]);
@@ -86,6 +113,8 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const openFilterMenus = useRef(new Set<string>());
+  const escapeFromOpenMenu = useRef(false);
   const searchIndex = useMemo(() => createResourceSearchIndex(resources), [resources]);
   const matches = searchIndex.search(query);
   const selectedResource = matches.find((resource) => resource.path === selectedPath) ?? matches[0];
@@ -185,8 +214,11 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
         aria-modal="true"
         aria-labelledby="power-resource-search-title"
         className="power-resource-search-dialog"
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape") escapeFromOpenMenu.current = openFilterMenus.current.size > 0;
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
+          if (event.key === "Escape" && !escapeFromOpenMenu.current) {
             event.stopPropagation();
             close();
           }
@@ -249,41 +281,48 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
             }
           }}
         />
-        <div className="power-resource-search-filters" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input
-            list="power-search-kinds"
-            aria-label="Filter by exact resource kind"
-            placeholder="Kind (all types)"
-            value={kindFilter}
-            maxLength={253}
-            onChange={(event) => {
-              setKindFilter(event.target.value);
-              setSelectedPath(undefined);
-            }}
-          />
-          <input
-            list="power-search-namespaces"
-            aria-label="Filter by exact namespace"
-            placeholder="Namespace (all)"
-            value={namespaceFilter}
-            maxLength={253}
-            onChange={(event) => {
-              setNamespaceFilter(event.target.value);
-              setSelectedPath(undefined);
-            }}
-          />
+        <div className="power-resource-search-filters">
+          <label className="power-resource-search-filter">
+            <span>Kind</span>
+            <SearchFilterSelect
+              aria-label="Kind"
+              onMenuOpen={() => openFilterMenus.current.add("kind")}
+              onMenuClose={() => openFilterMenus.current.delete("kind")}
+              value={kindFilter}
+              options={[
+                { value: "", label: "All types" },
+                ...[...(coverage.kinds ?? [])]
+                  .sort(
+                    (first, second) =>
+                      resourceKindPriority(first) - resourceKindPriority(second) || first.localeCompare(second, "en"),
+                  )
+                  .map((kind) => ({ value: kind, label: kind })),
+              ]}
+              onChange={(option) => {
+                setKindFilter(option?.value ?? "");
+                setSelectedPath(undefined);
+              }}
+            />
+          </label>
+          <label className="power-resource-search-filter">
+            <span>Namespace</span>
+            <SearchFilterSelect
+              aria-label="Namespace"
+              onMenuOpen={() => openFilterMenus.current.add("namespace")}
+              onMenuClose={() => openFilterMenus.current.delete("namespace")}
+              value={namespaceFilter}
+              options={[
+                { value: "", label: "All namespaces" },
+                { value: "(cluster)", label: "Cluster scoped" },
+                ...(coverage.namespaces ?? []).map((namespace) => ({ value: namespace, label: namespace })),
+              ]}
+              onChange={(option) => {
+                setNamespaceFilter(option?.value ?? "");
+                setSelectedPath(undefined);
+              }}
+            />
+          </label>
         </div>
-        <datalist id="power-search-kinds">
-          {(coverage.kinds ?? []).map((kind) => (
-            <option key={kind} value={kind} />
-          ))}
-        </datalist>
-        <datalist id="power-search-namespaces">
-          <option value="(cluster)">Cluster scoped</option>
-          {(coverage.namespaces ?? []).map((namespace) => (
-            <option key={namespace} value={namespace} />
-          ))}
-        </datalist>
         <p role="status">
           {coverage.indexing
             ? `Indexing ${coverage.scanned}/${coverage.discovered} types`
@@ -307,9 +346,6 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
         {coverage.storageFull && (
           <div role="alert">
             <p>Local search storage is full. Cached results are partial; indexing is paused.</p>
-            <button type="button" onClick={clearCache}>
-              Clear local search cache
-            </button>
           </div>
         )}
         {error && <p role="alert">{error}</p>}
@@ -368,37 +404,21 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
             Show more matches
           </button>
         )}
-        <details>
-          <summary>Search options</summary>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input
-              aria-label="Known namespace for restricted access"
-              placeholder="Known namespace"
-              value={knownNamespace}
-              maxLength={63}
-              onChange={(event) => setKnownNamespace(event.target.value)}
-            />
-            <button
-              type="button"
-              disabled={!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(knownNamespace)}
-              onClick={() => {
-                extraNamespaces.add(knownNamespace);
-                restartSearchSync();
-              }}
-            >
-              Index namespace
-            </button>
-          </div>
-          {hasMore && limit >= 1000 && (
-            <p>Showing up to 1000 candidates. Refine the name, type or namespace to continue.</p>
-          )}
-          {!coverage.storageFull && (
-            <button type="button" onClick={clearCache}>
-              Clear local search cache
-            </button>
-          )}
-        </details>
-        <p className="power-resource-search-shortcuts">↑↓ Navigate · Enter Open · Esc Close</p>
+        {hasMore && limit >= 1000 && (
+          <p>Showing up to 1000 candidates. Refine the name, type or namespace to continue.</p>
+        )}
+        <div className="power-resource-search-footer">
+          <p className="power-resource-search-shortcuts">↑↓ Navigate · Enter Open · Esc Close</p>
+          <button
+            type="button"
+            className="power-resource-search-clear"
+            title="Clear local search cache"
+            aria-label="Clear local search cache"
+            onClick={clearCache}
+          >
+            <AiIcon material="delete_sweep" size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -413,7 +433,6 @@ let currentCoverage: SearchCoverage = {
   indexing: true,
 };
 let restartSearchSync = () => {};
-const extraNamespaces = new Set<string>();
 
 export function startResourceSearch(): () => void {
   const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
@@ -478,9 +497,7 @@ function startEnabledResourceSearch(): () => void {
       transport: createResourceSearchTransport(clusterId, controller.signal),
       sink,
       signal: controller.signal,
-      namespaces: () => [
-        ...new Set([...(Renderer.Catalog.activeCluster.get()?.spec?.accessibleNamespaces ?? []), ...extraNamespaces]),
-      ],
+      namespaces: () => Renderer.Catalog.activeCluster.get()?.spec?.accessibleNamespaces ?? [],
       onStatus: (status) => {
         if (!controller.signal.aborted) {
           if (status.indexing && !wasIndexing) liveObjects.clear();
@@ -501,7 +518,7 @@ function startEnabledResourceSearch(): () => void {
   sync();
   const container = document.createElement("div");
   const style = document.createElement("style");
-  style.textContent = `.power-resource-search-backdrop{position:fixed;inset:0;z-index:10000;background:#0007;display:flex;align-items:flex-start;justify-content:center;padding:8vh 20px}.power-resource-search-dialog{width:680px;max-width:100%;max-height:75vh;display:flex;flex-direction:column;padding:20px;gap:12px;background:var(--mainBackground,#222);color:var(--textColorPrimary,#eee);border:1px solid var(--borderColor,#555);border-radius:8px;box-shadow:0 16px 60px #0008}.power-resource-search-heading{display:flex;align-items:center;justify-content:space-between}.power-resource-search-filters input{flex:1;min-width:180px}.power-resource-search-dialog input{padding:12px;font-size:16px;background:var(--inputControlBackground,#333);color:inherit;border:1px solid var(--borderColor,#666);border-radius:4px}.power-resource-search-dialog p{margin:0;font-size:12px;color:var(--textColorSecondary,#bbb)}.power-resource-search-results{overflow:auto;min-height:180px;flex:1}.power-resource-search-row{display:flex;align-items:center;gap:12px;padding:4px;border-radius:4px}.power-resource-search-row{border-left:3px solid transparent}.power-resource-search-row.selected{background:color-mix(in srgb,var(--primary,#668fff) 16%,var(--mainBackground,#222));color:var(--tableSelectedRowColor,var(--textColorPrimary,#eee));border-left-color:var(--primary,#668fff)}.power-resource-search-row.selected .Icon{color:var(--primary,#8daaff)}.power-resource-search-row:hover{background:var(--tableBgcSelected,var(--contentColor,#292d32))}.power-resource-search-dialog button:hover:not(:disabled){background:#ffffff12;border-radius:4px}.power-resource-search-row>button:last-child{border:1px solid var(--borderColor,#555);border-radius:4px}.power-resource-search-shortcuts{padding-top:8px;border-top:1px solid var(--borderColor,#555)}.power-resource-search-dialog button{min-width:32px;min-height:32px;padding:6px;color:inherit;background:transparent;border:0;cursor:pointer}.power-resource-search-dialog button:disabled{opacity:.45;cursor:default}.power-resource-search-open{display:flex;align-items:center;gap:12px;flex:1;text-align:left;min-width:0}.power-resource-search-open span{min-width:0}.power-resource-search-open strong,.power-resource-search-open small{display:block;overflow-wrap:anywhere}.power-resource-search-open small{opacity:.7}.power-resource-search-row>button.power-resource-search-ai{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:34px;height:34px;min-width:34px;padding:0;background:var(--contentColor,#292d32);border:1px solid var(--borderColor,#666)}.power-resource-search-row.selected>button.power-resource-search-ai{background:var(--mainBackground,#202326);border-color:color-mix(in srgb,var(--textColorPrimary,#ddd) 55%,var(--borderColor,#666));box-shadow:0 1px 3px #0002}.power-resource-search-row.selected>button.power-resource-search-ai .Icon{color:var(--textColorAccent,#eee)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled){background:var(--contentColor,#30343a);border-color:var(--primary,#8daaff);color:var(--primary,#8daaff)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled) .Icon{color:inherit}.power-resource-search-dialog button:focus-visible{outline:2px solid var(--primary,#668fff)}`;
+  style.textContent = `.power-resource-search-backdrop{position:fixed;inset:0;z-index:10000;background:#0007;display:flex;align-items:flex-start;justify-content:center;padding:8vh 20px}.power-resource-search-dialog{width:680px;max-width:100%;max-height:75vh;display:flex;flex-direction:column;padding:20px;gap:12px;background:var(--mainBackground,#222);color:var(--textColorPrimary,#eee);border:1px solid var(--borderColor,#555);border-radius:8px;box-shadow:0 16px 60px #0008}.power-resource-search-heading{display:flex;align-items:center;justify-content:space-between}.power-resource-search-filters{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.power-resource-search-filter{display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;font-size:12px;color:var(--textColorSecondary)}.power-resource-search-filter .Select{width:100%;min-width:0}.power-resource-search-filter .Select__control{min-height:30px;height:30px;font-size:12px}.power-resource-search-filter .Select__value-container{padding:0 8px;min-width:0}.power-resource-search-filter .Select__input-container{margin:0;padding:0}.power-resource-search-filter .Select__indicator{padding:4px 8px}.power-resource-search-filter .Select__single-value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.power-resource-search-dialog > input,.power-resource-search-dialog details input{padding:12px;font-size:16px;background:var(--inputControlBackground,#333);color:inherit;border:1px solid var(--borderColor,#666);border-radius:4px}.power-resource-search-dialog p{margin:0;font-size:12px;color:var(--textColorSecondary,#bbb)}.power-resource-search-results{overflow:auto;min-height:180px;flex:1}.power-resource-search-row{display:flex;align-items:center;gap:12px;padding:4px;border-radius:4px}.power-resource-search-row{border-left:3px solid transparent}.power-resource-search-row.selected{background:color-mix(in srgb,var(--primary,#668fff) 16%,var(--mainBackground,#222));color:var(--tableSelectedRowColor,var(--textColorPrimary,#eee));border-left-color:var(--primary,#668fff)}.power-resource-search-row.selected .Icon{color:var(--primary,#8daaff)}.power-resource-search-row:hover{background:var(--tableBgcSelected,var(--contentColor,#292d32))}.power-resource-search-dialog button:hover:not(:disabled){background:#ffffff12;border-radius:4px}.power-resource-search-row>button:last-child{border:1px solid var(--borderColor,#555);border-radius:4px}.power-resource-search-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid var(--borderColor,#555)}.power-resource-search-shortcuts{flex:1}.power-resource-search-footer .power-resource-search-clear{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;width:28px;height:28px;padding:0}.power-resource-search-dialog button{min-width:32px;min-height:32px;padding:6px;color:inherit;background:transparent;border:0;cursor:pointer}.power-resource-search-dialog button:disabled{opacity:.45;cursor:default}.power-resource-search-open{display:flex;align-items:center;gap:12px;flex:1;text-align:left;min-width:0}.power-resource-search-open span{min-width:0}.power-resource-search-open strong,.power-resource-search-open small{display:block;overflow-wrap:anywhere}.power-resource-search-open small{opacity:.7}.power-resource-search-row>button.power-resource-search-ai{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:34px;height:34px;min-width:34px;padding:0;background:var(--contentColor,#292d32);border:1px solid var(--borderColor,#666)}.power-resource-search-row.selected>button.power-resource-search-ai{background:var(--mainBackground,#202326);border-color:color-mix(in srgb,var(--textColorPrimary,#ddd) 55%,var(--borderColor,#666));box-shadow:0 1px 3px #0002}.power-resource-search-row.selected>button.power-resource-search-ai .Icon{color:var(--textColorAccent,#eee)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled){background:var(--contentColor,#30343a);border-color:var(--primary,#8daaff);color:var(--primary,#8daaff)}.power-resource-search-row>button.power-resource-search-ai:hover:not(:disabled) .Icon{color:inherit}.power-resource-search-dialog button:focus-visible{outline:2px solid var(--primary,#668fff)}`;
   document.head.append(style);
   document.body.append(container);
   let visible = false;
@@ -542,7 +559,6 @@ function startEnabledResourceSearch(): () => void {
     () => `${searchContextId()}/${Renderer.Catalog.activeCluster.get()?.status?.phase}`,
     () => {
       close();
-      extraNamespaces.clear();
       sync();
     },
   );
@@ -551,7 +567,6 @@ function startEnabledResourceSearch(): () => void {
     syncAbort?.abort();
     closeSearchResourceFallback();
     restartSearchSync = () => {};
-    extraNamespaces.clear();
     dispose();
     window.removeEventListener("blur", resetShift);
     window.removeEventListener("keydown", key);

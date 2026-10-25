@@ -114,7 +114,8 @@ extensionTest("universal search and trusted resource drawers", async (session, f
     .press("Escape");
   await expect(dialog).toBeHidden();
   dialog = await openSearch(frame);
-  await dialog.getByLabel("Filter by exact resource kind", { exact: true }).fill("Service");
+  await dialog.getByRole("combobox", { name: "Kind", exact: true }).click();
+  await dialog.getByRole("option", { name: "Service", exact: true }).click();
   await search(dialog, "sample-service", "Service");
   await expect(dialog.locator(".power-resource-search-open")).toHaveCount(1);
   await dialog
@@ -458,7 +459,8 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await page.getByRole("button", { name: "Capture logs", exact: true }).click();
   await expect(page.getByRole("tab", { name: "SQL" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".power-logs-results")).toContainText("fixture");
-  await expect(page.locator(".power-logs-results th").first()).toHaveText("message");
+  await expect(page.locator('th[data-column="message"]')).toBeVisible();
+  await expect(page.locator('th[data-column="sequence"]')).toBeVisible();
   const sqlGeometry = await page.evaluate((element) => {
     const results = element.querySelector(".power-logs-results")!.getBoundingClientRect();
     const root = element.getBoundingClientRect();
@@ -503,7 +505,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   const sqlDetails = page.getByRole("complementary", { name: "Log line details" });
   await expect(sqlDetails.locator(".power-log-json")).toContainText("fixture ready");
   await session.screenshot(info, "power-logs-sql-row-json");
-  await session.window.keyboard.press("Escape");
+  await sqlDetails.getByRole("button", { name: "Close line details", exact: true }).click();
   await expect(sqlDetails).toHaveCount(0);
   await page.locator(".power-logs-results").evaluate((el) => {
     el.scrollLeft = 0;

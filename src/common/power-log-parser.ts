@@ -1,26 +1,7 @@
+import { plainLogLevel, structuredLogFields } from "./power-log-level";
 import { type LogLevel, type LogRecord, type LogSource, POWER_LOGS_LIMITS } from "./power-logs";
 
 const ansi = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
-const levels: Record<string, LogLevel> = {
-  trace: "trace",
-  debug: "debug",
-  info: "info",
-  information: "info",
-  warn: "warn",
-  warning: "warn",
-  error: "error",
-  fatal: "fatal",
-  critical: "fatal",
-  panic: "fatal",
-};
-const pinoLevels = new Map<number, LogLevel>([
-  [10, "trace"],
-  [20, "debug"],
-  [30, "info"],
-  [40, "warn"],
-  [50, "error"],
-  [60, "fatal"],
-]);
 export function parseLogLine(line: string, source: LogSource): LogRecord {
   let message = line.replace(ansi, "").replace(/\r$/, "").replace(/\x00/g, "");
   let timestamp: number | null = null;
@@ -32,25 +13,22 @@ export function parseLogLine(line: string, source: LogSource): LogRecord {
   }
   let fieldsJson: string | null = null;
   let level: LogLevel = "unknown";
+  let structured = false;
   try {
     const fields: unknown = JSON.parse(message);
     if (fields && typeof fields === "object" && !Array.isArray(fields)) {
       const object = fields as Record<string, unknown>;
-      const rawLevel = object.level ?? object.severity ?? object.loglevel ?? object.log_level ?? object.levelname;
-      if (typeof rawLevel === "string") level = levels[rawLevel.toLowerCase()] ?? "unknown";
-      else if (typeof rawLevel === "number") level = pinoLevels.get(rawLevel) ?? "unknown";
-      const rawMessage = object.message ?? object.msg ?? object.text;
-      if (typeof rawMessage === "string") message = rawMessage.replace(ansi, "").replace(/\x00/g, "");
+      structured = true;
+      const extracted = structuredLogFields(object);
+      level = extracted.level;
+      if (extracted.message !== undefined) message = extracted.message.replace(ansi, "").replace(/\x00/g, "");
       const serialized = JSON.stringify(fields);
       if (Buffer.byteLength(serialized) <= POWER_LOGS_LIMITS.recordBytes / 2) fieldsJson = serialized;
     }
   } catch {
     /* malformed structured lines remain plain text */
   }
-  if (level === "unknown") {
-    const match = /(?:^|[\s\[])\b(trace|debug|info|warn(?:ing)?|error|fatal|critical|panic)\b[\s\]:-]?/i.exec(message);
-    if (match) level = levels[match[1].toLowerCase()] ?? "unknown";
-  }
+  if (!structured) level = plainLogLevel(message);
   const record: LogRecord = {
     timestamp,
     pod: source.pod,

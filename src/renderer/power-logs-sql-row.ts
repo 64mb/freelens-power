@@ -35,11 +35,9 @@ export function sqlRowDetails(columns: string[], row: LogCell[]): { record: LogR
       podUid: stringCell("podUid"),
       container: stringCell("container"),
       level: levels.has(level as LogLevel) ? (level as LogLevel) : "unknown",
-      message:
-        fieldsJson === null
-          ? JSON.stringify(Object.fromEntries(columns.map((column, index) => [column, row[index] ?? null])), null, 2)
-          : stringCell("message"),
-      fieldsJson,
+      message: fieldsJson === null ? "" : stringCell("message"),
+      fieldsJson:
+        fieldsJson ?? JSON.stringify(Object.fromEntries(columns.map((column, index) => [column, row[index] ?? null]))),
       previous: previous === true || previous === 1,
     },
     ...(jsonColumn === undefined ? {} : { jsonColumn }),

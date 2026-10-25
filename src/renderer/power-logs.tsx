@@ -12,6 +12,9 @@ import {
   useState,
 } from "react";
 import { formatDateTime } from "../common/date-time";
+import { compileJsonFilters, type JsonFieldFilter, jsonValuesEqual } from "../common/power-log-field-filters";
+import { buildJsonFilterSql, type SqlJsonFieldFilter } from "../common/power-log-json-filter-sql";
+import { buildJsonProjectionSql, JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
 import {
   POWER_LOGS_LIMITS as L,
   type LogCapture,
@@ -27,6 +30,9 @@ import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { LogJson } from "./power-log-json";
+import { LogJsonCell } from "./power-log-json-cell";
+import { formatJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
+import { LogMessage } from "./power-log-message";
 import { powerLogsStyles } from "./power-logs.css";
 import { createPowerLogsClient } from "./power-logs-client";
 import { collectHistoricalLogs, type LiveLogCoverage, resolveLogSources, startLiveLogs } from "./power-logs-collector";
@@ -53,10 +59,7 @@ const examples = [
     "Timeline",
     "SELECT strftime('%Y-%m-%d %H:%M', timestamp / 1000, 'unixepoch') AS minute, level, count(*) AS lines FROM logs GROUP BY minute, level ORDER BY minute",
   ],
-  [
-    "JSON",
-    "SELECT pod, json_extract(fieldsJson, '$.message') AS message FROM logs WHERE fieldsJson IS NOT NULL LIMIT 100",
-  ],
+  ["JSON", "SELECT fieldsJson FROM logs WHERE fieldsJson IS NOT NULL LIMIT 100"],
 ] as const;
 const sqlColumnWidth = (column: string) =>
   column === "message" || column === "fieldsJson" ? 360 : column === "level" ? 90 : 200;
@@ -261,7 +264,7 @@ function LogRows({
                   {record.container}
                   {record.previous ? " (previous)" : ""} · {record.pod}
                 </span>
-                <span>{record.message}</span>
+                <LogMessage text={record.message} />
               </button>
             ))}
           </div>
@@ -271,15 +274,22 @@ function LogRows({
   );
 }
 
-function LogDetails({ record, jsonColumn, onClose }: { record: LogRecord; jsonColumn?: string; onClose: () => void }) {
+function LogDetails({
+  record,
+  jsonColumn,
+  onClose,
+  onFilter,
+}: {
+  record: LogRecord;
+  jsonColumn?: string;
+  onClose: () => void;
+  onFilter?: (filter: JsonFieldFilter) => void;
+}) {
   const structuredFields = useMemo(() => {
     if (!record?.fieldsJson) return "";
-    try {
-      return JSON.stringify(JSON.parse(record.fieldsJson), null, 2);
-    } catch {
-      return record.fieldsJson;
-    }
+    return formatJsonLiteral(record.fieldsJson);
   }, [record?.fieldsJson]);
+  const fieldsEnabled = useMemo(() => !jsonHasDuplicateKeys(record.fieldsJson ?? ""), [record.fieldsJson]);
   const [copyFeedback, setCopyFeedback] = useState("");
   useEffect(() => setCopyFeedback(""), [structuredFields]);
   return (
@@ -296,7 +306,11 @@ function LogDetails({ record, jsonColumn, onClose }: { record: LogRecord; jsonCo
         </button>
       </header>
       <p className="power-logs-muted">{[record.pod && sourceKey(record), record.level].filter(Boolean).join(" · ")}</p>
-      {record.message && <pre>{record.message}</pre>}
+      {record.message && (
+        <pre>
+          <LogMessage text={record.message} />
+        </pre>
+      )}
       {record.fieldsJson && (
         <>
           <div className="power-logs-structured-heading">
@@ -321,10 +335,52 @@ function LogDetails({ record, jsonColumn, onClose }: { record: LogRecord; jsonCo
               {copyFeedback}
             </span>
           </div>
-          <LogJson text={structuredFields} />
+          <LogJson text={structuredFields} fieldsEnabled={fieldsEnabled} Icon={Icon} onFilter={onFilter} />
         </>
       )}
     </aside>
+  );
+}
+
+const sameFieldFilter = (a: JsonFieldFilter, b: JsonFieldFilter) =>
+  a.operator === b.operator &&
+  a.path.length === b.path.length &&
+  a.path.every((part, index) => part === b.path[index]) &&
+  jsonValuesEqual(a.value, b.value);
+const fieldFilterLabel = (filter: JsonFieldFilter) =>
+  `${filter.path.reduce<string>((path, part) => `${path}[${typeof part === "number" ? part : JSON.stringify(part)}]`, "$")} ${filter.operator === "eq" ? "=" : "!="} ${JSON.stringify(filter.value)}`;
+function FieldFilters({
+  filters,
+  sql = false,
+  disabled = false,
+  onRemove,
+}: {
+  filters: readonly (JsonFieldFilter & { column?: string })[];
+  sql?: boolean;
+  disabled?: boolean;
+  onRemove(index: number): void;
+}) {
+  if (!filters.length) return null;
+  return (
+    <div className="power-logs-field-filters" aria-label={sql ? "SQL JSON filters" : "Live JSON filters"}>
+      <span className="power-logs-muted">{sql ? "Result filters" : "JSON filters"} · AND</span>
+      {filters.map((filter, index) => {
+        const label = `${filter.column ? `${filter.column} ` : ""}${fieldFilterLabel(filter)}`;
+        return (
+          <button
+            type="button"
+            key={index}
+            disabled={disabled}
+            title={label}
+            aria-label={`Remove JSON filter ${label}`}
+            onClick={() => onRemove(index)}
+          >
+            <span>{label}</span>
+            <Icon material="close" size={14} />
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -340,6 +396,15 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [text, setText] = useState("");
   const [level, setLevel] = useState("");
   const [source, setSource] = useState(initialSource);
+  const [fieldFilters, setFieldFilters] = useState<JsonFieldFilter[]>([]);
+  const matchFields = useMemo(() => compileJsonFilters(fieldFilters), [fieldFilters]);
+  const parsedFields = useRef(new WeakMap<LogRecord, unknown>());
+  const [sqlFieldFilters, setSqlFieldFilters] = useState<{
+    base: string;
+    rendered: string;
+    captureId: string;
+    filters: SqlJsonFieldFilter[];
+  }>();
   const preferences = LogsPreferencesStore.getInstanceOrCreate<LogsPreferencesStore>();
   const limits = normalizePowerLogsLimits(preferences.limits);
   useEffect(() => {
@@ -355,16 +420,32 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [follow, setFollow] = useState(true);
   const [busy, setBusy] = useState(() => Boolean(initialTarget()));
   const [captures, setCaptures] = useState<LogCapture[]>([]);
-  const [captureId, setCaptureId] = useState("");
+  const [captureId, updateCaptureId] = useState("");
   const captureSelection = useRef(captureId);
   captureSelection.current = captureId;
+  const setCaptureId = (id: string) => {
+    captureSelection.current = id;
+    updateCaptureId(id);
+  };
   const deleting = useRef(new Set<string>());
   const [deletingCount, setDeletingCount] = useState(0);
   const [capturing, setCapturing] = useState<LogCapture>();
   const [capturePending, setCapturePending] = useState(false);
   const [captureMinutes, setCaptureMinutes] = useState(15);
   const [previous, setPrevious] = useState(false);
-  const [sql, setSql] = useState<string>(examples[0][1]);
+  const [sql, updateSql] = useState<string>(examples[0][1]);
+  const sqlDraft = useRef(sql);
+  sqlDraft.current = sql;
+  const setSql = (query: string) => {
+    sqlDraft.current = query;
+    updateSql(query);
+  };
+  const captureKeys = useRef(new Map<string, string[]>());
+  useEffect(() => {
+    setSqlFieldFilters((current) =>
+      current && (current.rendered !== sql || current.captureId !== captureId) ? undefined : current,
+    );
+  }, [sql, captureId]);
   const [result, setResult] = useState<LogQueryResult>();
   const [resultEvidence, setResultEvidence] = useState<{ capture: LogCapture; sql: string }>();
   const [resultPage, setResultPage] = useState(0);
@@ -523,6 +604,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   };
   useEffect(() => {
     setText("");
+    setFieldFilters([]);
     setSources([]);
     setTab("live");
     void readHistory();
@@ -672,7 +754,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             setCaptures((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
             setTab("captures");
             setSql(examples[0][1]);
-            void runQuery(saved, examples[0][1]);
+            void applyPreset("Recent", saved, true);
           }
         } catch {
           if (alive.current) setError("The temporary capture could not be finalized");
@@ -717,6 +799,117 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       }
     }
   };
+  const applyPreset = async (title: "Recent" | "JSON", selectedCapture?: LogCapture, execute = false) => {
+    const captured = selectedCapture ?? captures.find((item) => item.id === captureId);
+    if (
+      queryRef.current ||
+      (!selectedCapture && captureController.current) ||
+      !captured ||
+      captured.state === "collecting" ||
+      deleting.current.has(captured.id)
+    )
+      return;
+    const draft = execute ? examples[0][1] : sqlDraft.current;
+    const id = randomUUID();
+    queryRef.current = id;
+    setQueryId(id);
+    setError("");
+    let prepared: string | undefined;
+    try {
+      let keys = captureKeys.current.get(captured.id);
+      if (!keys) {
+        const schema = await client.query(captured.id, id, JSON_KEY_DISCOVERY_SQL);
+        if (schema.error) throw new Error(schema.error);
+        const keyColumn = schema.columns.indexOf("key");
+        keys = schema.truncated
+          ? ["\0"]
+          : keyColumn < 0
+            ? []
+            : schema.rows.map((row) => row[keyColumn]).filter((key): key is string => typeof key === "string");
+        captureKeys.current.set(captured.id, keys);
+        if (captureKeys.current.size > 10) captureKeys.current.delete(captureKeys.current.keys().next().value!);
+      }
+      if (!alive.current || queryRef.current !== id || captureSelection.current !== captured.id) return;
+      if (sqlDraft.current !== draft) {
+        setError("SQL draft changed while detecting JSON fields. Select the preset again to replace it.");
+        return;
+      }
+      prepared = buildJsonProjectionSql(keys, { recent: title === "Recent" });
+      setSql(prepared);
+      setSelectedSqlRow(undefined);
+    } catch {
+      if (alive.current) setError("Could not detect JSON fields for this snapshot. Try the preset again.");
+    } finally {
+      if (queryRef.current === id) {
+        queryRef.current = "";
+        if (alive.current) setQueryId("");
+      }
+    }
+    if (prepared && execute && alive.current) void runQuery(captured, prepared);
+  };
+  const addLiveFilter = (filter: JsonFieldFilter) => {
+    if (!jsonValuesEqual(filter.value, filter.value)) {
+      setError("This JSON value is too large or unsupported for filtering");
+      return;
+    }
+    if (fieldFilters.some((current) => sameFieldFilter(current, filter))) return;
+    if (fieldFilters.length >= 32) {
+      setError("Up to 32 JSON filters can be combined");
+      return;
+    }
+    setFieldFilters([...fieldFilters, filter]);
+  };
+  const activeSqlFilters =
+    sqlFieldFilters?.rendered === sql && sqlFieldFilters.captureId === captureId ? sqlFieldFilters : undefined;
+  const sqlFilteringDisabled = Boolean(
+    queryId ||
+      capturePending ||
+      deleting.current.has(captureId) ||
+      !captures.some((capture) => capture.id === captureId && capture.state !== "collecting"),
+  );
+  const applySqlFilters = (filters: SqlJsonFieldFilter[]) => {
+    if (queryRef.current || captureController.current || sqlFilteringDisabled) return;
+    if (!resultEvidence || resultEvidence.sql !== sql) {
+      setError("Run the edited SQL query before filtering its results");
+      return;
+    }
+    try {
+      const base = activeSqlFilters?.base ?? sql;
+      const query = buildJsonFilterSql(base, filters);
+      setSqlFieldFilters({ base, rendered: query, captureId, filters });
+      setSql(query);
+      void runQuery(undefined, query);
+    } catch {
+      setError("This JSON filter cannot be added to the query. Check the field path and value size.");
+    }
+  };
+  const addSqlFilter = (column: string, filter: JsonFieldFilter) => {
+    const columnNames = result?.columns.map((name) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase())) ?? [];
+    if (!result?.columns.includes(column) || new Set(columnNames).size !== columnNames.length) {
+      setError("JSON filters require unique result column names, ignoring case");
+      return;
+    }
+    const filters = activeSqlFilters?.filters ?? [];
+    if (filters.some((current) => current.column === column && sameFieldFilter(current, filter))) return;
+    if (filters.length >= 32) {
+      setError("Up to 32 JSON filters can be combined");
+      return;
+    }
+    applySqlFilters([...filters, { ...filter, column }]);
+  };
+  const matchesRecordFields = (record: LogRecord) => {
+    if (!fieldFilters.length) return true;
+    if (!parsedFields.current.has(record)) {
+      let fields: unknown;
+      try {
+        fields = JSON.parse(record.fieldsJson ?? "null");
+      } catch {
+        fields = undefined;
+      }
+      parsedFields.current.set(record, fields);
+    }
+    return matchFields(parsedFields.current.get(record));
+  };
   const filtered = useMemo(
     () =>
       records.filter(
@@ -724,9 +917,10 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
           (!text || record.message.toLocaleLowerCase().includes(text.toLocaleLowerCase())) &&
           (!level || record.level === level) &&
           (!source ||
-            (source.startsWith("container:") ? record.container === source.slice(10) : sourceKey(record) === source)),
+            (source.startsWith("container:") ? record.container === source.slice(10) : sourceKey(record) === source)) &&
+          matchesRecordFields(record),
       ),
-    [records, text, level, source],
+    [records, text, level, source, fieldFilters, matchFields],
   );
   const chosenCapture = captures.find((item) => item.id === captureId);
   const collectionNotes = tab === "live" ? [...new Set([...notes, ...(live ? (liveCoverage?.notes ?? []) : [])])] : [];
@@ -861,7 +1055,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               if (!captureId && latest && !capturePending) {
                 setCaptureId(latest.id);
                 setSql(examples[0][1]);
-                void runQuery(latest, examples[0][1]);
+                void applyPreset("Recent", latest, true);
               }
               void refreshCaptures();
             }}
@@ -1031,6 +1225,10 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </button>
             )}
           </div>
+          <FieldFilters
+            filters={fieldFilters}
+            onRemove={(index) => setFieldFilters(fieldFilters.filter((_, item) => item !== index))}
+          />
           <div
             className="power-logs-muted power-logs-status"
             role="status"
@@ -1050,7 +1248,9 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               setFollow={setFollow}
               compact={compact}
             />
-            {selected && <LogDetails record={selected} onClose={() => setSelected(undefined)} />}
+            {selected && (
+              <LogDetails record={selected} onClose={() => setSelected(undefined)} onFilter={addLiveFilter} />
+            )}
           </div>
         </>
       ) : (
@@ -1124,7 +1324,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 const snapshot = captures.find((item) => item.id === value);
                 if (snapshot) {
                   setSql(examples[0][1]);
-                  void runQuery(snapshot, examples[0][1]);
+                  void applyPreset("Recent", snapshot, true);
                 }
               }}
               options={[
@@ -1185,7 +1385,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </button>
             )}
             {examples.map(([title, query]) => (
-              <button type="button" key={title} onClick={() => setSql(query)}>
+              <button
+                type="button"
+                key={title}
+                disabled={!!queryId || capturePending}
+                onClick={() => (title === "JSON" || title === "Recent" ? void applyPreset(title) : setSql(query))}
+              >
                 <Icon
                   material={
                     title === "Recent"
@@ -1202,6 +1407,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </button>
             ))}
           </div>
+          <FieldFilters
+            sql
+            filters={activeSqlFilters?.filters ?? []}
+            disabled={sqlFilteringDisabled}
+            onRemove={(index) => applySqlFilters((activeSqlFilters?.filters ?? []).filter((_, item) => item !== index))}
+          />
           <textarea
             rows={2}
             id="power-logs-sql"
@@ -1209,6 +1420,23 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             maxLength={65536}
             onChange={(event) => setSql(event.target.value)}
             spellCheck={false}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (event.detail >= 3) {
+                event.preventDefault();
+                window.getSelection()?.removeAllRanges();
+                event.currentTarget.select();
+              }
+            }}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              if (event.detail >= 3) {
+                event.preventDefault();
+                window.getSelection()?.removeAllRanges();
+                event.currentTarget.focus();
+                event.currentTarget.select();
+              }
+            }}
           />
           {result ? (
             <>
@@ -1266,9 +1494,14 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                               data-column={result.columns[j]}
                               data-level={result.columns[j] === "level" ? String(cell) : undefined}
                             >
-                              <span className="power-logs-cell" title={cell === null ? "NULL" : String(cell)}>
-                                {cell === null ? "NULL" : String(cell)}
-                              </span>
+                              <LogJsonCell
+                                value={cell === null ? null : String(cell)}
+                                message={result.columns[j] === "message"}
+                                Icon={Icon}
+                                onFilter={
+                                  sqlFilteringDisabled ? undefined : (filter) => addSqlFilter(result.columns[j], filter)
+                                }
+                              />
                             </td>
                           ))}
                         </tr>
@@ -1287,6 +1520,11 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                   <LogDetails
                     record={selectedSqlRow.record}
                     jsonColumn={selectedSqlRow.jsonColumn}
+                    onFilter={
+                      !sqlFilteringDisabled && selectedSqlRow.jsonColumn
+                        ? (filter) => addSqlFilter(selectedSqlRow.jsonColumn!, filter)
+                        : undefined
+                    }
                     onClose={() => setSelectedSqlRow(undefined)}
                   />
                 )}
