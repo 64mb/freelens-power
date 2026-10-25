@@ -85,6 +85,35 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("AI chat", () => {
+  it("does not refresh screen context for native tooltip mutations but still reacts to drawers", async () => {
+    stop = startAiChat(() => true);
+    await act(async () => {});
+    const query = vi.spyOn(document, "querySelector");
+    const dockReads = () => query.mock.calls.filter(([selector]) => selector === ".Dock").length;
+    try {
+      const tooltip = document.createElement("div");
+      tooltip.className = "Tooltip narrow left formatter";
+      await act(async () => {
+        document.body.append(tooltip);
+      });
+      await act(async () => {
+        tooltip.style.left = "100px";
+        tooltip.style.top = "200px";
+      });
+      await act(async () => {
+        tooltip.remove();
+      });
+      expect(dockReads()).toBe(0);
+      await act(async () => {
+        const drawer = document.createElement("aside");
+        drawer.className = "Drawer KubeObjectDetails";
+        document.body.append(drawer);
+      });
+      expect(dockReads()).toBeGreaterThan(0);
+    } finally {
+      query.mockRestore();
+    }
+  });
   it("preserves attachment across panel close and refreshes its preview and send-time output", async () => {
     document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
     mocks.invoke.mockResolvedValue({ text: "Ready" });

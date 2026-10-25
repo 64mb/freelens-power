@@ -9,6 +9,7 @@ import { AI_CANCEL_CHANNEL, attachedAiContext, normalizeAiReferences } from "../
 import { expandAiShortcut } from "../common/ai-shortcuts";
 import { type AiMessage, AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
+import { hasAiContextMutations } from "./ai-context-mutations";
 import { AiCopyAnswer } from "./ai-copy-answer";
 import {
   AI_DIAGNOSTIC_EVENT,
@@ -336,7 +337,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     window.addEventListener("popstate", update);
     update();
     const timer = window.setInterval(update, 500);
-    const observer = new MutationObserver(update);
+    const observer = new MutationObserver((mutations) => {
+      if (hasAiContextMutations(mutations)) update();
+    });
     observer.observe(document.body, {
       childList: true,
       subtree: true,

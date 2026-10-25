@@ -577,7 +577,11 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await snapshotSelect.click();
   await snapshotSelect.fill(logsDeployment);
   await snapshotSelect.press("Alt+Delete");
-  await expect(frame.getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true })).toHaveCount(1);
+  const deleteSnapshot = frame.getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true });
+  await expect(deleteSnapshot).toHaveCount(1);
+  await deleteSnapshot.hover();
+  await expect(frame.getByRole("tooltip").filter({ hasText: "Delete snapshot (Alt+Delete)" })).toBeVisible();
+  await expect(page.getByLabel("SQL query")).toBeEditable();
   await snapshotSelect.fill("");
   await snapshotSelect.press("Alt+Delete");
   await expect(page.locator(".power-logs-results table")).toHaveCount(0);
