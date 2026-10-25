@@ -383,7 +383,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
         .first()
         .evaluate((el) => el.getBoundingClientRect().height),
     )
-    .toBe(24);
+    .toBe(20);
   await page.getByText("Compact density", { exact: true }).click();
   await session.window.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Capture logs", exact: true })).toHaveCount(0);

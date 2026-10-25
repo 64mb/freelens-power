@@ -43,8 +43,8 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-viewer { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; gap:4px; }
 .power-logs-stream { position:relative; flex:1; min-height:0; min-width:0; overflow:auto; border:1px solid var(--borderColor); border-radius:6px; background:var(--contentColor); }
 .power-log-row { min-height:0!important; position:absolute; left:0; right:0; width:100%; display:grid!important; grid-template-columns:95px 48px minmax(100px,180px) minmax(0,1fr); align-items:center; gap:10px!important; padding:0 12px!important; border:0!important; border-left:3px solid var(--textColorSecondary)!important; border-bottom:1px solid var(--borderFaintColor)!important; border-radius:0!important; text-align:left; background:transparent!important; font-family:var(--font-monospace,monospace)!important; font-size:12px!important; }
-.power-logs[data-compact=true] .power-log-row { padding-inline:8px!important; gap:6px!important; }
-.power-logs[data-compact=true] td,.power-logs[data-compact=true] th { padding:3px 8px; }
+.power-logs[data-compact=true] .power-log-row { padding-inline:6px!important; gap:5px!important; font-size:11px!important; line-height:16px; }
+.power-logs[data-compact=true] table :is(td,th) { padding:1px 6px; font-size:11px; line-height:16px; }
 .power-log-row > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .power-log-row .power-log-level { font-size:10px; font-weight:600; text-transform:uppercase; }
 .power-log-row[data-level=warn] { border-left-color:var(--colorWarning,#d9a441)!important; }
@@ -53,8 +53,9 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-detail { position:absolute; z-index:5; top:0; bottom:0; right:0; box-sizing:border-box; box-shadow:-4px 0 18px #0004; display:flex; flex-direction:column; align-items:stretch; gap:12px; width:460px; max-width:95%; padding:16px; background:var(--contentColor); border:1px solid var(--borderColor); border-radius:6px; overflow:auto; }
 .power-logs-detail header { justify-content:flex-end; }
 .power-logs-detail header > strong { margin-right:auto; }
-.power-logs .power-logs-detail-close { flex-shrink:0; width:28px; padding:0; border-color:transparent; background:transparent; }
-.power-logs .power-logs-detail-close:not(:disabled):hover { border-color:transparent; background:color-mix(in srgb,var(--primary) 10%,transparent); }
+.power-logs-structured-heading { display:flex; align-items:center; gap:6px; }
+.power-logs .power-logs-detail-copy, .power-logs .power-logs-detail-close { flex-shrink:0; width:28px; padding:0; border-color:transparent; background:transparent; }
+.power-logs .power-logs-detail-copy:not(:disabled):hover, .power-logs .power-logs-detail-close:not(:disabled):hover { border-color:transparent; background:color-mix(in srgb,var(--primary) 10%,transparent); }
 .power-log-json { --json-key:#9cdcfe; --json-string:#ce9178; --json-number:#b5cea8; --json-literal:#c586c0; }
 .theme-light .power-log-json { --json-key:#005a9e; --json-string:#9e2b1a; --json-number:#17642d; --json-literal:#7a288c; }
 .power-log-json [data-token=key] { color:var(--json-key); }

@@ -7,6 +7,7 @@ import { PowerLogsPage } from "./power-logs";
 import type { LogCapture, LogRecord, LogTarget } from "../common/power-logs";
 
 const mocks = vi.hoisted(() => ({
+  copy: vi.fn(),
   list: vi.fn(),
   create: vi.fn(),
   append: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   export: vi.fn(),
   objects: [] as any[],
 }));
+vi.mock("electron", () => ({ clipboard: { writeText: mocks.copy } }));
 vi.mock("../common/store/logs-preferences-store", () => ({
   LogsPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
 }));
@@ -174,6 +176,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each([false, true])("shows loading until discovery and history finish (has logs: %s)", async (hasLogs) => {
+  const discovery = deferred<{ sources: (typeof source)[]; notes: string[]; partial: boolean }>();
+  const history = deferred<{ notes: string[]; partial: boolean }>();
+  mocks.resolve.mockReturnValue(discovery.promise);
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    const result = await history.promise;
+    await options.onRecords(hasLogs ? [record(0)] : []);
+    return result;
+  });
+  render(<PowerLogsPage />);
+  expect(screen.getByText("Loading logs…")).toBeTruthy();
+  expect(screen.queryByText("No matching log lines")).toBeNull();
+  expect(screen.getByLabelText("Log lines").getAttribute("aria-busy")).toBe("true");
+  await act(async () => discovery.resolve({ sources: [source], notes: [], partial: false }));
+  expect(screen.getByText("Loading logs…")).toBeTruthy();
+  expect(screen.queryByText("No matching log lines")).toBeNull();
+  await act(async () => history.resolve({ notes: [], partial: false }));
+  await waitFor(() => expect(screen.getByLabelText("Log lines").getAttribute("aria-busy")).toBe("false"));
+  expect(screen.queryByText("Loading logs…")).toBeNull();
+  if (hasLogs) {
+    expect(screen.getByText("message 0")).toBeTruthy();
+    expect(screen.queryByText("No matching log lines")).toBeNull();
+  } else expect(screen.getByText("No matching log lines")).toBeTruthy();
+});
+
+it.each([false, true])("copies complete structured JSON and reports clipboard failure (fails: %s)", async (fails) => {
+  const json = { nested: { values: [1, "two", true] }, message: "full JSON" };
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0, { fieldsJson: JSON.stringify(json) })]);
+    return { notes: [], partial: false };
+  });
+  if (fails)
+    mocks.copy.mockImplementationOnce(() => {
+      throw new Error("clipboard unavailable");
+    });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-row")!);
+  const copy = screen.getByRole("button", { name: "Copy structured JSON" });
+  fireEvent.click(copy);
+  expect(mocks.copy).toHaveBeenCalledWith(JSON.stringify(json, null, 2));
+  expect(copy.getAttribute("title")).toBe(fails ? "Unable to copy JSON" : "Copied");
+  if (fails) expect(screen.queryByText("Copied")).toBeNull();
+});
+
 it("virtualizes a large stream and filters and expands a specific source line", async () => {
   mocks.history.mockImplementation(async (_sources, _transport, options) => {
     await options.onRecords(
@@ -191,7 +237,7 @@ it("virtualizes a large stream and filters and expands a specific source line", 
   expect(view.container.querySelectorAll(".power-log-row").length).toBeLessThan(30);
   expect((view.container.querySelector(".power-log-row") as HTMLElement).style.height).toBe("34px");
   fireEvent.click(screen.getByLabelText("Compact density"));
-  expect((view.container.querySelector(".power-log-row") as HTMLElement).style.height).toBe("24px");
+  expect((view.container.querySelector(".power-log-row") as HTMLElement).style.height).toBe("20px");
   fireEvent.click(screen.getByLabelText("Compact density"));
   expect((view.container.querySelector(".power-log-row") as HTMLElement).style.height).toBe("34px");
   fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "needle" } });
