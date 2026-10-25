@@ -347,8 +347,12 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       if (!next || !preferences.enabled || !isClusterDocument() || next.clusterId !== readAiContext().clusterId) return;
       update();
       setFinding(next);
-      setDraft((previous) =>
-        previous.trim() ? previous : "Explain this finding and suggest the next read-only checks.",
+      setDraft(
+        (previous) =>
+          previous ||
+          (preferences.conversations[next.clusterId]?.length
+            ? ""
+            : "Explain this finding and suggest the next read-only checks."),
       );
       setOpen(true);
       requestAnimationFrame(() => composer.current?.focus());

@@ -37,6 +37,7 @@ import { startPodMonitoring } from "./pod-monitoring";
 import { PowerLogsPage } from "./power-logs";
 import { PowerLogsMenu, startPowerLogsEntrypoints } from "./power-logs-entrypoints";
 import { PowerPreferences } from "./preferences/preferences";
+import { openPreferencesSection } from "./preferences/section-navigation";
 import { startReadOnlyMode } from "./read-only";
 import { ResourceRelationshipsPage } from "./resource-relationships";
 import { startResourceSearch } from "./resource-search";
@@ -147,7 +148,9 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
       components: {
         Page: () => (
           <PowerEnabled>
-            <DashboardPage onOpenPreferences={() => this.navigateToPreferences()} />
+            <DashboardPage
+              onOpenPreferences={() => openPreferencesSection("dashboard", () => this.navigateToPreferences())}
+            />
           </PowerEnabled>
         ),
       },

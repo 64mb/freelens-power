@@ -61,6 +61,7 @@ export interface LogCapture {
   rows: number;
   bytes: number;
   notes: string[];
+  lastSql?: string;
 }
 export type LogCell = string | number | boolean | null;
 export interface LogQueryResult {
@@ -84,6 +85,7 @@ export type LogRequest = LogPartition &
     | { operation: "finish"; captureId: string; partial: boolean; notes: string[] }
     | { operation: "list" }
     | { operation: "delete"; captureId: string }
+    | { operation: "save-sql"; captureId: string; sql: string }
     | { operation: "query"; captureId: string; queryId: string; sql: string }
     | { operation: "cancel"; queryId: string }
     | { operation: "export"; captureId: string }

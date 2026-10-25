@@ -44,6 +44,67 @@ it("retains message highlighting for plain SQL messages", () => {
   expect(container.querySelector('[data-log-token="http-method"]')?.textContent).toBe("GET");
 });
 
+it.each([
+  "msg",
+  "custom_message",
+  "anything",
+])("highlights recognizable patterns in any plain text column: %s", (column) => {
+  const value = "GET /health HTTP/1.1 503 550e8400-e29b-41d4-a716-446655440000";
+  const { container } = render(<LogJsonCell value={value} column={column} Icon={Icon} />);
+  expect(container.textContent).toBe(value);
+  expect(container.querySelector('[data-log-token="http-method"]')?.textContent).toBe("GET");
+  expect(container.querySelector('[data-log-token="http-status"]')?.textContent).toBe("503");
+  expect(container.querySelector('[data-log-token="uuid"]')?.textContent).toBe("550e8400-e29b-41d4-a716-446655440000");
+});
+
+it.each([
+  "level",
+  "Level",
+  "LEVEL",
+  "severity",
+  "loglevel",
+  "LOG_LEVEL",
+  "levelname",
+  "level_name",
+  "severityText",
+  "SEVERITY_TEXT",
+  "@l",
+  "log.level",
+])("normalizes textual severity labels in recognized columns: %s", (column) => {
+  const { container } = render(<LogJsonCell value="debug" rawValue="debug" column={column} Icon={Icon} />);
+  expect(container.querySelector('.power-logs-level-label[data-level="debug"]')?.textContent).toBe("DEBUG");
+});
+
+it.each([
+  ["level", 30, "info"],
+  ["LEVEL", 30, "info"],
+  ["levelno", 10, "debug"],
+  ["LEVELNO", 30, "warn"],
+  ["severityNumber", 9, "info"],
+  ["SEVERITY_NUMBER", 9, "info"],
+])("uses the original numeric severity scale for %s=%i", (column, rawValue, level) => {
+  const { container } = render(
+    <LogJsonCell value={String(rawValue)} rawValue={rawValue} column={column} Icon={Icon} />,
+  );
+  expect(container.querySelector(`.power-logs-level-label[data-level="${level}"]`)?.textContent).toBe(String(rawValue));
+});
+
+it.each([
+  ["level", "30"],
+  ["levelno", "10"],
+  ["severityNumber", "9"],
+  ["level", "not a level"],
+  ["custom", "debug"],
+  ["custom", 30],
+  ["level", 99],
+])("does not guess a severity for ambiguous values in %s: %s", (column, rawValue) => {
+  const { container } = render(
+    <LogJsonCell value={String(rawValue)} rawValue={rawValue} column={column} Icon={Icon} />,
+  );
+  expect(container.querySelector(".power-logs-level-label")).toBeNull();
+  expect(container.textContent).toBe(String(rawValue));
+});
+
 it("escapes JSON markup and escaped quotes", () => {
   const value = JSON.stringify({ '<img src="x">': '<script>alert("x")</script>' });
   const { container } = render(<LogJsonCell value={value} Icon={Icon} />);
@@ -134,7 +195,7 @@ it("copies exact unsafe integer and nested numeric literals from complete field 
   fireEvent.mouseEnter(keys[0]);
   fireEvent.click(getByRole("button", { name: "Copy value" }));
   expect(mocks.writeText).toHaveBeenLastCalledWith("9007199254740993");
-  fireEvent.mouseEnter(keys[1]);
+  fireEvent.focus(keys[1]);
   fireEvent.click(getByRole("button", { name: "Copy value" }));
   expect(mocks.writeText).toHaveBeenLastCalledWith(value.slice(value.indexOf('{"n"', 1), -1));
 });

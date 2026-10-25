@@ -46,6 +46,7 @@ vi.mock("../common/store/ai-preferences-store", () => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Tooltip: () => null,
       Icon: ({ material }: { material: string }) => (
         <span className="Icon material">
           <span className="icon">{material}</span>
@@ -822,6 +823,52 @@ describe("selected diagnostic findings", () => {
     expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("My investigation question");
     expect(mocks.invoke).not.toHaveBeenCalled();
     expect(mocks.preferences.conversations).toEqual({});
+  });
+  it("suggests a starting question only for a new empty conversation", async () => {
+    mocks.clusterId = "cluster-a";
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    await attach();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe(
+      "Explain this finding and suggest the next read-only checks.",
+    );
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+  it("attaches context to an existing conversation without populating its blank draft", async () => {
+    mocks.clusterId = "cluster-a";
+    mocks.preferences.conversations["cluster-a"] = [{ role: "assistant", text: "Previous investigation" }];
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    await attach();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByText("Previous investigation")).toBeTruthy();
+    expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+  it("reads current cluster history at attachment time after restoring a different conversation", async () => {
+    mocks.clusterId = "cluster-b";
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    mocks.preferences.conversations["cluster-a"] = [{ role: "assistant", text: "Restored investigation" }];
+    mocks.clusterId = "cluster-a";
+    await attach();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByText("Restored investigation")).toBeTruthy();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+  it("preserves a draft including whitespace in an existing conversation", async () => {
+    mocks.clusterId = "cluster-a";
+    mocks.preferences.conversations["cluster-a"] = [{ role: "assistant", text: "Previous investigation" }];
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "  " } });
+    await attach();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("  ");
   });
   it("sends bounded selected evidence and context while persisting plain conversation only", async () => {
     mocks.clusterId = "cluster-a";

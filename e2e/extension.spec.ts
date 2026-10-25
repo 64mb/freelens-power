@@ -405,7 +405,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await frame.getByRole("option", { name: "ERROR", exact: true }).click();
   await page.getByRole("combobox", { name: "Container source", exact: true }).click();
   await frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · sidecar" }).click();
-  await expect(page.locator(".power-log-row").first()).toContainText("sidecar");
+  await expect(page.locator(".power-log-row .power-log-origin").first()).toContainText(logsDeployment);
   await expect(page.locator(".power-log-row").first()).toHaveAttribute("data-level", "error");
   await page.locator(".power-log-row").first().click();
   const detail = page.getByLabel("Log line details");
@@ -460,7 +460,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.getByRole("tab", { name: "SQL" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".power-logs-results")).toContainText("fixture");
   await expect(page.locator('th[data-column="message"]')).toBeVisible();
-  await expect(page.locator('th[data-column="sequence"]')).toBeVisible();
+  await expect(page.locator('th[data-column="pod"]')).toBeVisible();
   const sqlGeometry = await page.evaluate((element) => {
     const results = element.querySelector(".power-logs-results")!.getBoundingClientRect();
     const root = element.getBoundingClientRect();
@@ -477,10 +477,10 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   const sql = page.getByLabel("SQL query");
   const run = page.getByRole("button", { name: "Run query", exact: true });
   await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "SQL: Recent", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "SQL: Errors", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "SQL: Timeline", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "SQL: JSON", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · Recent", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · Errors", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · Timeline", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL · JSON", exact: true })).toBeVisible();
   await sql.fill("SELECT * FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200");
   await run.click();
   await expect(page.locator('th[data-column="fieldsJson"]')).toBeVisible();
@@ -617,10 +617,12 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .click();
   await expect(page.getByRole("status")).toContainText("2 sources");
   await expect(page.locator(".power-logs-filters")).toContainText("All pods / sidecar");
-  await expect(page.locator(".power-log-row").first()).toContainText("sidecar");
+  await expect(page.locator(".power-log-row").first()).toContainText(samplePodName);
   const visibleOrigins = await page.locator(".power-log-row .power-log-origin").allTextContents();
   expect(visibleOrigins.length).toBeGreaterThan(0);
-  expect(visibleOrigins.every((origin) => /^sidecar · /.test(origin))).toBe(true);
+  expect(visibleOrigins.every((origin) => origin === samplePodName)).toBe(true);
+  await page.locator(".power-log-origin").first().hover();
+  await expect(frame.getByRole("tooltip").filter({ hasText: `${samplePodName} / sidecar` })).toBeVisible();
   await session.screenshot(info, "power-logs-pod-container");
   await page.getByRole("button", { name: "Native logs", exact: true }).click();
   const nativeDock = frame.locator(".Dock.isOpen");

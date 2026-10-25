@@ -77,3 +77,9 @@ it("keeps original fallback column names and values in structured details withou
     missing: null,
   });
 });
+
+it("recognizes uppercase and numeric SQL severity aliases", () => {
+  expect(sqlRowDetails(["LEVEL"], ["INFO"]).record.level).toBe("info");
+  expect(sqlRowDetails(["level"], [30]).record.level).toBe("info");
+  expect(sqlRowDetails(["levelno"], [10]).record.level).toBe("debug");
+});

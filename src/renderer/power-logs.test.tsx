@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   append: vi.fn(),
   finish: vi.fn(),
+  saveSql: vi.fn().mockResolvedValue(undefined),
   query: vi.fn(),
   discover: vi.fn(),
   cancel: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@freelensapp/extensions", () => {
       ),
       Component: {
         Icon: () => null,
+        Tooltip: () => null,
         Select: ({ "aria-label": label, value, options, onChange, isDisabled, formatOptionLabel }: any) => {
           const [open, setOpen] = useState(false);
           return (
@@ -157,6 +159,7 @@ beforeEach(() => {
     this.removeAttribute("open");
   };
   mocks.objects = [{ kind: target.kind, metadata: { ...target } }];
+  mocks.saveSql.mockResolvedValue(undefined);
   mocks.list.mockResolvedValue([snapshot]);
   mocks.resolve.mockResolvedValue({
     sources: [source, { ...source, container: "sidecar" }],
@@ -271,13 +274,13 @@ it("combines JSON field inclusions and exclusions with AND and removes individua
   const view = await mount();
   fireEvent.click(view.container.querySelector(".power-log-row")!);
   const detail = screen.getByLabelText("Log line details");
-  fireEvent.mouseEnter(within(detail).getByText('"status"'));
+  fireEvent.focus(within(detail).getByText('"status"'));
   fireEvent.click(within(detail).getByRole("button", { name: "Include value" }));
   expect(screen.getByText("2 matching lines")).toBeTruthy();
-  fireEvent.mouseEnter(within(detail).getByText('"service"'));
+  fireEvent.focus(within(detail).getByText('"service"'));
   fireEvent.click(within(detail).getByRole("button", { name: "Include value" }));
   expect(screen.getByText("1 matching lines")).toBeTruthy();
-  fireEvent.mouseEnter(within(detail).getByText('"status"'));
+  fireEvent.focus(within(detail).getByText('"status"'));
   fireEvent.click(within(detail).getByRole("button", { name: "Exclude value" }));
   expect(screen.getByText("0 matching lines")).toBeTruthy();
   const filters = screen.getByLabelText("Live JSON filters");
@@ -296,6 +299,7 @@ it("adds SQL JSON conditions to the visible query with AND and restores the base
   const view = await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(view.container.querySelector("tbody tr")).not.toBeNull());
   const base = (screen.getByLabelText("SQL query") as HTMLTextAreaElement).value;
   const key = () => view.container.querySelector<HTMLElement>('td [data-token="key"]')!;
@@ -335,6 +339,7 @@ it.each([
   const view = await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(view.container.querySelector("tbody tr")).not.toBeNull());
   const original = (screen.getByLabelText("SQL query") as HTMLTextAreaElement).value;
   const keys = view.container.querySelectorAll<HTMLElement>('td [data-token="key"]');
@@ -352,6 +357,7 @@ it("does not mutate SQL or expose filter actions while a new capture is pending"
   const view = await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(view.container.querySelector("tbody tr")).not.toBeNull());
   const original = (screen.getByLabelText("SQL query") as HTMLTextAreaElement).value;
   fireEvent.click(screen.getByRole("button", { name: "Capture logs" }));
@@ -371,7 +377,7 @@ it("hides native logs for workloads without a native view", async () => {
   expect(mocks.nativePod).not.toHaveBeenCalled();
 });
 
-it("shows actionable SQL errors without presenting failed results as AI evidence", async () => {
+it("shows SQL errors below the editor and includes the executed failure in AI context", async () => {
   mocks.query.mockResolvedValue({
     columns: [],
     rows: [],
@@ -382,12 +388,21 @@ it("shows actionable SQL errors without presenting failed results as AI evidence
   const view = await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
-  fireEvent.click(screen.getByText("Run query"));
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toContain("Check SQL syntax, column names and supported functions"),
   );
   expect(view.container.querySelector(".power-logs-results table")).toBeNull();
   expect(screen.queryByRole("button", { name: "Review AI context" })).toBeNull();
+  const editor = screen.getByLabelText("SQL query");
+  expect(editor.compareDocumentPosition(screen.getByRole("alert")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.change(editor, { target: { value: "SELECT changed_draft FROM logs" } });
+  fireEvent.click(screen.getByRole("button", { name: "Open AI assistant" }));
+  const finding = mocks.explain.mock.calls[0][0];
+  expect(finding.source).toBe("logs");
+  expect(finding.summary).toContain("Query failed");
+  expect(finding.summary).toContain("Check SQL syntax");
+  expect(finding.summary).not.toContain("changed_draft");
 });
 
 it("reviews executed SQL and its capture identity with redacted values after editing SQL", async () => {
@@ -395,6 +410,7 @@ it("reviews executed SQL and its capture identity with redacted values after edi
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await screen.findByText("captured log message");
   mocks.query.mockClear();
   mocks.query.mockReturnValue(pending.promise);
@@ -441,6 +457,7 @@ it("keeps a newer snapshot selected when an earlier snapshot deletion resolves",
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await screen.findByText("captured log message");
   fireEvent.click(screen.getByLabelText("Capture snapshot"));
   fireEvent.click(screen.getByRole("button", { name: `Delete snapshot ${snapshot.target.name}` }));
@@ -458,6 +475,7 @@ it("attaches a bounded draft context after clearing an executed snapshot", async
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await screen.findByText("captured log message");
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: "" } });
   fireEvent.change(screen.getByLabelText("SQL query"), { target: { value: 'SELECT "' + "x".repeat(65000) + '"' } });
@@ -525,8 +543,9 @@ it("previews recent logs automatically after selecting and finishing a capture",
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   expect(await screen.findByText("captured log message")).toBeTruthy();
-  expect(mocks.query.mock.calls[0][2]).toContain("SELECT fieldsJson, message, level");
+  expect(mocks.query.mock.calls[0][2]).toContain("SELECT message, level");
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.click(screen.getByText("Capture logs"));
   await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(2));
@@ -543,6 +562,7 @@ it("opens SQL rows by pointer and keyboard, chooses the largest JSON and clears 
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   const row = await screen.findByLabelText("Open SQL row 1");
   fireEvent.click(row);
   const detail = screen.getByLabelText("Log line details");
@@ -562,7 +582,8 @@ it("opens SQL rows by pointer and keyboard, chooses the largest JSON and clears 
 });
 
 it("inserts AI SQL drafts without executing and keeps each toolbar scoped to its tab", async () => {
-  await mount();
+  mocks.list.mockResolvedValue([{ ...snapshot, target }]);
+  const view = await mount();
   expect(screen.queryByRole("button", { name: "Capture logs" })).toBeNull();
   expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
   act(() => {
@@ -572,6 +593,9 @@ it("inserts AI SQL drafts without executing and keeps each toolbar scoped to its
   expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   expect(screen.getByRole("button", { name: "Capture logs" })).toBeTruthy();
   expect(mocks.query).not.toHaveBeenCalled();
+  expect((screen.getByLabelText("Capture snapshot") as HTMLSelectElement).value).toBe(snapshot.id);
+  view.unmount();
+  await waitFor(() => expect(mocks.saveSql).toHaveBeenCalledWith(snapshot.id, "SELECT count(*) FROM logs"));
 });
 
 it("prevents capture collection while a SQL query is pending", async () => {
@@ -580,6 +604,7 @@ it("prevents capture collection while a SQL query is pending", async () => {
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1));
   const capture = screen.getByRole("button", { name: "Capture logs" }) as HTMLButtonElement;
   expect(capture.disabled).toBe(true);
@@ -595,6 +620,7 @@ it("blocks snapshot queries during collection and previews the newly finished ca
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await screen.findByText("captured log message");
   mocks.query.mockClear();
   const nextCapture: LogCapture = { ...snapshot, id: "capture-b", target, rows: 1 };
@@ -622,7 +648,7 @@ it("blocks snapshot queries during collection and previews the newly finished ca
   expect(await screen.findByText("new snapshot message")).toBeTruthy();
   expect(mocks.query).toHaveBeenCalledTimes(1);
   expect(mocks.query.mock.calls[0][0]).toBe(nextCapture.id);
-  expect(mocks.query.mock.calls[0][2]).toContain("SELECT fieldsJson, message, level");
+  expect(mocks.query.mock.calls[0][2]).toContain("SELECT message, level");
 });
 
 it("explains an empty successful SQL result", async () => {
@@ -630,6 +656,7 @@ it("explains an empty successful SQL result", async () => {
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   expect(await screen.findByText(/This query returned no rows/)).toBeTruthy();
   expect(screen.getByText(/0 rows/)).toBeTruthy();
 });
@@ -638,6 +665,7 @@ it("locks snapshot controls immediately while capture creation is pending", asyn
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await screen.findByText("captured log message");
   mocks.query.mockClear();
   mocks.history.mockClear();
@@ -701,20 +729,25 @@ it("builds Recent and JSON presets from original fields without running draft qu
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(mocks.query).toHaveBeenCalled());
   const editor = screen.getByLabelText("SQL query") as HTMLTextAreaElement;
-  expect(editor.value).toContain('AS "msg"');
-  expect(editor.value).not.toContain('AS "message"');
+  expect(editor.value).toBe(
+    "SELECT message, level, container, pod, timestamp FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200",
+  );
+  expect(mocks.discover).not.toHaveBeenCalled();
   const calls = mocks.query.mock.calls.length;
-  fireEvent.click(screen.getByRole("button", { name: "SQL: JSON" }));
+  fireEvent.click(screen.getByRole("button", { name: "SQL · JSON" }));
   await waitFor(() => expect(editor.value).toContain("WHERE fieldsJson IS NOT NULL"));
-  expect(editor.value).toContain('AS "levelname"');
+  expect(editor.value).toContain("$.msg");
+  expect(editor.value).not.toContain("levelname");
   expect(mocks.query).toHaveBeenCalledTimes(calls);
 });
 it("keeps triple-click selection inside the SQL editor", async () => {
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(mocks.query).toHaveBeenCalled());
   const editor = screen.getByLabelText("SQL query") as HTMLTextAreaElement;
   fireEvent.mouseDown(editor, { detail: 3 });
@@ -729,30 +762,40 @@ it("preserves an edited SQL draft while JSON schema discovery is pending", async
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
+  await waitFor(() => expect(mocks.query).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole("button", { name: "SQL · JSON" }));
   await waitFor(() => expect(mocks.discover).toHaveBeenCalled());
   fireEvent.change(screen.getByLabelText("SQL query"), { target: { value: "SELECT 42 AS custom" } });
   await act(async () => pending.resolve({ columns: ["key"], rows: [["msg"]], truncated: false, elapsedMs: 1 }));
   expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).toBe("SELECT 42 AS custom");
-  expect(mocks.query).not.toHaveBeenCalled();
+  expect(mocks.query).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("alert").textContent).toContain("SQL draft changed");
 });
 
-it("reopens a cached snapshot after switching between captures and editing SQL", async () => {
-  const other = { ...snapshot, id: "capture-b" };
-  mocks.list.mockResolvedValue([snapshot, other]);
-  await mount();
+it("restores each snapshot draft including blank SQL without executing it", async () => {
+  const other = { ...snapshot, id: "capture-b", lastSql: "SELECT 7" };
+  mocks.list.mockResolvedValue([{ ...snapshot, lastSql: "SELECT 42" }, other]);
+  const view = await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   const choose = (id: string) => fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: id } });
+  const editor = () => screen.getByLabelText("SQL query") as HTMLTextAreaElement;
   choose(snapshot.id);
-  await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1));
+  expect(editor().value).toBe("SELECT 42");
+  fireEvent.change(editor(), { target: { value: "" } });
   choose(other.id);
-  await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(2));
-  fireEvent.change(screen.getByLabelText("SQL query"), { target: { value: "SELECT 42 AS edited" } });
+  expect(editor().value).toBe("SELECT 7");
+  await waitFor(() => expect(mocks.saveSql).toHaveBeenCalledWith(snapshot.id, ""));
+  fireEvent.change(editor(), { target: { value: "SELECT 99" } });
   choose(snapshot.id);
-  await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(3));
-  expect(mocks.query.mock.calls[2][0]).toBe(snapshot.id);
-  expect(mocks.discover).toHaveBeenCalledTimes(2);
-  expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).not.toContain("edited");
+  expect(editor().value).toBe("");
+  choose(other.id);
+  expect(editor().value).toBe("SELECT 99");
+  fireEvent.change(editor(), { target: { value: "SELECT 100" } });
+  view.unmount();
+  await waitFor(() => expect(mocks.saveSql).toHaveBeenCalledWith(other.id, "SELECT 100"));
+  expect(mocks.query).not.toHaveBeenCalled();
+  expect(mocks.discover).not.toHaveBeenCalled();
 });
 
 it("keeps full JSON instead of losing fields when schema discovery is truncated", async () => {
@@ -760,11 +803,24 @@ it("keeps full JSON instead of losing fields when schema discovery is truncated"
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await waitFor(() => expect(mocks.query).toHaveBeenCalled());
-  fireEvent.click(screen.getByRole("button", { name: "SQL: JSON" }));
+  fireEvent.click(screen.getByRole("button", { name: "SQL · JSON" }));
   await waitFor(() =>
     expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).toBe(
       "SELECT fieldsJson FROM logs WHERE fieldsJson IS NOT NULL LIMIT 100",
     ),
   );
+});
+
+it("restores a persisted blank draft after reopening without executing", async () => {
+  mocks.list.mockResolvedValue([{ ...snapshot, target, lastSql: "" }]);
+  const view = await mount();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).toBe("");
+  view.unmount();
+  await mount();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).toBe("");
+  expect(mocks.query).not.toHaveBeenCalled();
 });

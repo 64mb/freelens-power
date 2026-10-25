@@ -18,6 +18,7 @@ export function createPowerLogsClient(partition: LogPartition) {
     finish: (captureId: string, partial: boolean, notes: string[]) =>
       invoke<LogCapture>("finish", { captureId, partial, notes }),
     delete: (captureId: string) => invoke<boolean>("delete", { captureId }),
+    saveSql: (captureId: string, sql: string) => invoke<LogCapture>("save-sql", { captureId, sql }),
     query: (captureId: string, queryId: string, sql: string) =>
       invoke<LogQueryResult>("query", { captureId, queryId, sql }),
     cancel: (queryId: string) => invoke<boolean>("cancel", { queryId }),

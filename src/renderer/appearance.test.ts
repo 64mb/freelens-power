@@ -67,6 +67,38 @@ describe("application accent override", () => {
     expect(downloadRule()).toBeUndefined();
   });
 
+  it("accents the sidebar resize handle and dock creation menu without changing status colors", () => {
+    document.body.innerHTML = `
+      <div class="main-layout-module__sidebar--example"><div class="ResizingAnchor horizontal"></div></div>
+      <div class="Menu"><div class="MenuItem create-terminal-tab"></div><div class="MenuItem create-resource-tab"></div></div>
+      <div class="MenuItem resource-status"></div><div class="Nodes"><div class="ResizingAnchor"></div></div>
+    `;
+    try {
+      dispose = startAppearanceOverride();
+      const sidebarRule = () => rules().find((rule) => rule.selectorText.includes("main-layout-module__sidebar--"));
+      const dockRule = () => rules().find((rule) => rule.selectorText.includes("create-terminal-tab"));
+      expect(document.querySelectorAll(sidebarRule()!.selectorText)).toHaveLength(1);
+      expect(document.querySelectorAll(dockRule()!.selectorText)).toHaveLength(2);
+      expect(sidebarRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
+      expect(dockRule()?.style.getPropertyValue("--bgc-active")).toBe("var(--primary)");
+      expect(accentRule()?.style.getPropertyValue("--menuActiveBackground")).toBe("");
+      expect(accentRule()?.style.getPropertyValue("--colorSuccess")).toBe("");
+      runInAction(() => {
+        preferences.accentColor = "default";
+      });
+      expect(sidebarRule()).toBeUndefined();
+      expect(dockRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+        preferences.enabled = false;
+      });
+      expect(sidebarRule()).toBeUndefined();
+      expect(dockRule()).toBeUndefined();
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
   it.each(
     ACCENT_COLOR_OPTIONS.filter((option) => option.value !== "default"),
   )("persists and applies the $label accent preset", ({ value, color }) => {

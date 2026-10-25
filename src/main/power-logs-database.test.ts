@@ -271,3 +271,63 @@ describe("temporary native log captures", () => {
     expect((await pending).rows).toEqual([[42]]);
   });
 });
+
+it("keeps independent SQL drafts only in temporary capture metadata without executing them", async () => {
+  const { db, directory } = database();
+  const collecting = (await db.run({ ...partition, operation: "create", target })) as LogCapture;
+  expect(collecting.lastSql).toBeUndefined();
+  const draft = "DROP TABLE logs; -- incomplete editable draft\nSELECT '";
+  const updated = (await db.run({
+    ...partition,
+    operation: "save-sql",
+    captureId: collecting.id,
+    sql: draft,
+  })) as LogCapture;
+  expect(updated).toMatchObject({ id: collecting.id, lastSql: draft, state: "collecting", rows: 0, bytes: 0 });
+  expect(readdirSync(join(directory, collecting.id))).toEqual(["logs.ndjson"]);
+  const ready = await capture(db);
+  await db.run({ ...partition, operation: "save-sql", captureId: ready, sql: "DELETE FROM logs" });
+  const listed = (await db.run({ ...partition, operation: "list" })) as LogCapture[];
+  expect(listed.map(({ id, lastSql }) => ({ id, lastSql }))).toEqual([
+    { id: collecting.id, lastSql: draft },
+    { id: ready, lastSql: "DELETE FROM logs" },
+  ]);
+  expect((await query(db, ready, "SELECT count(*) FROM logs")).rows).toEqual([[1]]);
+  updated.lastSql = "renderer mutation";
+  expect(((await db.run({ ...partition, operation: "list" })) as LogCapture[])[0].lastSql).toBe(draft);
+  await db.run({ ...partition, operation: "delete", captureId: collecting.id });
+  expect(await db.run({ ...partition, operation: "list" })).toEqual([
+    expect.objectContaining({ id: ready, lastSql: "DELETE FROM logs" }),
+  ]);
+  await expect(
+    db.run({ ...partition, operation: "save-sql", captureId: collecting.id, sql: "replacement" }),
+  ).rejects.toThrow("unavailable");
+});
+
+it("bounds SQL drafts, preserves whitespace and blank drafts, and enforces capture ownership and expiry", async () => {
+  const { db } = database();
+  const id = await capture(db);
+  for (const sql of ["x".repeat(65536), " \n\t", ""]) {
+    expect(await db.run({ ...partition, operation: "save-sql", captureId: id, sql })).toMatchObject({ lastSql: sql });
+  }
+  for (const sql of ["x".repeat(65537), "SELECT\0", undefined]) {
+    await expect(db.run({ ...partition, operation: "save-sql", captureId: id, sql: sql as string })).rejects.toThrow(
+      "Invalid SQL draft",
+    );
+  }
+  for (const changed of [{ contextId: "another" }, { clusterId: "another" }]) {
+    await expect(
+      db.run({ ...partition, ...changed, operation: "save-sql", captureId: id, sql: "changed" }),
+    ).rejects.toThrow("unavailable");
+  }
+  expect(await db.run({ ...partition, operation: "list" })).toEqual([expect.objectContaining({ id, lastSql: "" })]);
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60 * 60 * 1000 + 1);
+  try {
+    await expect(db.run({ ...partition, operation: "save-sql", captureId: id, sql: "expired" })).rejects.toThrow(
+      "unavailable",
+    );
+    expect(await db.run({ ...partition, operation: "list" })).toEqual([]);
+  } finally {
+    clock.mockRestore();
+  }
+});

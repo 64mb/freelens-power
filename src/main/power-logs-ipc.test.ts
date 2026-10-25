@@ -106,3 +106,30 @@ describe("log IPC validation", () => {
       expect(() => validateLogRequest(value)).toThrow();
   });
 });
+
+it("accepts bounded SQL drafts including blank or invalid syntax and strips unrelated request fields", () => {
+  for (const sql of ["", " \n\t", "SELECT '", "DROP TABLE logs", "x".repeat(65536)]) {
+    expect(
+      validateLogRequest({
+        ...partition,
+        operation: "save-sql",
+        captureId: "capture-example",
+        sql,
+        queryId: "discard",
+        destination: "discard",
+      }),
+    ).toEqual({
+      ...partition,
+      operation: "save-sql",
+      captureId: "capture-example",
+      sql,
+    });
+  }
+  for (const sql of [undefined, null, 1, {}, "bad\0sql", "x".repeat(65537)]) {
+    expect(() =>
+      validateLogRequest({ ...partition, operation: "save-sql", captureId: "capture-example", sql }),
+    ).toThrow("Invalid log request");
+  }
+  expect(() => validateLogRequest({ ...partition, operation: "save-sql", captureId: "../other", sql: "" })).toThrow();
+  expect(() => validateLogRequest({ ...partition, operation: "save-sql", sql: "" })).toThrow();
+});

@@ -1,6 +1,6 @@
-import type { LogCell, LogLevel, LogRecord } from "../common/power-logs";
+import { sqlCellLevel } from "../common/power-log-sql-level";
 
-const levels = new Set<LogLevel>(["trace", "debug", "info", "warn", "error", "fatal", "unknown"]);
+import type { LogCell, LogRecord } from "../common/power-logs";
 
 export function sqlRowDetails(columns: string[], row: LogCell[]): { record: LogRecord; jsonColumn?: string } {
   const cells = new Map(columns.map((column, index) => [column, row[index]]));
@@ -26,7 +26,8 @@ export function sqlRowDetails(columns: string[], row: LogCell[]): { record: LogR
     }
   });
   const timestamp = cells.get("timestamp");
-  const level = stringCell("level");
+  const level =
+    columns.map((column, index) => sqlCellLevel(column, row[index])).find((level) => level !== "unknown") ?? "unknown";
   const previous = cells.get("previous");
   return {
     record: {
@@ -34,7 +35,7 @@ export function sqlRowDetails(columns: string[], row: LogCell[]): { record: LogR
       pod: stringCell("pod"),
       podUid: stringCell("podUid"),
       container: stringCell("container"),
-      level: levels.has(level as LogLevel) ? (level as LogLevel) : "unknown",
+      level,
       message: fieldsJson === null ? "" : stringCell("message"),
       fieldsJson:
         fieldsJson ?? JSON.stringify(Object.fromEntries(columns.map((column, index) => [column, row[index] ?? null]))),

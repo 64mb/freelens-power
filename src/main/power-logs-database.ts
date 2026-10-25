@@ -100,6 +100,12 @@ export class PowerLogsDatabase {
       this.remove(request.captureId);
       return true;
     }
+    if (request.operation === "save-sql") {
+      if (typeof request.sql !== "string" || request.sql.length > 65536 || request.sql.includes("\0"))
+        throw new Error("Invalid SQL draft");
+      capture.meta.lastSql = request.sql;
+      return { ...capture.meta };
+    }
     if (request.operation === "export") throw new Error("Export requires trusted destination");
     if (request.operation === "append") {
       if (capture.meta.state !== "collecting") throw new Error("Capture is complete");
