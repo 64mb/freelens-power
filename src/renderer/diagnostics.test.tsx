@@ -2,6 +2,7 @@
 
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MockTooltip, tooltipTarget, tooltipText } from "./native-tooltip.test-utils";
 
 const state = vi.hoisted(() => ({
   cluster: "sample-cluster",
@@ -15,6 +16,7 @@ vi.mock("@freelensapp/extensions", () => ({
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.cluster } }) } },
     Navigation: { showDetails: state.navigate },
     Component: {
+      Tooltip: (props: any) => <MockTooltip {...props} />,
       Checkbox: ({
         value,
         onChange,
@@ -216,7 +218,7 @@ describe("resource diagnostics views", () => {
     const view = render(<DiagnosticsPage />);
     await waitFor(() => expect(view.getByText("Above requests")).toBeTruthy());
     const badge = view.getByText("Above requests");
-    expect(badge.getAttribute("title")).toContain("not limits");
+    expect(tooltipText(badge)).toContain("not limits");
     expect(badge.classList.contains("error")).toBe(false);
     expect(view.getByText("1 Pending").classList.contains("warning")).toBe(true);
   });
@@ -243,14 +245,14 @@ describe("resource diagnostics views", () => {
     current.owners.push({ kind: "Deployment", metadata: { uid: "deployment-b", name: "other", namespace: "sample" } });
     state.get.mockResolvedValue(current);
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy());
     expect((view.getByLabelText("Needs attention") as HTMLInputElement).checked).toBe(true);
-    expect(view.queryByTitle("Open Deployment sample / other")).toBeNull();
+    expect(tooltipTarget("Open Deployment sample / other", view.container)).toBeNull();
     fireEvent.click(view.getByLabelText("Needs attention"));
-    expect(view.getByTitle("Open Deployment sample / other")).toBeTruthy();
+    expect(tooltipTarget("Open Deployment sample / other", view.container)!).toBeTruthy();
     fireEvent.click(view.getByLabelText("Needs attention"));
-    expect(view.queryByTitle("Open Deployment sample / other")).toBeNull();
-    expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy();
+    expect(tooltipTarget("Open Deployment sample / other", view.container)).toBeNull();
+    expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
     expect((view.getByLabelText("Warnings only") as HTMLInputElement).checked).toBe(true);
     fireEvent.click(view.getByLabelText("Warnings only"));
@@ -264,16 +266,16 @@ describe("resource diagnostics views", () => {
   });
   it("separates resource navigation from the dedicated expansion control", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy());
-    fireEvent.click(view.getByTitle("Open Deployment sample / app"));
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy());
+    fireEvent.click(tooltipTarget("Open Deployment sample / app", view.container)!);
     expect(state.navigate).toHaveBeenCalledWith("/apis/apps/v1/namespaces/sample/deployments/app");
     expect(view.queryByText("worker")).toBeNull();
-    const expand = view.getByTitle("Expand pods");
+    const expand = tooltipTarget("Expand pods", view.container)!;
     expect(expand.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(expand);
     expect(view.getByText("worker")).toBeTruthy();
     expect(view.getByText("worker").closest("tr")?.getAttribute("data-row-depth")).toBe("1");
-    expect(view.getByTitle("Collapse pods").getAttribute("aria-expanded")).toBe("true");
+    expect(tooltipTarget("Collapse pods", view.container)!.getAttribute("aria-expanded")).toBe("true");
   });
   it("defaults to known problems and offers a neutral way to show unknown consumers", async () => {
     const current = snapshot();
@@ -284,7 +286,7 @@ describe("resource diagnostics views", () => {
     expect((view.getByLabelText("Needs attention") as HTMLInputElement).checked).toBe(true);
     expect(view.container.querySelector(".attention-empty")?.classList.contains("all-ready")).toBe(false);
     fireEvent.click(view.getByRole("button", { name: "Show all consumers" }));
-    expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy();
+    expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy();
     expect((view.getByLabelText("Needs attention") as HTMLInputElement).checked).toBe(false);
   });
 
@@ -299,7 +301,7 @@ describe("resource diagnostics views", () => {
     });
     state.get.mockResolvedValue(current);
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / alpha")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / alpha", view.container)!).toBeTruthy());
     fireEvent.change(view.getByLabelText("Sort consumers"), { target: { value: "name" } });
     const rows = [...view.container.querySelectorAll(".consumer-workload-row")];
     expect(rows[0].querySelector(".consumer-resource-link")?.textContent).toContain("alpha");
@@ -307,8 +309,8 @@ describe("resource diagnostics views", () => {
   });
   it("keeps Diagnostics free of history and tracking actions", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Expand pods")).toBeTruthy());
-    fireEvent.click(view.getByTitle("Expand pods"));
+    await waitFor(() => expect(tooltipTarget("Expand pods", view.container)!).toBeTruthy());
+    fireEvent.click(tooltipTarget("Expand pods", view.container)!);
     expect(view.queryByRole("button", { name: /history|track/i })).toBeNull();
     expect(view.queryByRole("checkbox", { name: /history/i })).toBeNull();
     expect(view.queryByRole("dialog")).toBeNull();
@@ -317,7 +319,7 @@ describe("resource diagnostics views", () => {
   it("defaults Timeline to warnings and offers all events when retained warnings are absent", async () => {
     state.get.mockResolvedValue({ ...snapshot(), events: [] });
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Expand pods")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Expand pods", view.container)!).toBeTruthy());
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
     expect((view.getByLabelText("Warnings only") as HTMLInputElement).checked).toBe(true);
     expect(view.getByText("No retained warning events match these filters")).toBeTruthy();
@@ -342,7 +344,7 @@ describe("resource diagnostics views", () => {
     });
     state.get.mockResolvedValue(current);
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Expand pods")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Expand pods", view.container)!).toBeTruthy());
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
     expect((view.getByLabelText("Timeline application") as HTMLSelectElement).value).toBe("");
     expect(view.getByText("Insufficient cpu")).toBeTruthy();
@@ -358,9 +360,9 @@ describe("resource diagnostics views", () => {
   });
   it("renders partial coverage, filters consumers and expands exact pod details", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy());
     expect(view.getByText("0/1 pods covered")).toBeTruthy();
-    fireEvent.click(view.getByTitle("Expand pods"));
+    fireEvent.click(tooltipTarget("Expand pods", view.container)!);
     fireEvent.click(view.getByText("worker"));
     expect(state.navigate).toHaveBeenCalledWith("/api/v1/namespaces/sample/pods/worker");
     fireEvent.change(view.getByLabelText("Filter consumers"), { target: { value: "absent" } });
@@ -370,7 +372,7 @@ describe("resource diagnostics views", () => {
   });
   it("filters timeline by exact application UIDs and shows unknown event times", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy());
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
     fireEvent.change(view.getByLabelText("Timeline application"), { target: { value: "sample/deployment-a" } });
     expect(view.getByText("Insufficient cpu")).toBeTruthy();
@@ -400,7 +402,7 @@ describe("resource diagnostics views", () => {
   });
   it("presents a warning as a typed timeline item with exact resource navigation", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Expand pods")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Expand pods", view.container)!).toBeTruthy());
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
     expect(view.getByRole("option", { name: "All applications" })).toBeTruthy();
     fireEvent.change(view.getByLabelText("Timeline application"), { target: { value: "sample/deployment-a" } });
@@ -409,7 +411,7 @@ describe("resource diagnostics views", () => {
     expect(event.textContent).toContain("Warning");
     expect(event.textContent).toContain("Time unknown");
     const resourceAction = view.getByRole("button", { name: "Open resource" });
-    expect(resourceAction.getAttribute("title")).toBe("Open Pod sample / worker");
+    expect(tooltipText(resourceAction)).toBe("Open Pod sample / worker");
     expect(resourceAction.textContent).not.toContain("Open resource");
     const outsideClick = vi.fn();
     document.addEventListener("click", outsideClick);
@@ -431,21 +433,23 @@ describe("resource diagnostics views", () => {
     state.cluster = "another-cluster";
     complete(snapshot());
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(view.queryByTitle("Open Deployment sample / app")).toBeNull();
+    expect(tooltipTarget("Open Deployment sample / app", view.container)).toBeNull();
   });
   it("groups namespace totals above expandable workload and pod resource rows", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy());
     fireEvent.change(view.getByLabelText("Group consumers"), { target: { value: "namespace" } });
-    expect(view.queryByTitle("Open Deployment sample / app")).toBeNull();
+    expect(tooltipTarget("Open Deployment sample / app", view.container)).toBeNull();
     expect(view.getByText("sample").closest("tr")?.getAttribute("data-row-depth")).toBe("0");
     const namespaceRow = view.getByText("sample").closest("tr")!;
     expect(namespaceRow.querySelector(".namespace-identity .Icon")).toBeTruthy();
     expect(namespaceRow.textContent).toContain("1 filtered consumers");
     expect(namespaceRow.classList.contains("consumer-tone-warning")).toBe(true);
-    fireEvent.click(view.getByTitle("Expand namespace workloads"));
-    expect(view.getByTitle("Open Deployment sample / app").closest("tr")?.getAttribute("data-row-depth")).toBe("1");
-    fireEvent.click(view.getByTitle("Expand pods"));
+    fireEvent.click(tooltipTarget("Expand namespace workloads", view.container)!);
+    expect(
+      tooltipTarget("Open Deployment sample / app", view.container)!.closest("tr")?.getAttribute("data-row-depth"),
+    ).toBe("1");
+    fireEvent.click(tooltipTarget("Expand pods", view.container)!);
     expect(view.getByText("worker").closest("tr")?.getAttribute("data-row-depth")).toBe("2");
     const podRow = view.getByText("worker").closest("tr")!;
     expect(podRow.querySelectorAll(".resource-cell").length).toBe(2);
@@ -455,7 +459,7 @@ describe("resource diagnostics views", () => {
   });
   it("retains exact removed pod identities for a workload during the open view", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Open Deployment sample / app")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)!).toBeTruthy());
     const next = snapshot();
     next.time += 30_000;
     next.pods = [];
@@ -483,7 +487,7 @@ describe("resource diagnostics views", () => {
     };
     state.get.mockResolvedValue(initial);
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Expand pods")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Expand pods", view.container)!).toBeTruthy());
     const diagnosticsTime = Date.parse("2026-01-01T12:00:30Z");
     state.get.mockResolvedValue({
       ...initial,
@@ -509,7 +513,7 @@ describe("resource diagnostics views", () => {
   });
   it("does not reproject an identical shared cached snapshot", async () => {
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByTitle("Expand pods")).toBeTruthy());
+    await waitFor(() => expect(tooltipTarget("Expand pods", view.container)!).toBeTruthy());
     expect(state.usage).toHaveBeenCalledTimes(1);
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(state.get).toHaveBeenCalledTimes(2));
@@ -772,7 +776,7 @@ it("counts Running NotReady pods without changing the Pending tab badge", async 
   expect((view.getByLabelText("Filter consumers") as HTMLInputElement).value).toBe("");
   expect(view.getByText("Namespace: sample")).toBeTruthy();
   expect(view.getByText("app")).toBeTruthy();
-  fireEvent.click(view.getByTitle("Open namespace"));
+  fireEvent.click(tooltipTarget("Open namespace", view.container)!);
   expect(state.navigate).toHaveBeenCalledWith("/api/v1/namespaces/sample");
 });
 
@@ -795,7 +799,7 @@ it("investigates running NotReady pods separately and preserves its selection", 
   fireEvent.change(view.getByLabelText("Not ready pod"), { target: { value: "pod-a" } });
   expect(view.getByText("Readiness and retained evidence")).toBeTruthy();
   expect(view.queryByText("Unscheduled")).toBeNull();
-  fireEvent.click(view.getByTitle("Open pod details"));
+  fireEvent.click(tooltipTarget("Open pod details", view.container)!);
   expect(state.navigate).toHaveBeenCalledWith("/api/v1/namespaces/sample/pods/worker");
   fireEvent.click(view.getByRole("button", { name: "Pending (0)" }));
   expect((view.getByLabelText("Pending pod") as HTMLSelectElement).value).toBe("");

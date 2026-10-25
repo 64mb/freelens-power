@@ -29,7 +29,7 @@ export type SearchIndexRequest = { clusterId: string; contextId: string } & (
   | { operation: "invalidate"; scope: string }
   | { operation: "reconcile"; resources: string[] }
   | { operation: "permit" }
-  | { operation: "query"; query: string; limit?: number; kind?: string; namespace?: string }
+  | { operation: "query"; query: string; limit?: number; offset?: number; kind?: string; namespace?: string }
   | { operation: "status" }
   | { operation: "clear" }
 );

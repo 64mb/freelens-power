@@ -49,7 +49,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
     () => (interactive ? jsonFields(identity) : new Map<number, JsonField>()),
     [identity, interactive],
   );
-  const [active, setActive] = useState<{ field: JsonField; text: string; x: number; y: number }>();
+  const [active, setActive] = useState<{ field: JsonField; text: string; x: number; y: number; lineTop: number }>();
   const activeField = useRef(active);
   activeField.current = active;
   const [feedback, setFeedback] = useState("");
@@ -111,6 +111,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
         setActive({
           field,
           text: identity,
+          lineTop: rect.top,
           x: Math.max(4, Math.min(lineRight + 4, visibleRight - 64)),
           y: Math.max(0, Math.min(rect.top, window.innerHeight - 20)),
         });
@@ -126,7 +127,12 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
               ? (event) => {
                   keepOpen();
                   const element = event.currentTarget;
-                  if (activeField.current?.text === identity && activeField.current.field !== field) {
+                  const rect = element.getBoundingClientRect();
+                  if (
+                    activeField.current?.text === identity &&
+                    activeField.current.field !== field &&
+                    Math.abs(activeField.current.lineTop - rect.top) < 1
+                  ) {
                     hoverTimer.current = setTimeout(() => activate(element), 180);
                   } else activate(element);
                 }
@@ -213,7 +219,6 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
           <button
             type="button"
             style={fieldButtonStyle}
-            title={Icon ? undefined : "Copy value"}
             aria-label="Copy value"
             onClick={() => {
               try {
@@ -232,7 +237,6 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
               <button
                 type="button"
                 style={fieldButtonStyle}
-                title={Icon ? undefined : "Include value"}
                 aria-label="Include value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "eq" })}
               >
@@ -241,7 +245,6 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
               <button
                 type="button"
                 style={fieldButtonStyle}
-                title={Icon ? undefined : "Exclude value"}
                 aria-label="Exclude value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "neq" })}
               >

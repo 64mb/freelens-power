@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ACCENT_COLOR_OPTIONS } from "../common/store/appearance-preferences-store";
+import { NativeTooltip } from "./native-tooltip";
 
 export const MATCHING_ICON_COLORS = [
   { name: "Lavender", color: "#b49aff" },
@@ -147,16 +148,16 @@ export function IconColorPicker({
               <div className="power-icon-palette-heading">{group.name}</div>
               <div className="power-icon-palette-grid">
                 {group.colors.map((color) => (
-                  <button
-                    type="button"
-                    key={color.name}
-                    className="power-icon-palette-swatch"
-                    style={{ backgroundColor: color.color }}
-                    title={`${color.name} ${color.color}`}
-                    aria-label={`${group.name} ${color.name} ${color.color}`}
-                    aria-pressed={value.toLowerCase() === color.color}
-                    onClick={() => choose(color.color)}
-                  />
+                  <NativeTooltip key={color.name} title={`${color.name} ${color.color}`}>
+                    <button
+                      type="button"
+                      className="power-icon-palette-swatch"
+                      style={{ backgroundColor: color.color }}
+                      aria-label={`${group.name} ${color.name} ${color.color}`}
+                      aria-pressed={value.toLowerCase() === color.color}
+                      onClick={() => choose(color.color)}
+                    />
+                  </NativeTooltip>
                 ))}
               </div>
             </div>

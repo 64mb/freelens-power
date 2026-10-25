@@ -5,6 +5,7 @@ import { autorun } from "mobx";
 import { createElement, Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { AiIcon } from "./ai-icon";
 import { isPowerLogsWorkspace, usePowerLogsWorkspace } from "./ai-logs-sql";
+import { NativeTooltip } from "./native-tooltip";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
 const markdownTags = new Set([
@@ -60,7 +61,6 @@ function renderTokens(tokens: Token[]): ReactNode[] {
         if (!href) tag = Fragment;
         else {
           props.href = href;
-          props.title = opening.attrGet("title") ?? undefined;
           props.rel = "noopener noreferrer";
           props.target = "_blank";
           const open = (event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -80,7 +80,17 @@ function renderTokens(tokens: Token[]): ReactNode[] {
         const alignment = String(opening.attrGet("style") ?? "").match(/^text-align:(left|right|center)$/)?.[1];
         if (alignment) props.style = { textAlign: alignment };
       }
-      append(createElement(tag, props, ...container.children));
+      const element = createElement(tag, props, ...container.children);
+      const title = tag === "a" ? opening.attrGet("title") : undefined;
+      append(
+        title ? (
+          <NativeTooltip key={container.key} title={title}>
+            {element}
+          </NativeTooltip>
+        ) : (
+          element
+        ),
+      );
       return;
     }
     switch (token.type) {
@@ -191,41 +201,40 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
       <div className="power-ai-code-toolbar">
         <span>{language || "code"}</span>
         <div>
-          <button
-            type="button"
-            aria-label="Copy code"
-            title="Copy code to clipboard"
-            onClick={() => {
-              try {
-                clipboard.writeText(text);
-                setFeedback("Copied");
-              } catch {
-                setFeedback("Unable to copy code.");
-              }
-            }}
-          >
-            <AiIcon material="content_copy" size={14} /> Copy
-          </button>
-          {sqlDraft && (
+          <NativeTooltip title="Copy code to clipboard">
             <button
               type="button"
-              aria-label="Insert into SQL"
-              title="Insert into the SQL editor without running"
-              disabled={!text.trim() || text.length > 65536}
+              aria-label="Copy code"
               onClick={() => {
-                if (!isPowerLogsWorkspace() || !text.trim() || text.length > 65536) return;
-                window.dispatchEvent(new CustomEvent("power-logs-sql-draft", { detail: { sql: text } }));
-                window.dispatchEvent(new Event("power-ai-close"));
+                try {
+                  clipboard.writeText(text);
+                  setFeedback("Copied");
+                } catch {
+                  setFeedback("Unable to copy code.");
+                }
               }}
             >
-              <AiIcon material="post_add" size={14} /> Insert into SQL
+              <AiIcon material="content_copy" size={14} /> Copy
             </button>
+          </NativeTooltip>
+          {sqlDraft && (
+            <NativeTooltip title="Insert into the SQL editor without running">
+              <button
+                type="button"
+                aria-label="Insert into SQL"
+                disabled={!text.trim() || text.length > 65536}
+                onClick={() => {
+                  if (!isPowerLogsWorkspace() || !text.trim() || text.length > 65536) return;
+                  window.dispatchEvent(new CustomEvent("power-logs-sql-draft", { detail: { sql: text } }));
+                  window.dispatchEvent(new Event("power-ai-close"));
+                }}
+              >
+                <AiIcon material="post_add" size={14} /> Insert into SQL
+              </button>
+            </NativeTooltip>
           )}
           {shell && terminalId && (
-            <button
-              type="button"
-              aria-label="Insert into terminal"
-              disabled={!command || !terminalId || inserting}
+            <NativeTooltip
               title={
                 !command
                   ? "Only a single line without control characters can be inserted"
@@ -233,10 +242,16 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
                     ? "Focus an open terminal tab to insert"
                     : "Insert without running"
               }
-              onClick={() => void insert()}
             >
-              <AiIcon material="terminal" size={14} /> Insert
-            </button>
+              <button
+                type="button"
+                aria-label="Insert into terminal"
+                disabled={!command || !terminalId || inserting}
+                onClick={() => void insert()}
+              >
+                <AiIcon material="terminal" size={14} /> Insert
+              </button>
+            </NativeTooltip>
           )}
         </div>
       </div>

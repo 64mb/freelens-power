@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
+
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { MockTooltip, tooltipText } from "../native-tooltip.test-utils";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
-vi.mock("@freelensapp/extensions", () => ({ Renderer: { Component: { Icon: () => <span /> } } }));
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: { Component: { Tooltip: (props: any) => <MockTooltip {...props} />, Icon: () => <span /> } },
+}));
 
 import { SETTINGS_EXPORT, SETTINGS_IMPORT } from "../../common/settings-export";
 import { SettingsExport } from "./settings-export";
@@ -47,8 +51,8 @@ it("places both tooltip actions on the native heading and cleans up the portal",
   const heading = screen.getByRole("heading");
   const restore = screen.getByRole("button", { name: "Restore dashboard and shortcuts" });
   expect(heading.contains(restore)).toBe(true);
-  expect(restore.title).toBe("Restore dashboard and shortcuts");
-  expect(screen.getByRole("button", { name: "Export dashboard and shortcuts" }).title).toContain("Export");
+  expect(tooltipText(restore)).toBe("Restore dashboard and shortcuts");
+  expect(tooltipText(screen.getByRole("button", { name: "Export dashboard and shortcuts" }))).toContain("Export");
   mocks.invoke.mockResolvedValue("restored");
   fireEvent.click(restore);
   expect(mocks.invoke).toHaveBeenCalledWith(SETTINGS_IMPORT);

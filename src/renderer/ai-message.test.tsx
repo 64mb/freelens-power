@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AiCopyAnswer } from "./ai-copy-answer";
 import { AiMessageContent, terminalInsertText } from "./ai-message";
+import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
 const mocks = vi.hoisted(() => ({
   openExternal: vi.fn().mockResolvedValue(undefined),
@@ -19,6 +21,7 @@ vi.mock("electron", () => ({ clipboard: { writeText: mocks.writeText }, shell: {
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Tooltip: (props: any) => <MockTooltip {...props} />,
       createTerminalTab: mocks.createTerminalTab,
       terminalStore: {
         sendCommand: mocks.sendCommand,
@@ -349,5 +352,5 @@ it("copies the full assistant answer with original Markdown only after an explic
   expect(mocks.writeText).not.toHaveBeenCalled();
   fireEvent.click(screen.getByLabelText("Copy answer"));
   expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith(text);
-  expect(screen.getByLabelText("Copy answer").getAttribute("title")).toBe("Copied");
+  expect(tooltipText(screen.getByLabelText("Copy answer"))).toBe("Copied");
 });

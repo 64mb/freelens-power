@@ -200,16 +200,27 @@ extensionTest("universal search and trusted resource drawers", async (session, f
 extensionTest("Diagnostics pending, readiness and attention views", async (session, frame, info) => {
   await frame.getByText("Diagnostics", { exact: true }).first().click();
   await expect(frame.getByRole("heading", { name: "Resource diagnostics" })).toBeVisible();
-  await frame.getByTitle("Show pending", { exact: true }).click();
+  await frame
+    .getByRole("navigation", { name: "Diagnostics views" })
+    .getByRole("button", { name: /^Pending/ })
+    .click();
   await frame.getByRole("combobox", { name: "Pending pod", exact: true }).click();
   await frame.getByText("power-test / pending-workload", { exact: true }).click();
   await expect(frame.locator(".pending-heading")).toContainText("pending-workload");
-  await frame.getByTitle("Show not ready", { exact: true }).click();
-  await expect(frame.getByTitle("Show not ready", { exact: true })).toHaveAttribute("aria-pressed", "true");
+  await frame
+    .getByRole("navigation", { name: "Diagnostics views" })
+    .getByRole("button", { name: /^Not ready/ })
+    .click();
+  await expect(
+    frame.getByRole("navigation", { name: "Diagnostics views" }).getByRole("button", { name: /^Not ready/ }),
+  ).toHaveAttribute("aria-pressed", "true");
   await frame.getByRole("combobox", { name: "Not ready pod", exact: true }).click();
   await frame.getByText("power-test / unready-workload", { exact: true }).click();
   await expect(frame.locator(".pending-heading")).toContainText("unready-workload");
-  await frame.getByTitle("Show consumers", { exact: true }).click();
+  await frame
+    .getByRole("navigation", { name: "Diagnostics views" })
+    .getByRole("button", { name: "Consumers", exact: true })
+    .click();
   await frame.getByText("Needs attention", { exact: true }).first().click();
   await session.screenshot(info, "diagnostics", frame);
 });
@@ -577,7 +588,11 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await snapshotSelect.click();
   await snapshotSelect.fill(logsDeployment);
   await snapshotSelect.press("Alt+Delete");
-  await expect(frame.getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true })).toHaveCount(1);
+  const deleteSnapshot = frame.getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true });
+  await expect(deleteSnapshot).toHaveCount(1);
+  await deleteSnapshot.hover();
+  await expect(frame.getByRole("tooltip").filter({ hasText: "Delete snapshot (Alt+Delete)" })).toBeVisible();
+  await expect(page.getByLabel("SQL query")).toBeEditable();
   await snapshotSelect.fill("");
   await snapshotSelect.press("Alt+Delete");
   await expect(page.locator(".power-logs-results table")).toHaveCount(0);

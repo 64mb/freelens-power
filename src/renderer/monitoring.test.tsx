@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
 const state = vi.hoisted(() => ({
   enabled: false,
@@ -11,6 +13,7 @@ const state = vi.hoisted(() => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Tooltip: (props: any) => <MockTooltip {...props} />,
       Select: ({ value, options, onChange, ...props }: any) => (
         <select
           aria-label={props["aria-label"]}
@@ -87,14 +90,18 @@ describe("metrics-server overview", () => {
     await vi.advanceTimersByTimeAsync(60_001);
     const chart = document.querySelector("[data-monitoring-trend]")!;
     expect(chart.getAttribute("viewBox")).toBe("0 0 1000 250");
+    expect(chart.querySelector("title")).toBeNull();
+    expect(tooltipText(chart)).toBe("");
+    expect(chart.getAttribute("aria-label")).toContain("Use arrow keys");
     const points = chart.querySelectorAll("circle");
+    expect(tooltipText(points[0])).toBe("");
     expect(points[2].getAttribute("cx")).toBe("976");
     fireEvent.mouseMove(chart, { clientX: 100 + 88 + (976 - 88) * 0.7 });
     expect(document.querySelector("[data-monitoring-crosshair]")?.getAttribute("x1")).toBe("532");
-    const latestTitle = points[1].querySelector("title")!.textContent!.split(": 1.00")[0];
-    expect(latestTitle).toMatch(/^\d{2}\.\d{2}\.\d{4} {2}\d{2}:\d{2}:\d{2}$/);
-    expect(document.querySelector("[role=tooltip]")?.textContent).toContain(latestTitle);
     const tooltip = document.querySelector("[role=tooltip]");
+    expect(tooltip?.textContent).toMatch(/\d{2}\.\d{2}\.\d{4} {2}\d{2}:\d{2}:\d{2}/);
+    expect(tooltip?.textContent).toContain("1.00 cores");
+    expect(document.querySelectorAll("[role=tooltip]")).toHaveLength(1);
     fireEvent.mouseMove(chart, { clientX: 1076 });
     expect(document.querySelector("[role=tooltip]")).toBe(tooltip);
   });
@@ -294,7 +301,10 @@ describe("metrics-server overview", () => {
     const stop = startMonitoring();
     await vi.advanceTimersByTimeAsync(1);
     const summary = document.querySelector('[aria-label="CPU resource summary"]')!;
-    const allocationTooltip = () => summary.querySelector('[title^="Allocatable:"]')?.getAttribute("title");
+    const allocationTooltip = () =>
+      Array.from(document.querySelectorAll("[data-target-id]"))
+        .find((node) => node.getAttribute("data-tooltip-text")?.startsWith("Allocatable:"))
+        ?.getAttribute("data-tooltip-text");
     expect(summary.querySelector("svg > title")).toBeNull();
     expect(allocationTooltip()).toContain("Unrequested: -2.00 cores");
     expect(allocationTooltip()).toContain("Unused allocatable (usage): 2.00 cores");

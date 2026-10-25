@@ -9,6 +9,7 @@ import { MonitoringPreferencesStore } from "../common/store/monitoring-preferenc
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
+import { NativeTooltip } from "./native-tooltip";
 import { createResourceSearchClient, createResourceSearchTransport, searchContextId } from "./resource-search-client";
 import { projectSearchFields } from "./resource-search-fields";
 import {
@@ -70,14 +71,11 @@ function SearchFilterSelect({
 export const ResourceSearchLauncher = observer(() => {
   if (!MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>().resourceSearchEnabled) return null;
   return (
-    <button
-      type="button"
-      title="Search resources (double Shift)"
-      aria-label="Search resources"
-      onClick={() => window.dispatchEvent(new Event(OPEN))}
-    >
-      <AiIcon material="search" />
-    </button>
+    <NativeTooltip title="Search resources (double Shift)">
+      <button type="button" aria-label="Search resources" onClick={() => window.dispatchEvent(new Event(OPEN))}>
+        <AiIcon material="search" />
+      </button>
+    </NativeTooltip>
   );
 });
 
@@ -125,7 +123,11 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
     if (selectedPath !== undefined && selectedPath !== selectedResource?.path) setSelectedPath(undefined);
   }, [selectedPath, selectedResource?.path]);
   const [coverage, setCoverage] = useState<SearchCoverage>(currentCoverage);
-  const [limit, setLimit] = useState(100);
+  const searchKey = JSON.stringify([query, kindFilter, namespaceFilter]);
+  const [allFor, setAllFor] = useState<string>();
+  const fetchAll = allFor === searchKey;
+  const [allRequests, setAllRequests] = useState(0);
+  const [progress, setProgress] = useState({ loaded: 0, total: 0 });
   const [hasMore, setHasMore] = useState(false);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -139,10 +141,11 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
   }, []);
   useEffect(() => {
     let live = true;
+    setLoading(true);
     const client = createResourceSearchClient(clusterId, searchContextId());
     const timer = window.setTimeout(() => {
-      void client
-        .query(query, limit, {
+      void (async () => {
+        const filters = {
           ...(kindFilter
             ? {
                 kind:
@@ -151,32 +154,45 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
               }
             : {}),
           ...(namespaceFilter ? { namespace: namespaceFilter === "(cluster)" ? "" : namespaceFilter } : {}),
-        })
-        .then((result) => {
+        };
+        const documents = new Map<string, SearchDocument>();
+        let offset = 0;
+        do {
+          const result = await client.query(query, fetchAll ? 1000 : 100, {
+            ...filters,
+            ...(offset ? { offset } : {}),
+          });
           if (!live || activeId() !== clusterId) return;
-          setResources(result.documents);
+          const previousCount = documents.size;
+          for (const document of result.documents) documents.set(document.path, document);
+          setResources([...documents.values()]);
+          setProgress({ loaded: documents.size, total: result.total });
           setHasMore(result.hasMore);
+          offset += result.documents.length;
+          if (!fetchAll || !result.hasMore) break;
+          if (documents.size === previousCount) throw new Error("Search pagination made no progress");
+        } while (live);
+        if (!live) return;
+        setLoading(false);
+        setFailed(0);
+        void client
+          .status?.()
+          .then((status) => {
+            if (live) setCachedCount(status.count);
+          })
+          .catch(() => {});
+      })().catch(() => {
+        if (live) {
+          setFailed(1);
           setLoading(false);
-          setFailed(0);
-          void client
-            .status?.()
-            .then((status) => {
-              if (live) setCachedCount(status.count);
-            })
-            .catch(() => {});
-        })
-        .catch(() => {
-          if (live) {
-            setFailed(1);
-            setLoading(false);
-          }
-        });
+        }
+      });
     }, 100);
     return () => {
       live = false;
       window.clearTimeout(timer);
     };
-  }, [clusterId, query, limit, kindFilter, namespaceFilter, coverage.scanned, coverage.indexing]);
+  }, [clusterId, query, fetchAll, allRequests, kindFilter, namespaceFilter, coverage.scanned, coverage.indexing]);
   useEffect(() => {
     document.getElementById(`power-resource-result-${selected}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selected, selectedResource?.path]);
@@ -243,14 +259,11 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
             Search resources
           </strong>
           <div style={{ display: "flex", gap: 4 }}>
-            <button
-              type="button"
-              aria-label="Refresh resource inventory"
-              title="Refresh resource inventory"
-              onClick={() => restartSearchSync()}
-            >
-              <AiIcon material="refresh" />
-            </button>
+            <NativeTooltip title="Refresh resource inventory">
+              <button type="button" aria-label="Refresh resource inventory" onClick={() => restartSearchSync()}>
+                <AiIcon material="refresh" />
+              </button>
+            </NativeTooltip>
             <button type="button" aria-label="Close resource search" onClick={close}>
               <AiIcon material="close" />
             </button>
@@ -395,29 +408,32 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
           ))}
           {!results.length && <p>{loading ? "Searching…" : "No matching resources in the available inventory"}</p>}
         </div>
-        {hasMore && (
+        {(hasMore || (loading && fetchAll)) && (
           <button
             type="button"
-            disabled={limit >= 1000}
-            onClick={() => setLimit((value) => Math.min(1000, value + 100))}
+            disabled={loading}
+            aria-busy={loading}
+            onClick={() => {
+              setLoading(true);
+              setAllFor(searchKey);
+              setAllRequests((value) => value + 1);
+            }}
           >
-            Show more matches
+            {loading ? `Loading matches… ${progress.loaded} / ${progress.total}` : "Show all matches"}
           </button>
-        )}
-        {hasMore && limit >= 1000 && (
-          <p>Showing up to 1000 candidates. Refine the name, type or namespace to continue.</p>
         )}
         <div className="power-resource-search-footer">
           <p className="power-resource-search-shortcuts">↑↓ Navigate · Enter Open · Esc Close</p>
-          <button
-            type="button"
-            className="power-resource-search-clear"
-            title="Clear local search cache"
-            aria-label="Clear local search cache"
-            onClick={clearCache}
-          >
-            <AiIcon material="delete_sweep" size={16} />
-          </button>
+          <NativeTooltip title="Clear local search cache">
+            <button
+              type="button"
+              className="power-resource-search-clear"
+              aria-label="Clear local search cache"
+              onClick={clearCache}
+            >
+              <AiIcon material="delete_sweep" size={16} />
+            </button>
+          </NativeTooltip>
         </div>
       </div>
     </div>

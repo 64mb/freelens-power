@@ -146,6 +146,8 @@ it("rejects oversized, malformed and unsupported operations and drops unrelated 
     { ...base, operation: "exec" },
     { ...base, operation: "query", query: "x".repeat(301) },
     { ...base, operation: "query", query: "", limit: 1001 },
+    { ...base, operation: "query", query: "", offset: -1 },
+    { ...base, operation: "query", query: "", offset: 1.5 },
     { ...base, operation: "begin", scope: "pods", scanId: "../bad" },
   ])
     expect(() => validateSearchRequest(request)).toThrow();

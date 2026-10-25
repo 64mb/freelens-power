@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
+import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 import { PowerLogsPage } from "./power-logs";
 
 import type { LogCapture, LogRecord, LogTarget } from "../common/power-logs";
@@ -69,7 +71,7 @@ vi.mock("@freelensapp/extensions", () => {
       ),
       Component: {
         Icon: () => null,
-        Tooltip: () => null,
+        Tooltip: (props: any) => <MockTooltip {...props} />,
         Select: ({ "aria-label": label, value, options, onChange, isDisabled, formatOptionLabel }: any) => {
           const [open, setOpen] = useState(false);
           return (
@@ -224,10 +226,13 @@ it.each([false, true])("copies complete structured JSON and reports clipboard fa
     });
   const view = await mount();
   fireEvent.click(view.container.querySelector(".power-log-row")!);
+  const severity = screen.getByLabelText("Log line details").querySelector(".power-logs-muted .power-logs-level-label");
+  expect(severity?.textContent).toBe("INFO");
+  expect(severity?.getAttribute("data-level")).toBe("info");
   const copy = screen.getByRole("button", { name: "Copy structured JSON" });
   fireEvent.click(copy);
   expect(mocks.copy).toHaveBeenCalledWith(JSON.stringify(json, null, 2));
-  expect(copy.getAttribute("title")).toBe(fails ? "Unable to copy JSON" : "Copied");
+  expect(tooltipText(copy)).toBe(fails ? "Unable to copy JSON" : "Copied");
   if (fails) expect(screen.queryByText("Copied")).toBeNull();
 });
 
@@ -460,7 +465,10 @@ it("keeps a newer snapshot selected when an earlier snapshot deletion resolves",
   fireEvent.click(screen.getByRole("button", { name: "Run query" }));
   await screen.findByText("captured log message");
   fireEvent.click(screen.getByLabelText("Capture snapshot"));
-  fireEvent.click(screen.getByRole("button", { name: `Delete snapshot ${snapshot.target.name}` }));
+  const deleteButton = screen.getByRole("button", { name: `Delete snapshot ${snapshot.target.name}` });
+  expect(tooltipText(deleteButton)).toBe("Delete snapshot (Alt+Delete)");
+  expect(tooltipText(deleteButton.closest(".power-logs-snapshot-option")!)).toBe("");
+  fireEvent.click(deleteButton);
   expect((screen.getByLabelText("Capture snapshot") as HTMLSelectElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: "Run query" }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: "Export JSON" }) as HTMLButtonElement).disabled).toBe(true);

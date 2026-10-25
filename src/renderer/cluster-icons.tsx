@@ -10,6 +10,7 @@ import {
   normalizeClusterIconDesign,
 } from "../common/cluster-icons";
 import { IconColorPicker, MATCHING_ICON_COLORS } from "./cluster-icon-colors";
+import { NativeTooltip } from "./native-tooltip";
 import { SettingsModal } from "./preferences/settings-modal";
 
 const styles = `
@@ -145,17 +146,17 @@ function IconEditor({
             <div className="power-icon-section-label">Matching outline & label</div>
             <div className="power-icon-swatches">
               {MATCHING_ICON_COLORS.map(({ name, color }) => (
-                <button
-                  key={color}
-                  type="button"
-                  className="power-icon-swatch"
-                  style={{ background: color }}
-                  title={`${name} · ${color}`}
-                  aria-label={`Use ${color} for outline and label`}
-                  aria-pressed={design.outlineColor === color && design.labelColor === color}
-                  disabled={busy}
-                  onClick={() => setDesign((previous) => ({ ...previous, outlineColor: color, labelColor: color }))}
-                />
+                <NativeTooltip key={color} title={`${name} · ${color}`}>
+                  <button
+                    type="button"
+                    className="power-icon-swatch"
+                    style={{ background: color }}
+                    aria-label={`Use ${color} for outline and label`}
+                    aria-pressed={design.outlineColor === color && design.labelColor === color}
+                    disabled={busy}
+                    onClick={() => setDesign((previous) => ({ ...previous, outlineColor: color, labelColor: color }))}
+                  />
+                </NativeTooltip>
               ))}
             </div>
           </div>
@@ -165,18 +166,18 @@ function IconEditor({
         <div className="power-icon-section-label">Choose an icon</div>
         <div className="power-icon-glyphs">
           {GLYPHS.map((glyph) => (
-            <button
-              type="button"
-              key={glyph.id}
-              className="power-icon-glyph"
-              title={glyph.label}
-              aria-label={glyph.label}
-              aria-pressed={design.glyph === glyph.id}
-              disabled={busy}
-              onClick={() => update("glyph", glyph.id)}
-            >
-              <img src={clusterIconDataUrl({ ...previewDesign, glyph: glyph.id })} alt="" />
-            </button>
+            <NativeTooltip key={glyph.id} title={glyph.label}>
+              <button
+                type="button"
+                className="power-icon-glyph"
+                aria-label={glyph.label}
+                aria-pressed={design.glyph === glyph.id}
+                disabled={busy}
+                onClick={() => update("glyph", glyph.id)}
+              >
+                <img src={clusterIconDataUrl({ ...previewDesign, glyph: glyph.id })} alt="" />
+              </button>
+            </NativeTooltip>
           ))}
         </div>
       </div>
@@ -257,23 +258,19 @@ export function ClusterIconsPage() {
         ) : (
           <div className="power-icon-grid">
             {visible.map((entry) => (
-              <button
-                type="button"
-                key={entry.id}
-                className="power-icon-card"
-                title={`Edit icon for ${entry.name}`}
-                onClick={() => setEditing(entry)}
-              >
-                <Renderer.Component.Avatar
-                  title={entry.name}
-                  size={64}
-                  src={entry.icon?.startsWith("data:image/") ? entry.icon : undefined}
-                  background={entry.icon && !entry.icon.startsWith("data:") ? entry.icon : undefined}
-                  colorHash={`${entry.name}-${Renderer.Catalog.catalogEntities.getById(entry.id)?.metadata.source ?? ""}`}
-                  className="power-icon-current-avatar"
-                />
-                <span className="power-icon-card-name">{entry.name}</span>
-              </button>
+              <NativeTooltip key={entry.id} title={`Edit icon for ${entry.name}`}>
+                <button type="button" className="power-icon-card" onClick={() => setEditing(entry)}>
+                  <Renderer.Component.Avatar
+                    title={entry.name}
+                    size={64}
+                    src={entry.icon?.startsWith("data:image/") ? entry.icon : undefined}
+                    background={entry.icon && !entry.icon.startsWith("data:") ? entry.icon : undefined}
+                    colorHash={`${entry.name}-${Renderer.Catalog.catalogEntities.getById(entry.id)?.metadata.source ?? ""}`}
+                    className="power-icon-current-avatar"
+                  />
+                  <span className="power-icon-card-name">{entry.name}</span>
+                </button>
+              </NativeTooltip>
             ))}
           </div>
         )}

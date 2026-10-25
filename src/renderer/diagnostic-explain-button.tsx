@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
+import { NativeTooltip } from "./native-tooltip";
 
 import type { ButtonHTMLAttributes } from "react";
 
@@ -8,10 +9,8 @@ export const DiagnosticExplainButton = observer(function DiagnosticExplainButton
 ) {
   const enabled = AiPreferencesStore.getInstanceOrCreate<AiPreferencesStore>().enabled;
   return (
-    <button
-      {...props}
-      disabled={!enabled || props.disabled}
-      title={enabled ? props.title : "Enable AI in Power settings to explain this finding"}
-    />
+    <NativeTooltip title={enabled ? props.title : "Enable AI in Power settings to explain this finding"}>
+      <button {...props} disabled={!enabled || props.disabled} />
+    </NativeTooltip>
   );
 });

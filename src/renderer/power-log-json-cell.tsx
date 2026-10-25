@@ -1,6 +1,7 @@
 import { clipboard } from "electron";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { sqlCellLevel } from "../common/power-log-sql-level";
+import { NativeTooltip } from "./native-tooltip";
 import { LogJson } from "./power-log-json";
 import { compactJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
 import { LogMessage } from "./power-log-message";
@@ -42,17 +43,19 @@ export function LogJsonCell({
   if (preview === null) {
     const level = sqlCellLevel(column ?? "", rawValue === undefined ? value : rawValue);
     return (
-      <span className="power-logs-cell" title={value ?? "NULL"}>
-        {value === null ? (
-          "NULL"
-        ) : level !== "unknown" ? (
-          <span className="power-logs-level-label" data-level={level}>
-            {typeof rawValue === "number" ? value : value.toUpperCase()}
-          </span>
-        ) : (
-          <LogMessage text={value} />
-        )}
-      </span>
+      <NativeTooltip title={value ?? "NULL"}>
+        <span className="power-logs-cell">
+          {value === null ? (
+            "NULL"
+          ) : level !== "unknown" ? (
+            <span className="power-logs-level-label" data-level={level}>
+              {typeof rawValue === "number" ? value : value.toUpperCase()}
+            </span>
+          ) : (
+            <LogMessage text={value} />
+          )}
+        </span>
+      </NativeTooltip>
     );
   }
   return (
@@ -64,25 +67,26 @@ export function LogJsonCell({
         Icon={Icon}
         onFilter={onFilter}
       />
-      <button
-        type="button"
-        className="power-logs-json-copy"
-        aria-label="Copy JSON"
-        title={feedback || "Copy JSON"}
-        onKeyDown={(event) => event.stopPropagation()}
-        onKeyUp={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          try {
-            clipboard.writeText(value!);
-            setFeedback("Copied");
-          } catch {
-            setFeedback("Unable to copy JSON");
-          }
-        }}
-      >
-        <Icon material={feedback === "Copied" ? "check" : "content_copy"} size={14} />
-      </button>
+      <NativeTooltip title={feedback || "Copy JSON"}>
+        <button
+          type="button"
+          className="power-logs-json-copy"
+          aria-label="Copy JSON"
+          onKeyDown={(event) => event.stopPropagation()}
+          onKeyUp={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            try {
+              clipboard.writeText(value!);
+              setFeedback("Copied");
+            } catch {
+              setFeedback("Unable to copy JSON");
+            }
+          }}
+        >
+          <Icon material={feedback === "Copied" ? "check" : "content_copy"} size={14} />
+        </button>
+      </NativeTooltip>
       <span className="power-logs-json-copy-feedback" role="status" aria-live="polite">
         {feedback}
       </span>

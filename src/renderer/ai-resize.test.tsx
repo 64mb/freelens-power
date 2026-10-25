@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AiResizeHandle, clampAiPanelWidth } from "./ai-resize";
+import { MockTooltip } from "./native-tooltip.test-utils";
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -76,3 +78,7 @@ describe("AI panel resize handle", () => {
     expect(change).toHaveBeenLastCalledWith(700);
   });
 });
+
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: { Component: { Tooltip: (props: any) => <MockTooltip {...props} /> } },
+}));

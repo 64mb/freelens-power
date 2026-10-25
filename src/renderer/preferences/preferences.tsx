@@ -94,10 +94,10 @@ export const PowerPreferences = () => (
     <nav className="power-preferences-section-links" aria-label="Settings sections">
       {sectionLinks.map(({ id, title, icon }) => (
         <Renderer.Component.Button
+          tooltip={`Jump to ${title} settings`}
           key={id}
           className="power-settings-section-link"
           aria-label={title}
-          title={`Jump to ${title} settings`}
           onClick={(event) => {
             event.preventDefault();
             focusPreferencesSection(id);
@@ -120,9 +120,9 @@ export const PowerPreferences = () => (
       <AppearancePreferences />
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
         <Renderer.Component.Button
+          tooltip="Create matching icons for your saved clusters"
           style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           onClick={() => Renderer.Navigation.navigate(`/extension/${EXTENSION_ID}/cluster-icons`)}
-          title="Create matching icons for your saved clusters"
         >
           <Renderer.Component.Icon material="palette" size={16} /> Cluster icons
         </Renderer.Component.Button>

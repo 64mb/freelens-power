@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+import { Renderer } from "@freelensapp/extensions";
+import { createElement } from "react";
+import ReactDOM from "react-dom";
+
+let nextWelcomeFeatureId = 0;
 
 const WELCOME_SELECTOR = '.Welcome [data-testid="welcome-text-container"]';
 const HOST_ATTRIBUTE = "data-freelens-power-welcome";
@@ -43,7 +48,8 @@ function createWelcomeContent(): HTMLDivElement {
     const feature = document.createElement("li");
     feature.setAttribute("role", "listitem");
     feature.textContent = labels[index];
-    feature.title = text;
+    feature.id = `power-welcome-feature-${++nextWelcomeFeatureId}`;
+    feature.dataset.powerTooltip = text;
     features.append(feature);
   }
 
@@ -93,6 +99,8 @@ export function startWelcomeOverride(): () => void {
     const entry = hosts.get(host);
     if (!entry) return;
 
+    const tooltipRoot = entry.content.querySelector("[data-power-welcome-tooltips]");
+    if (tooltipRoot) ReactDOM.unmountComponentAtNode(tooltipRoot);
     entry.content.remove();
     if (entry.previousAttribute === null) {
       host.removeAttribute(HOST_ATTRIBUTE);
@@ -109,6 +117,24 @@ export function startWelcomeOverride(): () => void {
     hosts.set(host, { content, previousAttribute: host.getAttribute(HOST_ATTRIBUTE) });
     host.setAttribute(HOST_ATTRIBUTE, "");
     host.prepend(content);
+    const tooltipRoot = document.createElement("div");
+    tooltipRoot.setAttribute("data-power-welcome-tooltips", "");
+    tooltipRoot.style.display = "none";
+    content.append(tooltipRoot);
+    ReactDOM.render(
+      createElement(
+        "div",
+        null,
+        ...Array.from(content.querySelectorAll<HTMLElement>("[data-power-tooltip]")).map((feature) =>
+          createElement(
+            Renderer.Component.Tooltip,
+            { key: feature.id, targetId: feature.id },
+            feature.dataset.powerTooltip,
+          ),
+        ),
+      ),
+      tooltipRoot,
+    );
   };
 
   const scan = (node: Element) => {

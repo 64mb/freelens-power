@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
 vi.mock("./resource-search-client", () => ({
   createResourceSearchTransport: () => ({ get: () => Promise.reject({ status: 404 }) }),
@@ -25,6 +27,7 @@ vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: "cluster" } }) } },
     Component: {
+      Tooltip: (props: any) => <MockTooltip {...props} />,
       Icon: () => null,
       Select: ({ value, options, onChange, isDisabled, ...props }: any) => (
         <select
@@ -191,6 +194,9 @@ it("draws actual card-to-card edges through gutters and highlights incident conn
   );
   const view = render(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable />);
   const selected = view.container.querySelector('[data-edge-from="service"][data-edge-to="pod/pod-1"]');
+  expect(selected?.querySelector("title")).toBeNull();
+  expect(tooltipText(selected)).toContain("→");
+  expect(selected?.hasAttribute("title")).toBe(false);
   expect(selected?.getAttribute("d")).toBe("M 400 150 H 440");
   const owner = view.container.querySelector('[data-edge-from="owner/rs-1"]');
   expect(owner?.getAttribute("d")).toMatch(/^M 660 150 L /);

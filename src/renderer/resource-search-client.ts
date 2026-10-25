@@ -106,7 +106,11 @@ export function createResourceSearchClient(
   clusterId: string,
   contextId: string,
 ): SearchSink & {
-  query(query: string, limit?: number, filters?: { kind?: string; namespace?: string }): Promise<SearchQueryResult>;
+  query(
+    query: string,
+    limit?: number,
+    filters?: { kind?: string; namespace?: string; offset?: number },
+  ): Promise<SearchQueryResult>;
   clear(): Promise<unknown>;
   status(): Promise<SearchIndexStatus>;
 } {

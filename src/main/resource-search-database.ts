@@ -205,9 +205,10 @@ export class ResourceSearchDatabase {
     context: string,
     query: string,
     requestedLimit = 200,
-    filters: { kind?: string; namespace?: string } = {},
+    filters: { kind?: string; namespace?: string; offset?: number } = {},
   ): SearchQueryResult {
     const limit = Math.max(1, Math.min(1000, Math.floor(requestedLimit)));
+    const offset = Math.max(0, Math.floor(filters.offset ?? 0));
     const tokens = query.slice(0, 300).toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
     const args: (string | number)[] = [cluster, context];
     const filtersSql: string[] = [];
@@ -259,13 +260,13 @@ export class ResourceSearchDatabase {
       WHERE d.cluster=? AND d.context=? ${[...filtersSql, ...conditions].length ? `AND ${[...filtersSql, ...conditions].join(" AND ")}` : ""}
       ORDER BY ${penalties.length ? penalties.map((penalty) => `(${penalty})`).join("+") : "NULL"},
       CASE WHEN LOWER(d.name)=? THEN 0 WHEN LOWER(d.name) LIKE ? ESCAPE '\\' THEN 1
-      WHEN LOWER(d.kind)=? THEN 2 WHEN instr(LOWER(d.name),?)>0 THEN 3 ELSE 4 END,search_kind_priority(d.kind),d.kind,json_extract(d.json,'$.group'),d.name,d.path LIMIT ?`)
-      .all(...args, ...rankingArgs, name, `${escapeLike(name)}%`, name, name, limit);
+      WHEN LOWER(d.kind)=? THEN 2 WHEN instr(LOWER(d.name),?)>0 THEN 3 ELSE 4 END,search_kind_priority(d.kind),d.kind,json_extract(d.json,'$.group'),d.name,d.path LIMIT ? OFFSET ?`)
+      .all(...args, ...rankingArgs, name, `${escapeLike(name)}%`, name, name, limit, offset);
     const total = Number(rows[0]?.total ?? 0);
     return {
       documents: rows.map((row) => JSON.parse(String(row.json)) as SearchDocument),
       total,
-      hasMore: total > rows.length,
+      hasMore: total > offset + rows.length,
     };
   }
 

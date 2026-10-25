@@ -140,7 +140,7 @@ it("clamps action icons inside the visible JSON wrapper for very long lines", ()
   fireEvent.mouseEnter(key);
   expect(getByRole("toolbar").style.left).toBe("256px");
   expect(getByRole("toolbar").style.top).toBe("80px");
-  expect(getByRole("button", { name: "Copy value" }).title).toBe("Copy value");
+  expect(getByRole("button", { name: "Copy value" }).hasAttribute("title")).toBe(false);
 });
 
 it("keeps the chosen compact JSON field while crossing other fields toward its actions", () => {
@@ -171,4 +171,64 @@ it("keeps the chosen compact JSON field while crossing other fields toward its a
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("follows a different JSON line before the pointer leaves its token for whitespace", () => {
+  vi.useFakeTimers();
+  try {
+    const filter = vi.fn();
+    const { container, getByRole } = render(<LogJson text={'{\n  "first": 1,\n  "second": 2\n}'} onFilter={filter} />);
+    const keys = container.querySelectorAll<HTMLElement>('[data-token="key"]');
+    keys.forEach((key, index) => {
+      vi.spyOn(key, "getBoundingClientRect").mockReturnValue({
+        left: 30,
+        right: 100,
+        top: 80 + index * 20,
+        bottom: 100 + index * 20,
+        height: 20,
+      } as DOMRect);
+    });
+    fireEvent.mouseEnter(keys[0]);
+    fireEvent.mouseLeave(keys[0], { relatedTarget: keys[1] });
+    fireEvent.mouseEnter(keys[1]);
+    fireEvent.mouseLeave(keys[1], { relatedTarget: container.querySelector("pre") });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(getByRole("toolbar").style.top).toBe("100px");
+    fireEvent.click(getByRole("button", { name: "Include value" }));
+    expect(filter).toHaveBeenLastCalledWith({ path: ["second"], value: 2, operator: "eq" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("follows a wrapped value on another line without using the full token height as row tolerance", () => {
+  const filter = vi.fn();
+  const { container, getByRole } = render(
+    <LogJson text={'{\n  "first": 1,\n  "second": "wrapped value"\n}'} onFilter={filter} />,
+  );
+  const first = container.querySelector<HTMLElement>('[data-token="key"]')!;
+  const wrapped = container.querySelector<HTMLElement>('[data-token="string"]')!;
+  vi.spyOn(first, "getBoundingClientRect").mockReturnValue({
+    left: 30,
+    right: 100,
+    top: 80,
+    bottom: 100,
+    height: 20,
+  } as DOMRect);
+  vi.spyOn(wrapped, "getBoundingClientRect").mockReturnValue({
+    left: 30,
+    right: 150,
+    top: 100,
+    bottom: 160,
+    height: 60,
+  } as DOMRect);
+  fireEvent.mouseEnter(first);
+  fireEvent.mouseLeave(first);
+  fireEvent.mouseEnter(wrapped);
+  fireEvent.mouseLeave(wrapped);
+  expect(getByRole("toolbar").style.top).toBe("100px");
+  fireEvent.click(getByRole("button", { name: "Include value" }));
+  expect(filter).toHaveBeenLastCalledWith({ path: ["second"], value: "wrapped value", operator: "eq" });
 });

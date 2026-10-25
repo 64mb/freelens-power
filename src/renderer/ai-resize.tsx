@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { NativeTooltip } from "./native-tooltip";
 
 export const DEFAULT_AI_PANEL_WIDTH = 560;
 export const MIN_AI_PANEL_WIDTH = 360;
@@ -56,38 +57,39 @@ export function AiResizeHandle({
     };
   }, []);
   return (
-    <div
-      role="separator"
-      tabIndex={0}
-      aria-label="Resize AI assistant"
-      aria-orientation="vertical"
-      aria-valuemin={Math.min(MIN_AI_PANEL_WIDTH, available)}
-      aria-valuemax={Math.max(1, available)}
-      aria-valuenow={width}
-      title="Drag to resize · Click to reset width"
-      className="power-ai-resize-handle"
-      onPointerDown={(event) => {
-        if (event.button !== 0 || drag.current) return;
-        event.preventDefault();
-        event.stopPropagation();
-        drag.current = { x: event.clientX, y: event.clientY, width, movement: 0, pointerId: event.pointerId };
-        event.currentTarget.focus();
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-      }}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onKeyDown={(event) => {
-        if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onChange(
-          event.key === "Home"
-            ? DEFAULT_AI_PANEL_WIDTH
-            : clampAiPanelWidth(width + (event.key === "ArrowLeft" ? 20 : -20), available),
-        );
-      }}
-    />
+    <NativeTooltip title="Drag to resize · Click to reset width">
+      <div
+        role="separator"
+        tabIndex={0}
+        aria-label="Resize AI assistant"
+        aria-orientation="vertical"
+        aria-valuemin={Math.min(MIN_AI_PANEL_WIDTH, available)}
+        aria-valuemax={Math.max(1, available)}
+        aria-valuenow={width}
+        className="power-ai-resize-handle"
+        onPointerDown={(event) => {
+          if (event.button !== 0 || drag.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+          drag.current = { x: event.clientX, y: event.clientY, width, movement: 0, pointerId: event.pointerId };
+          event.currentTarget.focus();
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onChange(
+            event.key === "Home"
+              ? DEFAULT_AI_PANEL_WIDTH
+              : clampAiPanelWidth(width + (event.key === "ArrowLeft" ? 20 : -20), available),
+          );
+        }}
+      />
+    </NativeTooltip>
   );
 }

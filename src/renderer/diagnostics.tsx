@@ -27,6 +27,7 @@ import {
   type MonitoringSnapshot,
   retainMonitoringCollector,
 } from "./monitoring-collector";
+import { NativeTooltip } from "./native-tooltip";
 
 const viewDescriptions = {
   Consumers: [
@@ -84,22 +85,20 @@ function ResourceCell({ summary, metric }: { summary: ResourceSummary; metric: "
         <small>{summary.unknownRequestPods ? "Known requests" : "Requests"}</small>
         <span>{resourceText(summary.requests, metric)}</span>
       </div>
-      <small
-        className="resource-coverage"
-        title="Coverage is per resource. Missing metrics are unavailable, never zero."
-      >
-        {summary.coveredPods}/{summary.totalPods} pods covered
-        {summary.unknownRequestPods ? ` · ${summary.unknownRequestPods} requests unknown` : ""}
-        {ratio ? ` · ${ratio}` : ""}
-      </small>
+      <NativeTooltip title="Coverage is per resource. Missing metrics are unavailable, never zero.">
+        <small className="resource-coverage">
+          {summary.coveredPods}/{summary.totalPods} pods covered
+          {summary.unknownRequestPods ? ` · ${summary.unknownRequestPods} requests unknown` : ""}
+          {ratio ? ` · ${ratio}` : ""}
+        </small>
+      </NativeTooltip>
       {complete && summary.usage !== undefined && summary.requests > 0 && summary.usage > summary.requests && (
-        <span
-          className="request-burst"
-          title="Usage exceeds configured requests. Requests are reservations, not limits; this alone does not indicate a failure."
-        >
-          <AiIcon material="info_outline" size={12} />
-          Above requests
-        </span>
+        <NativeTooltip title="Usage exceeds configured requests. Requests are reservations, not limits; this alone does not indicate a failure.">
+          <span className="request-burst">
+            <AiIcon material="info_outline" size={12} />
+            Above requests
+          </span>
+        </NativeTooltip>
       )}
     </div>
   );
@@ -108,9 +107,9 @@ function UnscheduledCell({ cpu, memory }: { cpu: ResourceSummary; memory: Resour
   const partial = cpu.unknownRequestPods || memory.unknownRequestPods;
   if (!partial && !cpu.unscheduledRequests && !memory.unscheduledRequests)
     return (
-      <span className="unscheduled-empty" title="No unscheduled requests">
-        —
-      </span>
+      <NativeTooltip title="No unscheduled requests">
+        <span className="unscheduled-empty">—</span>
+      </NativeTooltip>
     );
   return (
     <div className={`unscheduled-cell${cpu.unscheduledRequests || memory.unscheduledRequests ? " has-requests" : ""}`}>
@@ -605,23 +604,19 @@ export function DiagnosticsPage() {
       </header>
       <nav aria-label="Diagnostics views">
         {(["Consumers", "Timeline", "Pending", "Not ready"] as Tab[]).map((name) => (
-          <button
-            key={name}
-            type="button"
-            title={`Show ${name.toLowerCase()}`}
-            aria-pressed={tab === name}
-            onClick={() => setTab(name)}
-          >
-            <AiIcon
-              material={name === "Consumers" ? "account_tree" : name === "Timeline" ? "timeline" : "hourglass_empty"}
-            />
-            {name}
-            {name === "Pending" && data?.pods
-              ? ` (${pending.length})`
-              : name === "Not ready" && data?.pods
-                ? ` (${notReady.length})`
-                : ""}
-          </button>
+          <NativeTooltip key={name} title={`Show ${name.toLowerCase()}`}>
+            <button type="button" aria-pressed={tab === name} onClick={() => setTab(name)}>
+              <AiIcon
+                material={name === "Consumers" ? "account_tree" : name === "Timeline" ? "timeline" : "hourglass_empty"}
+              />
+              {name}
+              {name === "Pending" && data?.pods
+                ? ` (${pending.length})`
+                : name === "Not ready" && data?.pods
+                  ? ` (${notReady.length})`
+                  : ""}
+            </button>
+          </NativeTooltip>
         ))}
       </nav>
       {error && (
@@ -948,15 +943,18 @@ export function DiagnosticsPage() {
                       </div>
                       <div className="timeline-card-actions" role="group" aria-label="Event actions">
                         {object && data && (
-                          <button
-                            type="button"
-                            className="timeline-resource-action"
-                            aria-label="Open resource"
+                          <NativeTooltip
                             title={`Open ${object.kind ?? "Pod"} ${object.metadata.namespace} / ${object.metadata.name}`}
-                            onClick={(event) => openResource(object, data.clusterId, event)}
                           >
-                            <AiIcon material="open_in_new" />
-                          </button>
+                            <button
+                              type="button"
+                              className="timeline-resource-action"
+                              aria-label="Open resource"
+                              onClick={(event) => openResource(object, data.clusterId, event)}
+                            >
+                              <AiIcon material="open_in_new" />
+                            </button>
+                          </NativeTooltip>
                         )}
                         <IncidentCopyButton
                           clusterId={data.clusterId}
@@ -1108,15 +1106,16 @@ export function DiagnosticsPage() {
                       {consumerStatus([selectedPod]).tone === "error" && <ConsumerStatus pods={[selectedPod]} />}
                     </div>
                   </div>
-                  <button
-                    className="pending-open-action"
-                    type="button"
-                    title="Open pod details"
-                    onClick={(event) => openResource(selectedPod, data!.clusterId, event)}
-                  >
-                    <AiIcon material="open_in_new" size={15} />
-                    Open pod
-                  </button>
+                  <NativeTooltip title="Open pod details">
+                    <button
+                      className="pending-open-action"
+                      type="button"
+                      onClick={(event) => openResource(selectedPod, data!.clusterId, event)}
+                    >
+                      <AiIcon material="open_in_new" size={15} />
+                      Open pod
+                    </button>
+                  </NativeTooltip>
                 </div>
                 <p>
                   {readinessView
@@ -1292,23 +1291,24 @@ function ConsumerRows({
             <div className="consumer-identity-main">
               <div className="consumer-title-line">
                 {group.ownerResolved && resources[group.kind] && group.name !== "Unknown" ? (
-                  <button
-                    className="consumer-resource-link"
-                    type="button"
-                    title={`Open ${group.kind} ${group.namespace} / ${group.name}`}
-                    onClick={(event) =>
-                      openResource(
-                        {
-                          kind: group.kind,
-                          metadata: { uid: group.identity, namespace: group.namespace, name: group.name },
-                        },
-                        clusterId,
-                        event,
-                      )
-                    }
-                  >
-                    <span className="consumer-link-name">{group.name}</span>
-                  </button>
+                  <NativeTooltip title={`Open ${group.kind} ${group.namespace} / ${group.name}`}>
+                    <button
+                      className="consumer-resource-link"
+                      type="button"
+                      onClick={(event) =>
+                        openResource(
+                          {
+                            kind: group.kind,
+                            metadata: { uid: group.identity, namespace: group.namespace, name: group.name },
+                          },
+                          clusterId,
+                          event,
+                        )
+                      }
+                    >
+                      <span className="consumer-link-name">{group.name}</span>
+                    </button>
+                  </NativeTooltip>
                 ) : (
                   <span className="consumer-identity-label">{group.name}</span>
                 )}
@@ -1361,16 +1361,17 @@ function ConsumerRows({
               )}
 
               <span className="consumer-expand-slot">
-                <button
-                  className="consumer-expand"
-                  type="button"
-                  title={expanded ? "Collapse pods" : "Expand pods"}
-                  aria-label={`${expanded ? "Collapse" : "Expand"} pods for ${group.name}`}
-                  aria-expanded={expanded}
-                  onClick={toggle}
-                >
-                  <AiIcon material={expanded ? "expand_less" : "expand_more"} />
-                </button>
+                <NativeTooltip title={expanded ? "Collapse pods" : "Expand pods"}>
+                  <button
+                    className="consumer-expand"
+                    type="button"
+                    aria-label={`${expanded ? "Collapse" : "Expand"} pods for ${group.name}`}
+                    aria-expanded={expanded}
+                    onClick={toggle}
+                  >
+                    <AiIcon material={expanded ? "expand_less" : "expand_more"} />
+                  </button>
+                </NativeTooltip>
               </span>
             </div>
           </div>
@@ -1396,15 +1397,16 @@ function ConsumerRows({
               <div className="consumer-identity-row">
                 <div className="consumer-identity-main">
                   <div className="consumer-title-line">
-                    <button
-                      className="consumer-resource-link"
-                      type="button"
-                      title="Open pod details"
-                      onClick={(event) => openResource(pod, clusterId, event)}
-                    >
-                      <AiIcon material="view_in_ar" size={14} />
-                      <span className="consumer-link-name">{pod.metadata.name}</span>
-                    </button>
+                    <NativeTooltip title="Open pod details">
+                      <button
+                        className="consumer-resource-link"
+                        type="button"
+                        onClick={(event) => openResource(pod, clusterId, event)}
+                      >
+                        <AiIcon material="view_in_ar" size={14} />
+                        <span className="consumer-link-name">{pod.metadata.name}</span>
+                      </button>
+                    </NativeTooltip>
                     <ConsumerStatus pods={[pod]} />
                   </div>
                   <small className="consumer-subtitle">
@@ -1422,16 +1424,15 @@ function ConsumerRows({
               <ResourceCell summary={podResourceGroup(pod, usage).memory} metric="memory" />
             </td>
             <td className="numeric">
-              <span
-                className="unscheduled-empty"
+              <NativeTooltip
                 title={
                   pod.spec?.nodeName
                     ? "No unscheduled requests"
                     : "Unscheduled requests are included in the workload total"
                 }
               >
-                {pod.spec?.nodeName ? "—" : "Included above"}
-              </span>
+                <span className="unscheduled-empty">{pod.spec?.nodeName ? "—" : "Included above"}</span>
+              </NativeTooltip>
             </td>
           </tr>
         ))}
@@ -1502,17 +1503,18 @@ function NamespaceRows({
             <div className="consumer-identity-row">
               <div className="consumer-identity-main">
                 <div className="consumer-title-line">
-                  <button
-                    type="button"
-                    className="consumer-resource-link namespace-identity"
-                    onClick={(event) =>
-                      openResource({ kind: "Namespace", metadata: { name: namespace } }, clusterId, event)
-                    }
-                    title="Open namespace"
-                  >
-                    <AiIcon material="folder_open" size={17} />
-                    <span className="consumer-link-name">{namespace}</span>
-                  </button>
+                  <NativeTooltip title="Open namespace">
+                    <button
+                      type="button"
+                      className="consumer-resource-link namespace-identity"
+                      onClick={(event) =>
+                        openResource({ kind: "Namespace", metadata: { name: namespace } }, clusterId, event)
+                      }
+                    >
+                      <AiIcon material="folder_open" size={17} />
+                      <span className="consumer-link-name">{namespace}</span>
+                    </button>
+                  </NativeTooltip>
                   <ConsumerStatus pods={groups.flatMap((group) => group.pods)} />
                   <small>
                     {groups.filter((group) => consumerStatus(group.pods).tone === "healthy").length} ready ·{" "}
@@ -1521,25 +1523,25 @@ function NamespaceRows({
                     unknown
                   </small>
                 </div>
-                <small
-                  className="consumer-subtitle"
-                  title="Resource totals include only consumers shown by the current filters"
-                >
-                  {groups.length} filtered consumers<span>·</span>
-                  {groups.reduce((total, group) => total + group.pods.length, 0)} pods
-                </small>
+                <NativeTooltip title="Resource totals include only consumers shown by the current filters">
+                  <small className="consumer-subtitle">
+                    {groups.length} filtered consumers<span>·</span>
+                    {groups.reduce((total, group) => total + group.pods.length, 0)} pods
+                  </small>
+                </NativeTooltip>
               </div>
               <span className="consumer-expand-slot">
-                <button
-                  className="consumer-expand"
-                  type="button"
-                  title={open ? "Collapse namespace workloads" : "Expand namespace workloads"}
-                  aria-label={`${open ? "Collapse" : "Expand"} workloads in ${namespace}`}
-                  aria-expanded={open}
-                  onClick={toggleNamespace}
-                >
-                  <AiIcon material={open ? "expand_less" : "expand_more"} />
-                </button>
+                <NativeTooltip title={open ? "Collapse namespace workloads" : "Expand namespace workloads"}>
+                  <button
+                    className="consumer-expand"
+                    type="button"
+                    aria-label={`${open ? "Collapse" : "Expand"} workloads in ${namespace}`}
+                    aria-expanded={open}
+                    onClick={toggleNamespace}
+                  >
+                    <AiIcon material={open ? "expand_less" : "expand_more"} />
+                  </button>
+                </NativeTooltip>
               </span>
             </div>
           </td>

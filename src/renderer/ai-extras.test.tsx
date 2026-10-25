@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { attachedAiContext } from "../common/ai-extras";
+import { tooltipText } from "./native-tooltip.test-utils";
 
 import type { ReactNode } from "react";
 
@@ -106,7 +108,7 @@ it("closes only after accepted resource navigation and keeps failures open", asy
 it("renders compact navigable chips with complete identities available on hover", () => {
   const view = render(<AiResourceReferences clusterId="cluster-a" references={[reference]} text="Inspect worker" />);
   const chip = screen.getByRole("button", { name: "Pod/worker · default" });
-  expect(chip.title).toBe("Open Pod/worker details · default");
+  expect(tooltipText(chip)).toBe("Open Pod/worker details · default");
   expect(chip.style.padding).toBe("4px 8px");
   expect(chip.style.fontSize).toBe("12px");
   expect(chip.querySelector('[aria-hidden="true"]')?.textContent).toContain("arrow_forward");
@@ -151,7 +153,7 @@ it("uses the common tooltip for removing context without a duplicate native titl
   const finding = { clusterId: "cluster-a", title: "Selected evidence", summary: "Read-only evidence" };
   const view = render(<AiContextPreview context={{}} finding={finding} onRemoveFinding={remove} />);
   const button = within(view.container).getByRole("button", { name: "Remove diagnostic finding" });
-  const tooltip = within(view.container).getByRole("tooltip");
+  const tooltip = within(view.container).getByText("Remove attached finding");
   expect(button.hasAttribute("title")).toBe(false);
   expect(button.id).not.toBe("");
   expect(tooltip.getAttribute("data-target-id")).toBe(button.id);

@@ -9,6 +9,7 @@ import { AI_CANCEL_CHANNEL, attachedAiContext, normalizeAiReferences } from "../
 import { expandAiShortcut } from "../common/ai-shortcuts";
 import { type AiMessage, AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
+import { hasAiContextMutations } from "./ai-context-mutations";
 import { AiCopyAnswer } from "./ai-copy-answer";
 import {
   AI_DIAGNOSTIC_EVENT,
@@ -29,6 +30,7 @@ import {
   activeAiTerminal,
   captureAiTerminal,
 } from "./ai-terminal-context";
+import { NativeTooltip } from "./native-tooltip";
 
 export interface AiScreenContext {
   clusterId?: string;
@@ -335,7 +337,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     window.addEventListener("popstate", update);
     update();
     const timer = window.setInterval(update, 500);
-    const observer = new MutationObserver(update);
+    const observer = new MutationObserver((mutations) => {
+      if (hasAiContextMutations(mutations)) update();
+    });
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -599,25 +603,26 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     <>
       <style>{styles}</style>
       {!open && (
-        <button
-          type="button"
-          className={`power-ai-launcher${launcherHidden ? " power-ai-launcher-hidden" : ""}`}
-          aria-hidden={launcherHidden || undefined}
-          tabIndex={launcherHidden ? -1 : 0}
-          style={{
-            bottom: launcherBottom,
-            left: resourceDetailsOpen ? launcherLeft : "auto",
-            right: resourceDetailsOpen ? "auto" : 16,
-          }}
-          onClick={() => setOpen(true)}
-          aria-label="Open AI assistant"
-          title="Open AI assistant"
-        >
-          <span aria-hidden="true">
-            <AiIcon material="chat_bubble_outline" size={16} />
-          </span>{" "}
-          AI
-        </button>
+        <NativeTooltip title="Open AI assistant">
+          <button
+            type="button"
+            className={`power-ai-launcher${launcherHidden ? " power-ai-launcher-hidden" : ""}`}
+            aria-hidden={launcherHidden || undefined}
+            tabIndex={launcherHidden ? -1 : 0}
+            style={{
+              bottom: launcherBottom,
+              left: resourceDetailsOpen ? launcherLeft : "auto",
+              right: resourceDetailsOpen ? "auto" : 16,
+            }}
+            onClick={() => setOpen(true)}
+            aria-label="Open AI assistant"
+          >
+            <span aria-hidden="true">
+              <AiIcon material="chat_bubble_outline" size={16} />
+            </span>{" "}
+            AI
+          </button>
+        </NativeTooltip>
       )}
       {open && (
         <aside
@@ -632,53 +637,58 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           />
           <header>
             <strong className="power-ai-title">
-              <span className="power-ai-brand" title="AI assistant">
-                <AiIcon material="auto_awesome" size={18} /> AI
-              </span>{" "}
+              <NativeTooltip title="AI assistant">
+                <span className="power-ai-brand">
+                  <AiIcon material="auto_awesome" size={18} /> AI
+                </span>
+              </NativeTooltip>{" "}
               Assistant
             </strong>
-            <button
-              type="button"
-              disabled={busy}
-              aria-label="New chat"
-              title="Clear this conversation and start a new chat"
-              onClick={() => {
-                setTerminalAttachment(undefined);
-                setFinding(undefined);
-                preferences.setMessages(key, []);
-                setStopped((keys) => keys.filter((entry) => entry !== key));
-                setActivity({ key, reads: [] });
-                setError("");
-              }}
-            >
-              <AiIcon material="add_comment" size={16} /> New chat
-            </button>
-            <button
-              type="button"
-              className="power-ai-pin"
-              aria-label="Pin AI assistant"
-              aria-pressed={pinned}
-              title={pinned ? "Unpin to close when clicking outside" : "Pin to keep the assistant open"}
-              onClick={() => setPinned((value) => !value)}
-            >
-              <AiIcon material="push_pin" size={18} />
-            </button>
-            <button
-              type="button"
-              onPointerDown={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                setOpen(false);
-              }}
-              className="power-ai-close"
-              aria-label="Close AI assistant"
-              title="Close AI assistant"
-            >
-              <span aria-hidden="true">
-                <AiIcon material="close" size={18} />
-              </span>
-            </button>
+            <NativeTooltip title="Clear this conversation and start a new chat">
+              <button
+                type="button"
+                disabled={busy}
+                aria-label="New chat"
+                onClick={() => {
+                  setTerminalAttachment(undefined);
+                  setFinding(undefined);
+                  preferences.setMessages(key, []);
+                  setStopped((keys) => keys.filter((entry) => entry !== key));
+                  setActivity({ key, reads: [] });
+                  setError("");
+                }}
+              >
+                <AiIcon material="add_comment" size={16} /> New chat
+              </button>
+            </NativeTooltip>
+            <NativeTooltip title={pinned ? "Unpin to close when clicking outside" : "Pin to keep the assistant open"}>
+              <button
+                type="button"
+                className="power-ai-pin"
+                aria-label="Pin AI assistant"
+                aria-pressed={pinned}
+                onClick={() => setPinned((value) => !value)}
+              >
+                <AiIcon material="push_pin" size={18} />
+              </button>
+            </NativeTooltip>
+            <NativeTooltip title="Close AI assistant">
+              <button
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpen(false);
+                }}
+                className="power-ai-close"
+                aria-label="Close AI assistant"
+              >
+                <span aria-hidden="true">
+                  <AiIcon material="close" size={18} />
+                </span>
+              </button>
+            </NativeTooltip>
           </header>
           <div className="power-ai-context">
             {context.clusterId ? "Cluster conversation" : "General conversation"} · {context.screen}
@@ -710,9 +720,11 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               <div className={`power-ai-message power-ai-message-${message.role}`} key={index}>
                 <strong>
                   {message.role === "user" ? (
-                    <span title="You">
-                      <AiIcon material="person_outline" size={16} />
-                    </span>
+                    <NativeTooltip title="You">
+                      <span>
+                        <AiIcon material="person_outline" size={16} />
+                      </span>
+                    </NativeTooltip>
                   ) : (
                     <AiProviderIcon provider={message.provider === "claude" ? "claude" : "codex"} />
                   )}
@@ -736,26 +748,25 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 style={{ fontSize: 11, color: "var(--textColorSecondary)", margin: "8px 16px" }}
               >
                 {readActivity.map((read, index) => (
-                  <span
+                  <NativeTooltip
                     key={index}
                     title={`${read.method} · ${read.status === "reading" ? "reading" : read.status === "ok" ? "read" : "unavailable"}`}
-                    data-method={read.method}
-                    data-status={read.status}
-                    style={{ marginRight: 10 }}
                   >
-                    <AiIcon
-                      material={
-                        read.status === "reading"
-                          ? "sync"
-                          : read.status === "ok"
-                            ? "check_circle_outline"
-                            : "info_outline"
-                      }
-                      size={13}
-                    />{" "}
-                    {read.method} ·{" "}
-                    {read.status === "reading" ? "reading" : read.status === "ok" ? "read" : "unavailable"}
-                  </span>
+                    <span data-method={read.method} data-status={read.status} style={{ marginRight: 10 }}>
+                      <AiIcon
+                        material={
+                          read.status === "reading"
+                            ? "sync"
+                            : read.status === "ok"
+                              ? "check_circle_outline"
+                              : "info_outline"
+                        }
+                        size={13}
+                      />{" "}
+                      {read.method} ·{" "}
+                      {read.status === "reading" ? "reading" : read.status === "ok" ? "read" : "unavailable"}
+                    </span>
+                  </NativeTooltip>
                 ))}
               </div>
             )}
@@ -772,15 +783,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
             {!busy && stopped.includes(key) && (
               <p className="power-ai-cancellation" role="status">
                 Response stopped{" "}
-                <button
-                  type="button"
-                  aria-label="Dismiss cancellation"
-                  className="power-ai-dismiss"
-                  title="Dismiss"
-                  onClick={() => setStopped((keys) => keys.filter((entry) => entry !== key))}
-                >
-                  <AiIcon material="close" size={14} />
-                </button>
+                <NativeTooltip title="Dismiss">
+                  <button
+                    type="button"
+                    aria-label="Dismiss cancellation"
+                    className="power-ai-dismiss"
+                    onClick={() => setStopped((keys) => keys.filter((entry) => entry !== key))}
+                  >
+                    <AiIcon material="close" size={14} />
+                  </button>
+                </NativeTooltip>
               </p>
             )}
             {error && <p role="alert">{error}</p>}
@@ -799,19 +811,19 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 aria-label="Prompt shortcuts"
               >
                 {suggestions.map((shortcut, index) => (
-                  <button
-                    type="button"
-                    role="option"
-                    id={`power-ai-command-${index}`}
-                    aria-selected={index === suggestionIndex % suggestions.length}
-                    key={shortcut.id}
-                    title={`Insert /${shortcut.command}: ${shortcut.label}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectSuggestion(index)}
-                  >
-                    <span>/{shortcut.command}</span>
-                    <span>{shortcut.label}</span>
-                  </button>
+                  <NativeTooltip key={shortcut.id} title={`Insert /${shortcut.command}: ${shortcut.label}`}>
+                    <button
+                      type="button"
+                      role="option"
+                      id={`power-ai-command-${index}`}
+                      aria-selected={index === suggestionIndex % suggestions.length}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectSuggestion(index)}
+                    >
+                      <span>/{shortcut.command}</span>
+                      <span>{shortcut.label}</span>
+                    </button>
+                  </NativeTooltip>
                 ))}
               </div>
             )}
@@ -946,7 +958,7 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
     const overviewButton = document.createElement("button");
     overviewButton.type = "button";
     overviewButton.setAttribute("aria-label", "Ask about cluster");
-    overviewButton.title = "Open the AI assistant to ask about this cluster";
+    overviewButton.id = "power-ai-overview-button";
     overviewIcon = document.createElement("span");
     overviewIcon.setAttribute("aria-hidden", "true");
     overviewLabel = document.createElement("span");
@@ -959,7 +971,15 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
       overviewResize = new ResizeObserver(updateOverviewLabel);
       overviewResize.observe(overview);
     }
-    ReactDOM.render(<AiIcon material="auto_awesome" size={16} />, overviewIcon);
+    ReactDOM.render(
+      <>
+        <AiIcon material="auto_awesome" size={16} />
+        <Renderer.Component.Tooltip targetId="power-ai-overview-button">
+          Open the AI assistant to ask about this cluster
+        </Renderer.Component.Tooltip>
+      </>,
+      overviewIcon,
+    );
   };
   const observer = new MutationObserver(reconcile);
   const stop = autorun(() => {
