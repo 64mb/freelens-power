@@ -36,7 +36,7 @@ export function parseLogLine(line: string, source: LogSource): LogRecord {
     const fields: unknown = JSON.parse(message);
     if (fields && typeof fields === "object" && !Array.isArray(fields)) {
       const object = fields as Record<string, unknown>;
-      const rawLevel = object.level ?? object.severity ?? object.loglevel ?? object.log_level;
+      const rawLevel = object.level ?? object.severity ?? object.loglevel ?? object.log_level ?? object.levelname;
       if (typeof rawLevel === "string") level = levels[rawLevel.toLowerCase()] ?? "unknown";
       else if (typeof rawLevel === "number") level = pinoLevels.get(rawLevel) ?? "unknown";
       const rawMessage = object.message ?? object.msg ?? object.text;

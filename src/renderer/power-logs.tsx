@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Renderer } from "@freelensapp/extensions";
+import { clipboard } from "electron";
 import { observer } from "mobx-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -191,6 +192,7 @@ const SourcePicker = observer(() => {
 
 function LogRows({
   records,
+  loading,
   selected,
   onSelect,
   follow,
@@ -198,6 +200,7 @@ function LogRows({
   compact,
 }: {
   records: ViewRecord[];
+  loading: boolean;
   selected?: number;
   onSelect(record: ViewRecord): void;
   follow: boolean;
@@ -220,7 +223,7 @@ function LogRows({
       setTop(viewport.current.scrollTop);
     }
   }, [records, follow, compact]);
-  const rowHeight = compact ? 24 : 34;
+  const rowHeight = compact ? 20 : 34;
   const start = Math.max(0, Math.floor(top / rowHeight) - 5);
   const visible = records.slice(start, start + Math.ceil(height / rowHeight) + 10);
   return (
@@ -229,6 +232,7 @@ function LogRows({
         className="power-logs-stream"
         ref={viewport}
         aria-label="Log lines"
+        aria-busy={loading}
         onScroll={(event) => {
           const el = event.currentTarget;
           setTop(el.scrollTop);
@@ -236,7 +240,7 @@ function LogRows({
         }}
       >
         {records.length === 0 ? (
-          <div className="power-logs-empty">No matching log lines</div>
+          <div className="power-logs-empty">{loading ? "Loading logs…" : "No matching log lines"}</div>
         ) : (
           <div style={{ height: records.length * rowHeight, position: "relative" }}>
             {visible.map((record, i) => (
@@ -276,6 +280,8 @@ function LogDetails({ record, jsonColumn, onClose }: { record: LogRecord; jsonCo
       return record.fieldsJson;
     }
   }, [record?.fieldsJson]);
+  const [copyFeedback, setCopyFeedback] = useState("");
+  useEffect(() => setCopyFeedback(""), [structuredFields]);
   return (
     <aside className="power-logs-detail" aria-label="Log line details">
       <header>
@@ -293,7 +299,28 @@ function LogDetails({ record, jsonColumn, onClose }: { record: LogRecord; jsonCo
       {record.message && <pre>{record.message}</pre>}
       {record.fieldsJson && (
         <>
-          <strong>{jsonColumn ? `Structured fields · ${jsonColumn}` : "Structured fields"}</strong>
+          <div className="power-logs-structured-heading">
+            <strong>{jsonColumn ? `Structured fields · ${jsonColumn}` : "Structured fields"}</strong>
+            <button
+              type="button"
+              className="power-logs-detail-copy"
+              aria-label="Copy structured JSON"
+              title={copyFeedback || "Copy structured JSON"}
+              onClick={() => {
+                try {
+                  clipboard.writeText(structuredFields);
+                  setCopyFeedback("Copied");
+                } catch {
+                  setCopyFeedback("Unable to copy JSON");
+                }
+              }}
+            >
+              <Icon material={copyFeedback === "Copied" ? "check" : "content_copy"} size={16} />
+            </button>
+            <span className="power-logs-muted" aria-live="polite">
+              {copyFeedback}
+            </span>
+          </div>
           <LogJson text={structuredFields} />
         </>
       )}
@@ -326,7 +353,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [liveCoverage, setLiveCoverage] = useState<LiveLogCoverage>();
   const [live, setLive] = useState(false);
   const [follow, setFollow] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(() => Boolean(initialTarget()));
   const [captures, setCaptures] = useState<LogCapture[]>([]);
   const [captureId, setCaptureId] = useState("");
   const captureSelection = useRef(captureId);
@@ -1016,6 +1043,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
           <div className="power-logs-workspace">
             <LogRows
               records={filtered}
+              loading={busy}
               selected={selected?.key}
               onSelect={setSelected}
               follow={follow}

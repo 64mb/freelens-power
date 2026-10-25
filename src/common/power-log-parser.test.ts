@@ -16,6 +16,27 @@ describe("Power Logs parser", () => {
     expect(result.message).toBe("error counter updated");
     expect(JSON.parse(result.fieldsJson!).level).toBe(value);
   });
+  it.each([
+    ["TRACE", "trace"],
+    ["DEBUG", "debug"],
+    ["INFO", "info"],
+    ["WARNING", "warn"],
+    ["WARN", "warn"],
+    ["ERROR", "error"],
+    ["CRITICAL", "fatal"],
+    ["FATAL", "fatal"],
+    ["DeBuG", "debug"],
+  ])("recognizes levelname %s and preserves structured fields", (levelname, level) => {
+    const result = parseLogLine(JSON.stringify({ levelname, message: "request completed" }), source);
+    expect(result.level).toBe(level);
+    expect(result.message).toBe("request completed");
+    expect(JSON.parse(result.fieldsJson!).levelname).toBe(levelname);
+  });
+  it("preserves explicit level precedence over levelname", () => {
+    expect(parseLogLine('{"level":"info","levelname":"DEBUG","message":"request completed"}', source).level).toBe(
+      "info",
+    );
+  });
   it.each([0, 15, 35, 70, -10, 30.5])("does not assign a standard Pino level to custom value %s", (level) => {
     expect(parseLogLine(JSON.stringify({ level, msg: "request completed" }), source).level).toBe("unknown");
   });
