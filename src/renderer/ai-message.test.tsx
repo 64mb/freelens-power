@@ -39,6 +39,26 @@ afterEach(() => {
   mocks.getTerminalApi.mockImplementation(() => ({ isReady: true, isConnected: () => true }));
 });
 describe("AI message content", () => {
+  it.each(["sql", "sqlite", "SQL"])("highlights %s fences while preserving exact SQL and safe text", (language) => {
+    const sql = "SELECT count(*), \"message\", 42 FROM logs WHERE message = '<script>'; -- note\n";
+    const { container } = render(<AiMessageContent text={`\`\`\`${language}\n${sql}\`\`\``} />);
+    const code = container.querySelector("pre code");
+    expect(code?.textContent).toBe(sql);
+    expect(code?.querySelector('[data-sql-token="keyword"]')?.textContent).toBe("SELECT");
+    expect(code?.querySelector('[data-sql-token="function"]')?.textContent).toBe("count");
+    expect(code?.querySelector('[data-sql-token="identifier"]')?.textContent).toBe('"message"');
+    expect(code?.querySelector('[data-sql-token="number"]')?.textContent).toBe("42");
+    expect(code?.querySelector('[data-sql-token="string"]')?.textContent).toBe("'<script>'");
+    expect(code?.querySelector('[data-sql-token="comment"]')?.textContent).toBe("-- note\n");
+    expect(code?.querySelector("script")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Copy code"));
+    expect(mocks.writeText).toHaveBeenCalledWith(sql);
+  });
+  it("leaves other fenced languages as plain text", () => {
+    const { container } = render(<AiMessageContent text={"```sh\nSELECT 42\n```"} />);
+    expect(container.querySelector("pre code")?.textContent).toBe("SELECT 42\n");
+    expect(container.querySelector("[data-sql-token]")).toBeNull();
+  });
   it("updates the unchanged SQL message action when the logs workspace opens and closes", () => {
     const text = "```sql\nSELECT message FROM logs\n```";
     render(<AiMessageContent text={text} />);

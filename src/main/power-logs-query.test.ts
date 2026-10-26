@@ -181,3 +181,34 @@ it("executes original JSON presets through the production read-only authorizer",
   expect(json.columns).toEqual(["msg", "json"]);
   expect(json.rows).toEqual([["ready", '{"msg":"ready","levelname":"DEBUG"}']]);
 });
+
+it("explains unsupported DuckDB time functions and executes the SQLite last-five-minutes equivalent", () => {
+  const directory = mkdtempSync(join(tmpdir(), "log-time-query-test-"));
+  directories.push(directory);
+  const path = join(directory, "logs.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE logs(timestamp INTEGER, message TEXT)");
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const insert = db.prepare("INSERT INTO logs VALUES (?, ?)");
+  insert.run(now - 60_000, "recent");
+  insert.run(now - 600_000, "older");
+  insert.run(null, "undated");
+  db.close();
+  expect(
+    runPowerLogsQuery(
+      path,
+      "SELECT * FROM logs WHERE timestamp >= epoch_ms(current_timestamp) - 300000 ORDER BY timestamp DESC LIMIT 200",
+    ),
+  ).toMatchObject({
+    rows: [],
+    error: "SQLite does not support epoch_ms(). For Unix milliseconds use unixepoch('now') * 1000.",
+  });
+  expect(
+    runPowerLogsQuery(
+      path,
+      "SELECT message FROM logs WHERE timestamp >= unixepoch('now') * 1000 - 300000 ORDER BY timestamp DESC LIMIT 200",
+    ),
+  ).toMatchObject({ rows: [["recent"]] });
+  expect(runPowerLogsQuery(path, "SELECT CURRENT_TIMESTAMP, CURRENT_DATE, CURRENT_TIME").error).toBeUndefined();
+  expect(runPowerLogsQuery(path, "SELECT load_extension('private-example')").error).not.toContain("private-example");
+});

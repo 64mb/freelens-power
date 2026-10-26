@@ -4,7 +4,7 @@ import { POWER_LOGS_LIMITS as L, type LogCell, type LogQueryResult } from "../co
 export type PowerLogsQuerySnapshot = { database: string; captureId: string; expiresAt: number };
 
 const functions = new Set(
-  `abs avg ceil ceiling char coalesce concat concat_ws count date datetime floor format glob group_concat hex if ifnull iif instr json json_array json_array_length json_error_position json_extract json_group_array json_group_object json_insert json_object json_patch json_pretty json_quote json_remove json_replace json_set json_type json_valid likelihood likely lower ltrim max min nullif octet_length pow power printf quote replace round rtrim sign strftime string_agg substr substring sum time timediff total trim typeof unicode unixepoch unlikely upper zeroblob length rank dense_rank row_number percent_rank cume_dist ntile lag lead first_value last_value nth_value`.split(
+  `abs avg ceil ceiling char coalesce concat concat_ws count current_date current_time current_timestamp date datetime floor format glob group_concat hex if ifnull iif instr json json_array json_array_length json_error_position json_extract json_group_array json_group_object json_insert json_object json_patch json_pretty json_quote json_remove json_replace json_set json_type json_valid likelihood likely lower ltrim max min nullif octet_length pow power printf quote replace round rtrim sign strftime string_agg substr substring sum time timediff total trim typeof unicode unixepoch unlikely upper zeroblob length rank dense_rank row_number percent_rank cume_dist ntile lag lead first_value last_value nth_value`.split(
     " ",
   ),
 );
@@ -127,14 +127,20 @@ export function runPowerLogsQuery(path: string, sql: string): LogQueryResult {
     return { columns, rows, truncated, elapsedMs: Date.now() - started };
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (/not authorized|authorization denied|prohibited/i.test(message))
-      throw new Error("Use read-only SELECT or EXPLAIN statements over logs");
+    const missingFunction = /^no such function: ([a-z_][a-z0-9_]{0,63})$/i.exec(message)?.[1]?.toLowerCase();
+    const queryError = missingFunction
+      ? missingFunction === "epoch_ms"
+        ? "SQLite does not support epoch_ms(). For Unix milliseconds use unixepoch('now') * 1000."
+        : `SQLite does not support the function [${missingFunction}]. Use supported SQLite functions.`
+      : /not authorized|authorization denied|prohibited/i.test(message)
+        ? "Use read-only SELECT or EXPLAIN over logs with supported SQLite functions. External files and extensions are disabled."
+        : "SQLite could not run this query. Check SQL syntax, column names and supported functions.";
     return {
       columns: [],
       rows: [],
       truncated: false,
       elapsedMs: Date.now() - started,
-      error: "SQLite could not run this query. Check SQL syntax, column names and supported functions.",
+      error: queryError,
     };
   } finally {
     database.close();

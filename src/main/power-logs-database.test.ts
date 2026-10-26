@@ -162,14 +162,21 @@ describe("temporary native log captures", () => {
       "SELECT 1; SELECT 2",
       "SET threads=8",
       "INSTALL json",
-      "SELECT load_extension('forbidden')",
-      "SELECT * FROM sqlite_master",
-      "SELECT * FROM pragma_table_info('logs')",
       "COPY logs TO '/tmp/forbidden-log-export'",
       "ATTACH DATABASE 'forbidden' AS external",
       "PRAGMA table_info(logs)",
     ])
       await expect(query(db, id, sql)).rejects.toThrow();
+    for (const sql of [
+      "SELECT load_extension('forbidden')",
+      "SELECT * FROM sqlite_master",
+      "SELECT * FROM pragma_table_info('logs')",
+    ]) {
+      const denied = await query(db, id, sql);
+      expect(denied.rows).toEqual([]);
+      expect(denied.error).toBeTruthy();
+      expect(denied.error).not.toContain("forbidden");
+    }
     expect(
       (await query(db, id, "-- safe comment\n WITH example AS (SELECT * FROM logs) SELECT count(*) FROM example")).rows,
     ).toEqual([[1]]);
