@@ -406,6 +406,68 @@ describe("AI chat", () => {
     act(() => listener({}, { requestId: request.requestId, method: "nodes", status: "reading" }));
     expect(document.querySelector('[data-method="nodes"]')).toBeNull();
   });
+  it("keeps progress and partial answers while hidden and ignores stale request events", async () => {
+    let finish: (response: { text: string }) => void = () => {};
+    mocks.invoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    window.history.replaceState({}, "", "/overview");
+    stop = startAiChat(() => true);
+    await act(async () => {});
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect progress" } });
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+    const request = mocks.invoke.mock.calls[0][1] as { requestId: string };
+    const listener = mocks.on.mock.calls.filter(([channel]) => channel === "freelens-power:ai-progress").at(-1)?.[1];
+    expect(listener).toBeTruthy();
+    act(() => listener({}, { requestId: "stale", phase: "answer", elapsedMs: 9000, round: 1, text: "Stale answer" }));
+    expect(screen.queryByText("Stale answer")).toBeNull();
+    act(() => listener({}, { requestId: request.requestId, phase: "reading", elapsedMs: 2000, round: 1 }));
+    expect(screen.getByRole("status").textContent).toContain("Reading resources · 2s");
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    expect(screen.queryByLabelText("AI assistant")).toBeNull();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    act(() =>
+      listener(
+        {},
+        { requestId: request.requestId, phase: "answer", elapsedMs: 5000, round: 2, text: "Partial response" },
+      ),
+    );
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(screen.getByText("Partial response")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Preparing answer · 5s");
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    await act(async () => finish({ text: "Completed response" }));
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(screen.getByText("Completed response")).toBeTruthy();
+    expect(screen.queryByText("Partial response")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() =>
+      listener({}, { requestId: request.requestId, phase: "answer", elapsedMs: 6000, round: 2, text: "Late response" }),
+    );
+    expect(screen.queryByText("Late response")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Next question" } });
+    let finishNext: (response: { text: string }) => void = () => {};
+    mocks.invoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishNext = resolve;
+        }),
+    );
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+    act(() =>
+      listener(
+        {},
+        { requestId: request.requestId, phase: "reading", elapsedMs: 8000, round: 3, text: "Previous response" },
+      ),
+    );
+    expect(screen.queryByText("Previous response")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Thinking · 0s");
+    await act(async () => finishNext({ text: "Next response" }));
+  });
   it("isolates close and Escape from host dropdown handlers", async () => {
     window.history.replaceState({}, "", "/overview");
     stop = startAiChat(() => true);

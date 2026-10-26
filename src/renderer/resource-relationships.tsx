@@ -576,7 +576,10 @@ function EnabledResourceRelationshipsPage() {
         </div>
       )}
       {(scopeLoading || loading) && (
-        <div className="empty" role="status">
+        <div className="empty relationship-loading" role="status">
+          <span className="relationship-loading-icon" aria-hidden="true">
+            <Icon material="autorenew" size={16} />
+          </span>
           Loading scoped relationship evidence…
         </div>
       )}

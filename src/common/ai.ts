@@ -55,6 +55,16 @@ export interface AiReadActivityEvent {
 
 export const AI_READ_ACTIVITY_CHANNEL = "freelens-power:ai-read-activity";
 
+export interface AiProgressEvent {
+  requestId: string;
+  phase: "model" | "reading" | "answer";
+  elapsedMs: number;
+  round: number;
+  text?: string;
+}
+
+export const AI_PROGRESS_CHANNEL = "freelens-power:ai-progress";
+
 export function validAiRequestId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 }

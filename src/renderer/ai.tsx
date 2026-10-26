@@ -4,7 +4,13 @@ import { autorun } from "mobx";
 import { observer } from "mobx-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { AI_CHAT_CHANNEL, AI_READ_ACTIVITY_CHANNEL, type AiReadActivity } from "../common/ai";
+import {
+  AI_CHAT_CHANNEL,
+  AI_PROGRESS_CHANNEL,
+  AI_READ_ACTIVITY_CHANNEL,
+  type AiProgressEvent,
+  type AiReadActivity,
+} from "../common/ai";
 import { normalizeAiAttachmentReceipts } from "../common/ai-attachments";
 import { AI_CANCEL_CHANNEL, attachedAiContext, normalizeAiReferences } from "../common/ai-extras";
 import { expandAiShortcut } from "../common/ai-shortcuts";
@@ -125,6 +131,8 @@ const styles = `
 body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) .power-ai-launcher { display: none; }
 .power-ai-read-activity > span { display: inline-flex; align-items: center; gap: 4px; }
 .power-ai-read-activity [data-status="reading"] .Icon { animation: power-ai-spin 1.2s linear infinite; }
+.power-ai-starters .Button::before { position: absolute; }
+.power-ai-starters .Icon { margin: 0; padding: 0; flex-shrink: 0; }
 .power-ai-thinking { margin: 12px 16px 18px; line-height: 1.5; color: var(--textColorSecondary); }
 .power-ai-dots > span { animation: power-ai-dot 1.3s ease-in-out infinite; }
 .power-ai-dots > span:nth-child(2) { animation-delay: .15s; }
@@ -324,6 +332,20 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const [error, setError] = useState("");
   const [stopped, setStopped] = useState<string[]>([]);
   const activeRequests = useRef(new Map<string, string>());
+  const [progress, setProgress] = useState<Record<string, AiProgressEvent & { receivedAt: number }>>({});
+  const [progressNow, setProgressNow] = useState(Date.now);
+  useEffect(() => {
+    if (!pending.length) return;
+    const timer = window.setInterval(() => setProgressNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [pending.length]);
+  const clearProgress = (requestId: string) => {
+    setProgress((previous) => {
+      const next = { ...previous };
+      delete next[requestId];
+      return next;
+    });
+  };
   const requestDrafts = useRef(new Map<string, { previous: AiMessage[]; draft: string }>());
   const [activity, setActivity] = useState<{
     key: string;
@@ -390,6 +412,22 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
         ],
       }));
     };
+    const onProgress = (_event: unknown, value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      const entry = value as AiProgressEvent;
+      if (
+        !activeRequests.current.has(entry.requestId) ||
+        !["model", "reading", "answer"].includes(entry.phase) ||
+        !Number.isFinite(entry.elapsedMs) ||
+        entry.elapsedMs < 0 ||
+        !Number.isFinite(entry.round) ||
+        (entry.text !== undefined && typeof entry.text !== "string")
+      )
+        return;
+      setProgress((previous) => ({ ...previous, [entry.requestId]: { ...entry, receivedAt: Date.now() } }));
+      setProgressNow(Date.now());
+    };
+    ipcRenderer.on(AI_PROGRESS_CHANNEL, onProgress);
     ipcRenderer.on(AI_READ_ACTIVITY_CHANNEL, onActivity);
     window.addEventListener("resize", updateDock);
     window.addEventListener("popstate", update);
@@ -458,6 +496,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       window.removeEventListener("resize", updateDock);
       window.removeEventListener("popstate", update);
       resizeObserver?.disconnect();
+      ipcRenderer.removeListener(AI_PROGRESS_CHANNEL, onProgress);
       ipcRenderer.removeListener(AI_READ_ACTIVITY_CHANNEL, onActivity);
       for (const [requestId, requestKey] of activeRequests.current) {
         const pendingDraft = requestDrafts.current.get(requestId);
@@ -528,10 +567,15 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const messages = preferences.conversations[key] ?? [];
   const busy = pending.includes(key);
   const readActivity = activity.key === key ? activity.reads : [];
+  const activeRequestId = [...activeRequests.current].find(([, requestKey]) => requestKey === key)?.[0];
+  const currentProgress = activeRequestId ? progress[activeRequestId] : undefined;
+  const elapsedSeconds = currentProgress
+    ? Math.floor((currentProgress.elapsedMs + Math.max(0, progressNow - currentProgress.receivedAt)) / 1000)
+    : 0;
   useEffect(() => {
     const element = messagesElement.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
-  }, [messages.length, busy, open, key]);
+  }, [messages.length, busy, open, key, currentProgress?.text]);
   useEffect(() => {
     following.current = true;
     const element = messagesElement.current;
@@ -646,6 +690,12 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const provider = preferences.provider;
     const requestId = crypto.randomUUID();
     activeRequests.current.set(requestId, key);
+    const startedAt = Date.now();
+    setProgress((previous) => ({
+      ...previous,
+      [requestId]: { requestId, phase: "model", elapsedMs: 0, round: 0, receivedAt: startedAt },
+    }));
+    setProgressNow(startedAt);
     requestDrafts.current.set(requestId, { previous: messages, draft: starter ?? draft });
     try {
       const response = await ipcRenderer.invoke(AI_CHAT_CHANNEL, {
@@ -718,6 +768,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           "Unable to complete the request. Check that the selected CLI is installed and signed in, then try again.",
       );
     } finally {
+      clearProgress(requestId);
       activeRequests.current.delete(requestId);
       requestDrafts.current.delete(requestId);
       setPending((keys) => keys.filter((entry) => entry !== key));
@@ -727,6 +778,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const requestId = [...activeRequests.current].find(([, requestKey]) => requestKey === key)?.[0];
     if (!requestId) return;
     activeRequests.current.delete(requestId);
+    clearProgress(requestId);
     const canceledDraft = requestDrafts.current.get(requestId);
     if (canceledDraft) {
       preferences.setMessages(key, canceledDraft.previous);
@@ -919,9 +971,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 ))}
               </div>
             )}
+            {busy && currentProgress?.text && (
+              <div className="power-ai-message power-ai-message-assistant power-ai-partial-answer">
+                <AiMessageContent text={currentProgress.text} />
+              </div>
+            )}
             {busy && (
               <p className="power-ai-thinking" role="status">
-                {stopped.includes(key) ? "Stopping response" : "Thinking"}
+                {stopped.includes(key)
+                  ? "Stopping response"
+                  : `${currentProgress?.phase === "reading" ? "Reading resources" : currentProgress?.phase === "answer" ? "Preparing answer" : "Thinking"} · ${elapsedSeconds}s`}
                 <span className="power-ai-dots" aria-hidden="true">
                   <span>.</span>
                   <span>.</span>
