@@ -79,6 +79,7 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     expect(screen.getByText("Fast mode depends on model and account.").title).toBe(
       "Fast mode depends on model and account.",
     );
+    expect(screen.getByText("Controls reasoning depth; higher may take longer.")).toBeTruthy();
     const savedEffort = screen.getByLabelText("Effort") as HTMLSelectElement;
     expect(savedEffort.selectedOptions[0].text).toBe("High");
     expect(savedEffort.value).toBe("high");

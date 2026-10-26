@@ -29,6 +29,7 @@ import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details
 import { DiagnosticsPage } from "./diagnostics";
 import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
 import { startHostLayoutStyles } from "./host-layout";
+import { startHostPreferencesStyles } from "./host-preferences";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
@@ -100,6 +101,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startPodDetailsEnhancements,
             startPowerButtonStyles,
             startHostLayoutStyles,
+            startHostPreferencesStyles,
             startAppearanceOverride,
             startWelcomeOverride,
             startAiChat,
