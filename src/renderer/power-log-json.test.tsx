@@ -232,3 +232,27 @@ it("follows a wrapped value on another line without using the full token height 
   fireEvent.click(getByRole("button", { name: "Include value" }));
   expect(filter).toHaveBeenLastCalledWith({ path: ["second"], value: "wrapped value", operator: "eq" });
 });
+
+it("places actions after the last wrapped visual line including its trailing comma", () => {
+  const { container, getByRole } = render(
+    <LogJson text={'{\n  "id": "wrapped value",\n  "other": 1\n}'} onFilter={vi.fn()} />,
+  );
+  const key = container.querySelector<HTMLElement>('[data-token="key"]')!;
+  vi.spyOn(key, "getBoundingClientRect").mockReturnValue({ top: 80, right: 100, height: 14 } as DOMRect);
+  const createRange = vi.spyOn(document, "createRange").mockReturnValue({
+    setStart: vi.fn(),
+    setEnd: vi.fn(),
+    getClientRects: () => [
+      { top: 80, right: 280, width: 200, height: 14 },
+      { top: 100, right: 180, width: 100, height: 14 },
+      { top: 100, right: 188, width: 8, height: 14 },
+    ],
+  } as unknown as Range);
+  try {
+    fireEvent.mouseEnter(key);
+    expect(getByRole("toolbar").style.left).toBe("192px");
+    expect(getByRole("toolbar").style.top).toBe("97px");
+  } finally {
+    createRange.mockRestore();
+  }
+});
