@@ -19,6 +19,7 @@ import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { diagnosticsStyles } from "./diagnostics.css";
+import { diagnosticsScreenFinding } from "./diagnostics-screen-finding";
 import { DIAGNOSTICS_NAMESPACE_EVENT, readDiagnosticsState, saveDiagnosticsState } from "./diagnostics-state";
 import { IncidentCopyButton } from "./incident-copy-button";
 import {
@@ -568,6 +569,15 @@ export function DiagnosticsPage() {
     timelineResource,
   );
   const displayedTimeline = groupedTimeline ? timelineGroups.map((group) => group.latest) : timeline;
+  useEffect(() => {
+    if (!data || (tab !== "Consumers" && tab !== "Timeline")) return;
+    const attach = () =>
+      explainDiagnosticFinding(
+        diagnosticsScreenFinding(data.clusterId, tab, filtered, displayedTimeline, timelineResource),
+      );
+    window.addEventListener("power-ai-request-screen-context", attach);
+    return () => window.removeEventListener("power-ai-request-screen-context", attach);
+  }, [data, tab, filtered, displayedTimeline]);
   const pending = (data?.pods ?? []).filter((pod) => pod.status?.phase === "Pending");
   const attentionPods = new Set(
     groups

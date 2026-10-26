@@ -127,6 +127,13 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
   const [allFor, setAllFor] = useState<string>();
   const fetchAll = allFor === searchKey;
   const [allRequests, setAllRequests] = useState(0);
+  const inventoryRevision = `${coverage.scanned}/${coverage.indexing}/${coverage.completedAt ?? ""}`;
+  const [allInventoryRevision, setAllInventoryRevision] = useState(inventoryRevision);
+  useEffect(() => {
+    // finish pagination before reconciling the completed inventory
+    if (!fetchAll || (!loading && !coverage.indexing)) setAllInventoryRevision(inventoryRevision);
+  }, [fetchAll, loading, coverage.indexing, inventoryRevision]);
+  const queryInventoryRevision = fetchAll ? allInventoryRevision : inventoryRevision;
   const [progress, setProgress] = useState({ loaded: 0, total: 0 });
   const [hasMore, setHasMore] = useState(false);
   useEffect(() => {
@@ -165,7 +172,9 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
           if (!live || activeId() !== clusterId) return;
           const previousCount = documents.size;
           for (const document of result.documents) documents.set(document.path, document);
-          setResources([...documents.values()]);
+          if (!fetchAll || documents.size >= resources.length || !result.hasMore) {
+            setResources([...documents.values()]);
+          }
           setProgress({ loaded: documents.size, total: result.total });
           setHasMore(result.hasMore);
           offset += result.documents.length;
@@ -192,7 +201,7 @@ function SearchDialog({ close, clusterId }: { close: () => void; clusterId: stri
       live = false;
       window.clearTimeout(timer);
     };
-  }, [clusterId, query, fetchAll, allRequests, kindFilter, namespaceFilter, coverage.scanned, coverage.indexing]);
+  }, [clusterId, query, fetchAll, allRequests, kindFilter, namespaceFilter, queryInventoryRevision]);
   useEffect(() => {
     document.getElementById(`power-resource-result-${selected}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selected, selectedResource?.path]);

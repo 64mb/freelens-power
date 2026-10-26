@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { fork } = vi.hoisted(() => ({ fork: vi.fn() }));
-vi.mock("electron", () => ({ utilityProcess: { fork } }));
+const { fork, paths } = vi.hoisted(() => ({ fork: vi.fn(), paths: { userData: "/tmp/power-logs-user-data-test" } }));
+vi.mock("electron", () => ({ app: { getPath: () => paths.userData }, utilityProcess: { fork } }));
 
 import { POWER_LOGS_LIMITS } from "../common/power-logs";
 import { applyPowerLogsLimits } from "../common/power-logs-limits";
+import { PowerLogsDatabase } from "./power-logs-database";
 import { PowerLogsWorker, sweepPowerLogsStorage } from "./power-logs-worker";
+
+import type { LogCapture, LogRequest } from "../common/power-logs";
 
 const partition = { clusterId: "cluster-example", contextId: "context-example" };
 class Child extends EventEmitter {
@@ -22,6 +25,68 @@ afterEach(() => {
   fork.mockReset();
 });
 describe("isolated log worker lifecycle", () => {
+  it("purges unpinned files through worker shutdown while retaining saved captures", async () => {
+    const root = mkdtempSync(join(tmpdir(), "logs-worker-persistence-"));
+    paths.userData = root;
+    const child = new Child();
+    let database!: PowerLogsDatabase;
+    fork.mockImplementationOnce((_path, directories: string[]) => {
+      database = new PowerLogsDatabase(directories[0], directories[1]);
+      child.postMessage.mockImplementation(({ id, request }: { id: number; request: LogRequest }) => {
+        void database.run(request).then(
+          (result) => child.emit("message", { id, result }),
+          () => child.emit("message", { id, error: "unavailable" }),
+        );
+      });
+      return child;
+    });
+    const worker = new PowerLogsWorker();
+    const directory = fork.mock.calls[0][1][0] as string;
+    const saved = fork.mock.calls[0][1][1] as string;
+    try {
+      const ids: string[] = [];
+      for (let index = 0; index < 2; index++) {
+        const capture = (await worker.call({
+          ...partition,
+          operation: "create",
+          target: { kind: "Pod", namespace: "example", name: "example", uid: "example" },
+        })) as LogCapture;
+        ids.push(capture.id);
+        await worker.call({ ...partition, operation: "finish", captureId: capture.id, partial: false, notes: [] });
+        await worker.call({ ...partition, operation: "set-persistent", captureId: capture.id, persistent: true });
+      }
+      await worker.call({ ...partition, operation: "set-persistent", captureId: ids[0], persistent: false });
+      expect(existsSync(join(saved, ids[0]))).toBe(false);
+      expect(existsSync(join(directory, ids[0], "logs.sqlite"))).toBe(true);
+      worker.close();
+      child.emit("exit", 0);
+      expect(existsSync(directory)).toBe(false);
+      expect(existsSync(join(saved, ids[1], "logs.sqlite"))).toBe(true);
+    } finally {
+      worker.close();
+      child.emit("exit", 0);
+      database.close();
+      paths.userData = "/tmp/power-logs-user-data-test";
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it.each([
+    ["Saved snapshot limit reached. Delete a saved snapshot before keeping another.", "Saved snapshot limit reached"],
+    ["private filesystem detail", "Log operation failed or exceeded its limit"],
+  ])("only exposes the known capture limit error [%s]", async (error, expected) => {
+    const child = new Child();
+    fork.mockReturnValue(child);
+    const worker = new PowerLogsWorker();
+    try {
+      const pending = worker.call({ ...partition, operation: "list" });
+      const { id } = child.postMessage.mock.calls[0][0];
+      child.emit("message", { id, error });
+      await expect(pending).rejects.toThrow(expected);
+    } finally {
+      worker.close();
+      child.emit("exit", 0);
+    }
+  });
   it("forwards trusted limit snapshots separately from request data", async () => {
     const child = new Child();
     fork.mockReturnValue(child);
@@ -137,6 +202,26 @@ describe("isolated log worker lifecycle", () => {
     };
     return { storage, sql, nextSql, worker, directory, request, reply, snapshot, start, cleanup };
   }
+  it("drains readers from other partitions before globally clearing saved snapshots", async () => {
+    const f = setupQuery();
+    try {
+      const { pending } = await f.start();
+      const rejected = expect(pending).rejects.toThrow("canceled");
+      const clearing = f.worker.call({ ...partition, contextId: "other-context", operation: "clear-persistent" });
+      await rejected;
+      expect(f.sql.kill).toHaveBeenCalled();
+      expect(f.storage.postMessage.mock.calls).toHaveLength(1);
+      f.sql.emit("exit", 0);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(f.storage.postMessage.mock.calls.at(-1)![0].request.operation).toBe("clear-persistent");
+      f.reply(true);
+      await expect(clearing).resolves.toBe(true);
+    } finally {
+      f.cleanup();
+    }
+  });
   it("cancels only the SQL process, preserves captures and runs another query", async () => {
     const f = setupQuery();
     try {
@@ -233,12 +318,16 @@ describe("isolated log worker lifecycle", () => {
       f.cleanup();
     }
   });
-  it("waits for the reader exit before deleting a snapshot", async () => {
+  it.each(["delete", "unpin"])("waits for the reader exit before %s", async (operation) => {
     const f = setupQuery();
     try {
       const { pending } = await f.start();
       const rejected = expect(pending).rejects.toThrow("canceled");
-      const remove = f.worker.call({ ...partition, operation: "delete", captureId: f.request.captureId });
+      const remove = f.worker.call(
+        operation === "delete"
+          ? { ...partition, operation: "delete", captureId: f.request.captureId }
+          : { ...partition, operation: "set-persistent", captureId: f.request.captureId, persistent: false },
+      );
       await rejected;
       expect(f.storage.postMessage).toHaveBeenCalledOnce();
       await expect(f.worker.call(f.request)).rejects.toThrow("busy");

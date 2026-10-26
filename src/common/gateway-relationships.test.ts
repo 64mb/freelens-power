@@ -141,6 +141,7 @@ it("reports truncated parent and listener fanout", () => {
     },
   };
   expect(gatewayRelationships(service, { objects: [object, entry], gaps: [] }).omitted).toBe(2);
+  expect(gatewayRelationships(service, { objects: [object, entry], gaps: [] }, true).omitted).toBe(0);
   object.spec!.parentRefs = Array.from({ length: 8 }, (_, index) => ({ name: `parent-${index}` }));
   expect(gatewayRelationships(service, { objects: [object, entry], gaps: [] }).omitted).toBe(3);
 });

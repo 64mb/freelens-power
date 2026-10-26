@@ -178,6 +178,6 @@ it("executes original JSON presets through the production read-only authorizer",
   expect(projected.rows[0][projected.columns.indexOf("message")]).toBe("plain");
   expect(projected.rows[1][projected.columns.indexOf("message")]).toBe("ready");
   const json = runPowerLogsQuery(path, buildJsonProjectionSql(keys));
-  expect(json.columns).toEqual(["msg"]);
-  expect(json.rows).toEqual([["ready"]]);
+  expect(json.columns).toEqual(["msg", "json"]);
+  expect(json.rows).toEqual([["ready", '{"msg":"ready","levelname":"DEBUG"}']]);
 });

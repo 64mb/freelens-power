@@ -30,7 +30,8 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-source-option strong, .power-logs-source-option small { white-space:normal; overflow:visible; overflow-wrap:anywhere; }
 .power-logs-source-check { display:inline-flex; width:16px; flex-shrink:0; }
 .power-logs-snapshot-option > button { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; min-width:28px; min-height:28px; padding:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; }
-.power-logs-snapshot-option > button:not(:disabled):hover { color:var(--colorError); background:color-mix(in srgb,var(--colorError) 12%,transparent); }
+.power-logs-snapshot-option > button[data-capture-delete]:not(:disabled):hover { color:var(--colorError); background:color-mix(in srgb,var(--colorError) 12%,transparent); }
+.power-logs-snapshot-option > button[data-capture-persistent]:not(:disabled):hover, .power-logs-snapshot-option > button[aria-pressed=true] { color:var(--primary); background:color-mix(in srgb,var(--primary) 12%,transparent); }
 .power-logs-snapshot-option > button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
 .power-logs-snapshot-option > button:disabled { opacity:.45; cursor:default; }
 .power-logs-level-label { color:var(--textColorSecondary); }
@@ -45,6 +46,7 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-log-row { min-height:0!important; position:absolute; left:0; right:0; width:100%; display:grid!important; grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,calc(var(--power-log-level-ch,7) * .833333ch + 4px)) minmax(100px,180px) minmax(0,1fr); align-items:center; gap:8px!important; padding:0 12px!important; border:0!important; border-left:3px solid var(--textColorSecondary)!important; border-bottom:1px solid var(--borderFaintColor)!important; border-radius:0!important; text-align:left; background:transparent!important; font-family:var(--font-monospace,monospace)!important; font-size:12px!important; }
 .power-logs[data-compact=true] .power-log-row { --log-time-width:calc(8ch + 1px); --log-level-width:calc(var(--power-log-level-ch,7) * .909091ch + 1px); padding-inline:6px!important; gap:4px!important; font-size:11px!important; line-height:16px; }
 .power-logs[data-compact=true] table :is(td,th) { padding:1px 6px; font-size:11px; line-height:16px; }
+.power-logs[data-compact=true] .power-logs-cell { white-space:nowrap; }
 .power-log-row > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .power-log-row > span:last-child { white-space:pre; height:16px; line-height:16px; }
 .power-log-message { color:var(--textColorPrimary); }
@@ -121,11 +123,16 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-snapshot-notes { max-height:100px; overflow:auto; }
 @container(max-width:760px) { .power-logs-detail { width:min(420px,86%); padding:12px; gap:10px; } .power-logs-filters .power-logs-select { flex:1 1 130px; } .power-logs-filters > input { flex-basis:100%; } .power-log-row { grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,calc(var(--power-log-level-ch,7) * .833333ch + 4px)) minmax(0,1fr); } .power-log-row .power-log-origin { display:none; } .power-logs header .power-logs-actions { gap:4px; } }
 .Select__option--is-selected .power-logs-snapshot-option > button { color:#fff; background:#0002; border:1px solid #fff7; }
-.Select__option--is-selected .power-logs-snapshot-option > button:not(:disabled):hover { color:#a61b1b; background:#fff; border-color:#fff; }
+.Select__option--is-selected .power-logs-snapshot-option > button[data-capture-delete]:not(:disabled):hover { color:#a61b1b; background:#fff; border-color:#fff; }
 .power-logs-field-filters { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
 .power-logs .power-logs-field-filters button { max-width:360px; min-height:24px; padding:2px 6px; font-size:11px; }
 .power-logs-field-filters button > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .power-logs-field-filters button > :last-child { flex-shrink:0; }
+@keyframes power-log-json-actions-in { from { opacity:0; } to { opacity:1; } }
+.power-log-json-actions button { color:inherit; }
+.power-logs .power-log-json-actions button:hover, .power-logs .power-log-json-actions button:focus-visible { color:var(--primary); }
+.power-log-json-actions { animation:power-log-json-actions-in 120ms ease-out; }
+@media (prefers-reduced-motion:reduce) { .power-log-json-actions { animation:none; } }
 .power-logs .power-logs-json-cell .power-log-json-fields { flex:1; min-width:0; overflow:hidden; }
 .power-logs .power-logs-json-cell .power-log-json { white-space:pre; }
 .power-log-message [data-log-token=url], .power-log-message [data-log-token=trace-id], .power-log-message [data-log-token=address] { color:#9cdcfe; }

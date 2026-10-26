@@ -135,6 +135,7 @@ async function launch(documents = [resource("credentials")], hasMore = false) {
   state.open.mockResolvedValue(undefined);
   act(() => {
     stop = startResourceSearch();
+    state.coverage({ scanned: 0, discovered: 0, denied: 0, unavailable: 0, unsupported: 0, indexing: true });
   });
   render(<ResourceSearchLauncher />);
   fireEvent.click(screen.getByLabelText("Search resources"));
@@ -223,6 +224,102 @@ it("loads every remaining page with one click and reports page progress", async 
   await act(async () => finish({ documents: [resource("gamma")], total: 3, hasMore: false }));
   expect(screen.getByText("gamma")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /matches/ })).toBeNull();
+});
+it.each([
+  "during pagination",
+  "after pagination",
+])("refreshes all matches once when indexing completes %s", async (completion) => {
+  const documents = Array.from({ length: 21 }, (_, index) => resource(`resource-${index}`));
+  await launch(documents.slice(0, 10), true);
+  let finish!: (value: unknown) => void;
+  state.query.mockResolvedValueOnce({ documents: documents.slice(0, 10), total: documents.length, hasMore: true });
+  state.query.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  state.query.mockResolvedValueOnce({ documents: documents.slice(20), total: documents.length, hasMore: false });
+  let finishRefresh!: (value: unknown) => void;
+  state.query.mockResolvedValueOnce({ documents: documents.slice(0, 10), total: 22, hasMore: true });
+  state.query.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRefresh = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Show all matches" }));
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 10 }));
+  for (const indexing of completion === "during pagination" ? [true, false] : [true]) {
+    act(() =>
+      state.coverage({
+        scanned: indexing ? 10 : 20,
+        discovered: 20,
+        denied: 0,
+        unavailable: 0,
+        unsupported: 0,
+        indexing,
+      }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+    expect(state.query).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Loading matches… 10 / 21" })).toBeTruthy();
+  }
+  await act(async () => finish({ documents: documents.slice(10, 20), total: documents.length, hasMore: true }));
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 20 }));
+  expect(screen.getAllByRole("listitem")).toHaveLength(21);
+  if (completion === "after pagination") {
+    act(() =>
+      state.coverage({ scanned: 20, discovered: 20, denied: 0, unavailable: 0, unsupported: 0, indexing: false }),
+    );
+  }
+  await waitFor(() => expect(state.query).toHaveBeenCalledTimes(6));
+  expect(screen.getAllByRole("listitem")).toHaveLength(21);
+  await act(async () =>
+    finishRefresh({ documents: [...documents.slice(10), resource("newly-indexed")], total: 22, hasMore: false }),
+  );
+  expect(screen.getAllByRole("listitem")).toHaveLength(22);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  expect(state.query).toHaveBeenCalledTimes(6);
+  expect(screen.queryByRole("button", { name: /matches/ })).toBeNull();
+});
+it("refreshes all matches after a later scan completes with the same type count", async () => {
+  await launch([resource("alpha")], true);
+  const coverage = {
+    scanned: 20,
+    discovered: 20,
+    denied: 0,
+    unavailable: 0,
+    unsupported: 0,
+    indexing: false,
+    completedAt: 1000,
+  };
+  act(() => state.coverage(coverage));
+  await screen.findByRole("button", { name: "Show all matches" });
+  state.query.mockResolvedValue({ documents: [resource("alpha"), resource("beta")], total: 2, hasMore: false });
+  fireEvent.click(screen.getByRole("button", { name: "Show all matches" }));
+  await screen.findByText("beta");
+  const requests = state.query.mock.calls.length;
+  act(() => state.coverage({ ...coverage, scanned: 0, indexing: true }));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  expect(state.query).toHaveBeenCalledTimes(requests);
+  state.query.mockResolvedValue({
+    documents: [resource("alpha"), resource("beta"), resource("gamma")],
+    total: 3,
+    hasMore: false,
+  });
+  act(() => state.coverage({ ...coverage, completedAt: 2000 }));
+  await screen.findByText("gamma");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  expect(state.query).toHaveBeenCalledTimes(requests + 1);
 });
 it.each(["query", "close"])("stops loading all pages after %s changes", async (change) => {
   await launch([resource("alpha")], true);

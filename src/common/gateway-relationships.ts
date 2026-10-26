@@ -126,10 +126,12 @@ function attachment(route: GatewayObject, gateway: GatewayObject, listener: List
 export function gatewayRelationships(
   service: { metadata: { name?: string; namespace?: string } },
   inventory: GatewayInventory,
+  showAll = false,
 ) {
   const nodes: RelationshipNode[] = [];
   const edges: RelationshipEdge[] = [];
   let omitted = 0;
+  const limit = showAll ? Infinity : 5;
   const add = (object: GatewayObject, suffix = "", detail = "", evidence?: string[]) => {
     const id = `gateway-api/${object.kind}/${object.metadata.namespace ?? ""}/${object.metadata.name}${suffix}`;
     if (!nodes.some((node) => node.id === id))
@@ -158,7 +160,7 @@ export function gatewayRelationships(
         ),
       ),
   );
-  for (const route of routes.slice(0, 5)) {
+  for (const route of routes.slice(0, limit)) {
     const backends =
       route.spec?.rules
         ?.flatMap((rule) => rule.backendRefs ?? [])
@@ -189,8 +191,8 @@ export function gatewayRelationships(
     const parents = (route.spec?.parentRefs ?? []).filter(
       (parent) => (parent.group ?? GROUP) === GROUP && (parent.kind ?? "Gateway") === "Gateway",
     );
-    omitted += Math.max(0, parents.length - 5);
-    for (const parent of parents.slice(0, 5)) {
+    omitted += Math.max(0, parents.length - limit);
+    for (const parent of parents.slice(0, limit)) {
       const gateway = inventory.objects.find(
         (object) =>
           object.kind === "Gateway" &&
@@ -211,8 +213,8 @@ export function gatewayRelationships(
         (item) =>
           (!parent.sectionName || parent.sectionName === item.name) && (!parent.port || parent.port === item.port),
       );
-      omitted += Math.max(0, listeners.length - 5);
-      for (const listener of listeners.slice(0, 5)) {
+      omitted += Math.max(0, listeners.length - limit);
+      for (const listener of listeners.slice(0, limit)) {
         const listenerStatus = gateway.status?.listeners?.find((item) => item.name === listener.name);
         const id = add(gateway, `/${listener.name}`, `${listener.protocol}:${listener.port}`, [
           `Listener ${conditions(listenerStatus?.conditions, gateway.metadata.generation, ["Accepted", "ResolvedRefs", "Programmed"])}`,
@@ -242,5 +244,5 @@ export function gatewayRelationships(
   }
   const order = (kind: string) => (kind === "GatewayClass" ? 0 : kind === "Gateway" ? 1 : 2);
   nodes.sort((a, b) => order(a.kind) - order(b.kind));
-  return { nodes, edges, omitted: omitted + Math.max(0, routes.length - 5) };
+  return { nodes, edges, omitted: omitted + Math.max(0, routes.length - limit) };
 }

@@ -6,7 +6,7 @@ import type { LogRequest } from "../common/power-logs";
 
 const port = process.parentPort;
 if (!port) throw new Error("Log process requires parent");
-const engine = new PowerLogsDatabase(process.argv[2]);
+const engine = new PowerLogsDatabase(process.argv[2], process.argv[3]);
 const queries = new Map<string, { id: number; started: boolean; canceled: boolean }>();
 const queryKey = (request: LogRequest & { queryId: string }) =>
   JSON.stringify([request.clusterId, request.contextId, request.queryId]);
@@ -51,8 +51,15 @@ port.on(
             ? await copyFile(engine.exportPath(data.request), data.destination).then(() => true)
             : await engine.run(data.request);
         port.postMessage({ id: data.id, result });
-      } catch {
-        port.postMessage({ id: data.id, error: "Log operation failed or exceeded its limit" });
+      } catch (error) {
+        port.postMessage({
+          id: data.id,
+          error:
+            error instanceof Error &&
+            error.message === "Saved snapshot limit reached. Delete a saved snapshot before keeping another."
+              ? error.message
+              : "Log operation failed or exceeded its limit",
+        });
       } finally {
         queuedCount--;
         if (key) queries.delete(key);

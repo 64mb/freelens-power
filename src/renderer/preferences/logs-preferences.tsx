@@ -134,7 +134,8 @@ export const LogsPreferences = observer(() => {
         </Renderer.Component.Switch>
         <div className="power-settings-hint">
           Colored workload logs and temporary SQLite captures for SQL analysis. Native logs return when disabled.
-          Temporary captures follow the retention settings below and are deleted when Power Logs stops.
+          Temporary captures follow the retention settings below and are deleted when Power Logs stops. Pinned snapshots
+          remain until manually deleted.
         </div>
       </div>
       <div className="power-settings-hint">

@@ -55,14 +55,14 @@ const sourceKey = (r: Pick<LogRecord, "pod" | "container" | "previous">) =>
   `${r.pod} / ${r.container}${r.previous ? " (previous)" : ""}`;
 const levels: LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal", "unknown"];
 const examples = [
-  ["Recent", "SELECT message, level, container, pod, timestamp FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200"],
+  ["Recent", "SELECT timestamp, level, message, container, pod FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200"],
   [
     "Errors",
-    "SELECT pod, container, count(*) AS errors FROM logs WHERE level IN ('error','fatal') GROUP BY pod, container ORDER BY errors DESC",
+    "SELECT message, count(*) AS occurrences FROM logs WHERE level IN ('error','fatal') GROUP BY message ORDER BY occurrences DESC LIMIT 200",
   ],
   [
     "Timeline",
-    "SELECT strftime('%Y-%m-%d %H:%M', timestamp / 1000, 'unixepoch') AS minute, UPPER(level) AS level, count(*) AS lines FROM logs GROUP BY minute, level ORDER BY minute",
+    "SELECT (timestamp / 60000) * 60000 AS minute, UPPER(level) AS level, count(*) AS lines FROM logs GROUP BY minute, level ORDER BY minute",
   ],
   ["JSON", "SELECT fieldsJson FROM logs WHERE fieldsJson IS NOT NULL LIMIT 100"],
 ] as const;
@@ -360,8 +360,7 @@ function LogDetails({
   );
 }
 
-const sameFieldFilter = (a: JsonFieldFilter, b: JsonFieldFilter) =>
-  a.operator === b.operator &&
+const sameFieldValue = (a: JsonFieldFilter, b: JsonFieldFilter) =>
   a.path.length === b.path.length &&
   a.path.every((part, index) => part === b.path[index]) &&
   jsonValuesEqual(a.value, b.value);
@@ -429,6 +428,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [text, setText] = useState("");
   const [level, setLevel] = useState("");
   const [source, setSource] = useState(initialSource);
+  const [savedPoolFull, setSavedPoolFull] = useState(false);
   const [fieldFilters, setFieldFilters] = useState<JsonFieldFilter[]>([]);
   const matchFields = useMemo(() => compileJsonFilters(fieldFilters), [fieldFilters]);
   const parsedFields = useRef(new WeakMap<LogRecord, unknown>());
@@ -471,6 +471,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [capturePending, setCapturePending] = useState(false);
   const [captureMinutes, setCaptureMinutes] = useState(15);
   const [previous, setPrevious] = useState(false);
+  const [sqlFitVersion, setSqlFitVersion] = useState(0);
   const [sql, updateSql] = useState<string>(examples[0][1]);
   const sqlDraft = useRef(sql);
   sqlDraft.current = sql;
@@ -849,6 +850,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     if (title === "Recent") {
       const query = examples[0][1];
       setSql(query);
+      setSqlFitVersion((version) => version + 1);
       setSelectedSqlRow(undefined);
       if (execute && captured) void runQuery(captured, query);
       return;
@@ -888,6 +890,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       }
       prepared = buildJsonProjectionSql(keys);
       setSql(prepared);
+      setSqlFitVersion((version) => version + 1);
       setSelectedSqlRow(undefined);
     } catch {
       if (alive.current) setSqlError("Could not detect JSON fields for this snapshot. Try the preset again.");
@@ -904,7 +907,13 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       setError("This JSON value is too large or unsupported for filtering");
       return;
     }
-    if (fieldFilters.some((current) => sameFieldFilter(current, filter))) return;
+    const existing = fieldFilters.findIndex((current) => sameFieldValue(current, filter));
+    if (existing >= 0) {
+      if (fieldFilters[existing].operator !== filter.operator) {
+        setFieldFilters(fieldFilters.map((current, index) => (index === existing ? filter : current)));
+      }
+      return;
+    }
     if (fieldFilters.length >= 32) {
       setError("Up to 32 JSON filters can be combined");
       return;
@@ -942,7 +951,13 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       return;
     }
     const filters = activeSqlFilters?.filters ?? [];
-    if (filters.some((current) => current.column === column && sameFieldFilter(current, filter))) return;
+    const existing = filters.findIndex((current) => current.column === column && sameFieldValue(current, filter));
+    if (existing >= 0) {
+      if (filters[existing].operator !== filter.operator) {
+        applySqlFilters(filters.map((current, index) => (index === existing ? { ...filter, column } : current)));
+      }
+      return;
+    }
     if (filters.length >= 32) {
       setSqlError("Up to 32 JSON filters can be combined");
       return;
@@ -1064,6 +1079,88 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       if (alive.current) setDeletingCount(deleting.current.size);
     }
   };
+  const confirmDeleteCapture = (id: string) => {
+    const capture = captures.find((capture) => capture.id === id);
+    if (!capture) return;
+    Renderer.Component.ConfirmDialog.open({
+      message: (
+        <>
+          Delete snapshot <strong>{capture.target.name}</strong>? This cannot be undone.
+        </>
+      ),
+      labelOk: "Delete snapshot",
+      ok: () => deleteCapture(id),
+    });
+  };
+  const confirmPersistentCapture = (capture: LogCapture) => {
+    const persistent = !capture.persistent;
+    Renderer.Component.ConfirmDialog.open({
+      message: persistent ? (
+        <>
+          Keep snapshot <strong>{capture.target.name}</strong> until you delete it? It will survive restarts and will
+          not expire automatically.
+        </>
+      ) : (
+        <>
+          Allow snapshot <strong>{capture.target.name}</strong> to expire? Its retention period will start again now.
+        </>
+      ),
+      labelOk: persistent ? "Keep snapshot" : "Allow expiration",
+      ok: async () => {
+        if (!alive.current || deleting.current.has(capture.id) || queryRef.current || captureController.current) return;
+        deleting.current.add(capture.id);
+        setDeletingCount(deleting.current.size);
+        try {
+          await drafts.flush();
+          await client.setPersistent(capture.id, persistent);
+          await refreshCaptures();
+        } catch (error) {
+          if (alive.current) {
+            const full = error instanceof Error && error.message.includes("Saved snapshot limit reached");
+            setSavedPoolFull(full);
+            setError(
+              full
+                ? "Saved snapshot limit reached. Delete a saved snapshot or clear saved snapshots from all clusters."
+                : "Could not update snapshot retention",
+            );
+          }
+        } finally {
+          deleting.current.delete(capture.id);
+          if (alive.current) setDeletingCount(deleting.current.size);
+        }
+      },
+    });
+  };
+  const clearSavedSnapshots = () =>
+    Renderer.Component.ConfirmDialog.open({
+      message: "Delete all saved snapshots from all clusters? Temporary snapshots will be kept. This cannot be undone.",
+      labelOk: "Clear saved snapshots",
+      ok: async () => {
+        if (queryRef.current || captureController.current || deleting.current.size) return;
+        deleting.current.add("clear-saved");
+        setDeletingCount(deleting.current.size);
+        try {
+          await drafts.flush();
+          await client.clearPersistent();
+          const removed = captures.filter((capture) => capture.persistent);
+          for (const capture of removed) drafts.forget(capture.id);
+          if (removed.some((capture) => capture.id === captureSelection.current)) {
+            setCaptureId("");
+            setResult(undefined);
+            setResultEvidence(undefined);
+            setSelectedSqlRow(undefined);
+          }
+          setSavedPoolFull(false);
+          setError("");
+          await refreshCaptures();
+        } catch {
+          if (alive.current) setError("Could not clear saved snapshots");
+        } finally {
+          deleting.current.delete("clear-saved");
+          if (alive.current) setDeletingCount(deleting.current.size);
+        }
+      },
+    });
   const native = () => {
     const first = sources[0];
     const pod = Renderer.K8sApi.podsStore
@@ -1234,6 +1331,15 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       {error && (
         <div role="alert" className="power-logs-notice power-logs-error">
           {error}
+          {savedPoolFull && (
+            <button
+              type="button"
+              disabled={deletingCount > 0 || !!queryId || capturePending}
+              onClick={clearSavedSnapshots}
+            >
+              Clear saved snapshots
+            </button>
+          )}
         </div>
       )}
       {tab === "live" ? (
@@ -1360,7 +1466,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 if (button && !button.disabled) {
                   event.preventDefault();
                   event.stopPropagation();
-                  void deleteCapture(button.dataset.captureDelete!);
+                  confirmDeleteCapture(button.dataset.captureDelete!);
                 }
               }}
               renderOption={(option, context) => {
@@ -1375,8 +1481,30 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                           {formatDateTime(item.createdAt)} · {item.rows.toLocaleString()} lines ·{" "}
                           {item.state[0].toUpperCase()}
                           {item.state.slice(1)}
+                          {item.persistent ? " · Persistent" : ""}
                         </small>
                       </span>
+                    </NativeTooltip>
+                    <NativeTooltip title={item.persistent ? "Allow snapshot to expire" : "Keep snapshot"}>
+                      <button
+                        type="button"
+                        aria-label={`${item.persistent ? "Allow expiration for" : "Keep"} snapshot ${item.target.name}`}
+                        aria-pressed={Boolean(item.persistent)}
+                        data-capture-persistent={item.id}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        disabled={!!queryId || capturePending || deletingCount > 0 || item.state === "collecting"}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          confirmPersistentCapture(item);
+                        }}
+                      >
+                        <Renderer.Component.Icon material="push_pin" size={16} />
+                      </button>
                     </NativeTooltip>
                     <NativeTooltip title="Delete snapshot (Alt+Delete)">
                       <button
@@ -1392,7 +1520,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          void deleteCapture(item.id);
+                          confirmDeleteCapture(item.id);
                         }}
                       >
                         <Renderer.Component.Icon material="delete_outline" size={16} />
@@ -1414,7 +1542,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 { value: "", label: "Choose a snapshot" },
                 ...captures.map((item) => ({
                   value: item.id,
-                  label: `${item.target.name} · ${formatDateTime(item.createdAt)} · ${item.rows.toLocaleString()} lines · ${item.state[0].toUpperCase()}${item.state.slice(1)}`,
+                  label: `${item.target.name} · ${formatDateTime(item.createdAt)} · ${item.rows.toLocaleString()} lines · ${item.state[0].toUpperCase()}${item.state.slice(1)}${item.persistent ? " · Persistent" : ""}`,
                 })),
               ]}
             />
@@ -1430,14 +1558,6 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </button>
             </NativeTooltip>
           </div>
-          {!!chosenCapture?.notes.length && (
-            <details className="power-logs-snapshot-notes power-logs-muted">
-              <summary>Snapshot notes ({chosenCapture.notes.length})</summary>
-              {chosenCapture.notes.map((note) => (
-                <div key={note}>{note}</div>
-              ))}
-            </details>
-          )}
           <div className="power-logs-toolbar power-logs-sql-tools">
             <NativeTooltip
               title={`Read-only SELECT · ${limits.queryMs / 1000} s · ${limits.resultRows.toLocaleString()} rows · Schema: logs(timestamp INTEGER in milliseconds, pod, podUid, container, level, message, fieldsJson, previous INTEGER 0 or 1)`}
@@ -1474,7 +1594,13 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 type="button"
                 key={title}
                 disabled={!!queryId || capturePending}
-                onClick={() => (title === "JSON" || title === "Recent" ? void applyPreset(title) : setSql(query))}
+                onClick={() => {
+                  if (title === "JSON" || title === "Recent") void applyPreset(title);
+                  else {
+                    setSql(query);
+                    setSqlFitVersion((version) => version + 1);
+                  }
+                }}
               >
                 <Icon
                   material={
@@ -1498,7 +1624,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             disabled={sqlFilteringDisabled}
             onRemove={(index) => applySqlFilters((activeSqlFilters?.filters ?? []).filter((_, item) => item !== index))}
           />
-          <SqlEditor id="power-logs-sql" value={sql} onChange={setSql} />
+          <SqlEditor id="power-logs-sql" value={sql} onChange={setSql} fitVersion={sqlFitVersion} />
           {sqlError && (
             <div role="alert" className="power-logs-notice power-logs-error power-logs-query-error">
               {sqlError}
@@ -1565,9 +1691,6 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                                 column={result.columns[j]}
                                 rawValue={cell}
                                 Icon={Icon}
-                                onFilter={
-                                  sqlFilteringDisabled ? undefined : (filter) => addSqlFilter(result.columns[j], filter)
-                                }
                               />
                             </td>
                           ))}
@@ -1646,13 +1769,11 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
           title={`Gentle collection: ${limits.requestsPerSecond} requests/s, ${limits.bytesPerSecond / 1048576} MiB/s. Captures: ${limits.captureSourceLines.toLocaleString()} lines / ${limits.captureSourceBytes / 1048576} MiB per source, ${limits.captureBytes / 1048576} MiB total. Up to ${limits.captures} snapshots retained for ${limits.ttlMs / 60000} minutes.`}
         >
           <span className="power-logs-caption">
-            Gentle collection · {limits.requestsPerSecond} requests/s · {limits.bytesPerSecond / 1048576} MiB/s ·
-            Captures limited to {limits.captureSourceLines.toLocaleString()} lines /{" "}
-            {limits.captureSourceBytes / 1048576} MiB per source and {limits.captureBytes / 1048576} MiB total · Up to{" "}
-            {limits.captures} temporary snapshots, retained for {limits.ttlMs / 60000} min
+            Collection · {limits.requestsPerSecond} req/s · {limits.bytesPerSecond / 1048576} MiB/s ·{" "}
+            {limits.captureBytes / 1048576} MiB/snapshot · Retention {limits.ttlMs / 60000} min
           </span>
         </NativeTooltip>
-        {collectionNotes.length > 0 && (
+        {tab === "live" && collectionNotes.length > 0 && (
           <NativeTooltip title={collectionNotes.join("\n")}>
             <span role="note" className="power-logs-notice power-logs-collection-note">
               <Icon material="warning_amber" size={14} />
@@ -1660,6 +1781,21 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             </span>
           </NativeTooltip>
         )}
+        {tab === "captures" &&
+          chosenCapture &&
+          (chosenCapture.state === "partial" || chosenCapture.notes.length > 0) && (
+            <NativeTooltip
+              title={
+                chosenCapture.notes.join("\n") ||
+                "Collection stopped or a source was unavailable; this snapshot may be incomplete"
+              }
+            >
+              <span role="note" className="power-logs-notice power-logs-collection-note">
+                <Icon material="warning_amber" size={14} />
+                <span>Incomplete snapshot</span>
+              </span>
+            </NativeTooltip>
+          )}
       </div>
     </div>
   );

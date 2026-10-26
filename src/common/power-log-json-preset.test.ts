@@ -24,8 +24,8 @@ it("discovers mixed source schemas but projects only the preferred actual messag
     .map((row) => String(row.key));
   expect(new Set(keys)).toEqual(new Set(["msg", "level", "message", "pod"]));
   const statement = db.prepare(buildJsonProjectionSql(keys));
-  expect(statement.columns().map((column) => column.name)).toEqual(["message"]);
-  expect(statement.all()).toEqual([{ message: "second" }, { message: null }]);
+  expect(statement.columns().map((column) => column.name)).toEqual(["message", "json"]);
+  expect(statement.all()).toMatchObject([{ message: "second" }, { message: null }]);
 });
 
 it("chooses a Pino msg field without inventing a message alias", () => {
@@ -38,8 +38,8 @@ it("chooses a Pino msg field without inventing a message alias", () => {
   expect(sql).toContain(`json_extract(logs.fieldsJson, '$.msg') AS "msg"`);
   expect(sql).not.toContain("json_each");
   const statement = db.prepare(sql);
-  expect(statement.columns().map((column) => column.name)).toEqual(["msg"]);
-  expect(statement.get()).toEqual({ msg: "actual" });
+  expect(statement.columns().map((column) => column.name)).toEqual(["msg", "json"]);
+  expect(statement.get()).toMatchObject({ msg: "actual" });
 });
 
 it.each([
@@ -56,8 +56,8 @@ it.each([
   const statement = database([{ unrelated: "skip", [key]: "actual" }]).prepare(
     buildJsonProjectionSql(["unrelated", key]),
   );
-  expect(statement.columns().map((column) => column.name)).toEqual([key]);
-  expect(statement.get()).toEqual({ [key]: "actual" });
+  expect(statement.columns().map((column) => column.name)).toEqual([key, "json"]);
+  expect(statement.get()).toMatchObject({ [key]: "actual" });
 });
 
 it.each([
@@ -75,8 +75,8 @@ it.each([
     ]),
   ]);
   const statement = db.prepare(buildJsonProjectionSql([key, "other"]));
-  expect(statement.columns().map((column) => column.name)).toEqual([key]);
-  expect(statement.get()).toEqual({ [key]: "actual" });
+  expect(statement.columns().map((column) => column.name)).toEqual([key, "json"]);
+  expect(statement.get()).toMatchObject({ [key]: "actual" });
   expect(db.prepare("SELECT count(*) AS count FROM logs").get()?.count).toBe(1);
 });
 
@@ -87,7 +87,7 @@ it.each([
 ])("preserves typed values in the single projected field: %j", ({ value }) => {
   for (const key of ["msg", "a.b"]) {
     const statement = database([{ [key]: value }]).prepare(buildJsonProjectionSql([key]));
-    expect(statement.get()).toEqual({ [key]: value === null ? null : JSON.stringify(value) });
+    expect(statement.get()).toMatchObject({ [key]: value === null ? null : JSON.stringify(value) });
   }
 });
 
@@ -101,13 +101,13 @@ it("ignores alias collisions and unrelated invalid keys because only one field i
       database([{ msg: "actual" }])
         .prepare(buildJsonProjectionSql(keys))
         .get(),
-    ).toEqual({ msg: "actual" });
+    ).toMatchObject({ msg: "actual" });
   }
   expect(
     database([{ usable: 42 }])
       .prepare(buildJsonProjectionSql(["bad\0key", "usable"]))
       .get(),
-  ).toEqual({ usable: 42 });
+  ).toMatchObject({ usable: 42 });
 });
 
 it.each([
@@ -123,8 +123,8 @@ it("accepts a 128-character first key from a bounded 64-key schema", () => {
   const key = "x".repeat(128);
   const keys = [key, ...Array.from({ length: 63 }, (_, index) => `key${index}`)];
   const statement = database([{ [key]: true }]).prepare(buildJsonProjectionSql(keys));
-  expect(statement.columns().map((column) => column.name)).toEqual([key]);
-  expect(statement.get()).toEqual({ [key]: 1 });
+  expect(statement.columns().map((column) => column.name)).toEqual([key, "json"]);
+  expect(statement.get()).toMatchObject({ [key]: 1 });
 });
 
 it.each([
@@ -139,17 +139,17 @@ it.each([
 ])("keeps Recent as the original short normalized query regardless of keys: %j", ({ keys }) => {
   const sql = buildJsonProjectionSql(keys as string[], { recent: true });
   expect(sql).toBe(
-    "SELECT message, level, container, pod, timestamp FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200",
+    "SELECT timestamp, level, message, container, pod FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200",
   );
   expect(sql).not.toContain("json_each");
   const db = database([{ msg: "source msg" }, null, { message: "source message" }]);
   const statement = db.prepare(sql);
   expect(statement.columns().map((column) => column.name)).toEqual([
-    "message",
+    "timestamp",
     "level",
+    "message",
     "container",
     "pod",
-    "timestamp",
   ]);
   expect(statement.all().map((row) => row.message)).toEqual(["plain log", "plain log", "plain log"]);
 });
@@ -169,7 +169,7 @@ it("discovers JSON keys beyond plain Recent rows while keeping a single valid pr
     .map((row) => String(row.key));
   expect(keys).toContain("oldSchema");
   expect(keys).not.toContain("message");
-  expect(db.prepare(buildJsonProjectionSql(keys)).get()).toEqual({ oldSchema: "retained" });
+  expect(db.prepare(buildJsonProjectionSql(keys)).get()).toMatchObject({ oldSchema: "retained" });
 });
 
 it("keeps the actual msg key when plain log rows are mixed with JSON", () => {
@@ -179,5 +179,18 @@ it("keeps the actual msg key when plain log rows are mixed with JSON", () => {
     .all()
     .map((row) => String(row.key));
   expect(keys).toEqual(["msg"]);
-  expect(db.prepare(buildJsonProjectionSql(keys)).all()).toEqual([{ msg: "actual message" }]);
+  expect(db.prepare(buildJsonProjectionSql(keys)).all()).toMatchObject([{ msg: "actual message" }]);
+});
+
+it("projects the selected message together with complete original JSON", () => {
+  const row = { msg: "actual", extra: { status: 200 } };
+  const sql = buildJsonProjectionSql(["msg", "extra"]);
+  expect(sql).toContain('logs.fieldsJson AS "json"');
+  expect(database([row]).prepare(sql).get()).toEqual({ msg: "actual", json: JSON.stringify(row) });
+  expect(
+    database([{ json: "source" }])
+      .prepare(buildJsonProjectionSql(["json"]))
+      .columns()
+      .map((c) => c.name),
+  ).toEqual(["json", "fieldsJson"]);
 });

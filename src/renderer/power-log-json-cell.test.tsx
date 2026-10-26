@@ -2,8 +2,10 @@
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { formatDateTime } from "../common/date-time";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 import { LogJsonCell } from "./power-log-json-cell";
+import { formatJsonLiteral } from "./power-log-json-fields";
 
 const mocks = vi.hoisted(() => ({ writeText: vi.fn() }));
 vi.mock("electron", () => ({ clipboard: { writeText: mocks.writeText } }));
@@ -119,7 +121,7 @@ it("copies the complete raw JSON while bounding the preview", () => {
   const { container, getByRole } = render(<LogJsonCell value={value} Icon={Icon} />);
   expect(container.querySelector(".power-log-json")?.textContent?.length).toBe(2049);
   fireEvent.click(getByRole("button", { name: "Copy JSON" }));
-  expect(mocks.writeText).toHaveBeenCalledWith(value);
+  expect(mocks.writeText).toHaveBeenCalledWith(formatJsonLiteral(value));
   expect(getByRole("status").textContent).toBe("Copied");
   expect(container.querySelector('[data-icon="check"]')).not.toBeNull();
 });
@@ -169,39 +171,32 @@ it("reports clipboard failures and resets feedback when the cell changes", () =>
 
 it("preserves raw numeric spellings and duplicate keys while disabling ambiguous field actions", () => {
   const value = ' { "n": 9007199254740993, "n": 1e999, "s": "a b" } ';
-  const { container, getByRole, queryByRole } = render(<LogJsonCell value={value} Icon={Icon} onFilter={vi.fn()} />);
+  const { container, getByRole, queryByRole } = render(<LogJsonCell value={value} Icon={Icon} />);
   expect(container.querySelector("pre")?.textContent).toBe('{"n":9007199254740993,"n":1e999,"s":"a b"}');
   expect(container.querySelector("pre [tabindex]")).toBeNull();
   fireEvent.mouseEnter(container.querySelector('[data-token="key"]')!);
   expect(queryByRole("toolbar")).toBeNull();
   fireEvent.click(getByRole("button", { name: "Copy JSON" }));
-  expect(mocks.writeText).toHaveBeenCalledWith(value);
+  expect(mocks.writeText).toHaveBeenCalledWith(formatJsonLiteral(value));
 });
 
-it("uses the complete field value behind a truncated syntax preview", () => {
+it("keeps only full JSON copying in table previews, including truncated values", () => {
   const value = JSON.stringify({ long: "x".repeat(4000) });
-  const onFilter = vi.fn();
-  const { container, getByRole } = render(<LogJsonCell value={value} Icon={Icon} onFilter={onFilter} />);
+  const { container, getByRole, queryByRole } = render(<LogJsonCell value={value} Icon={Icon} />);
   fireEvent.mouseEnter(container.querySelector('[data-token="key"]')!);
-  fireEvent.click(getByRole("button", { name: "Include value" }));
-  expect(onFilter).toHaveBeenCalledWith({ path: ["long"], operator: "eq", value: "x".repeat(4000) });
-  fireEvent.click(getByRole("button", { name: "Copy value" }));
-  expect(mocks.writeText).toHaveBeenCalledWith("x".repeat(4000));
-});
-
-it("copies exact unsafe integer and nested numeric literals from complete field source", () => {
-  const value =
-    '{"n":9007199254740993,"container":{"n":9007199254740993,"large":1e999,"tail":"' + "x".repeat(4000) + '"}}';
-  const { container, getByRole } = render(<LogJsonCell value={value} Icon={Icon} />);
-  const keys = container.querySelectorAll('[data-token="key"]');
-  fireEvent.mouseEnter(keys[0]);
-  fireEvent.click(getByRole("button", { name: "Copy value" }));
-  expect(mocks.writeText).toHaveBeenLastCalledWith("9007199254740993");
-  fireEvent.focus(keys[1]);
-  fireEvent.click(getByRole("button", { name: "Copy value" }));
-  expect(mocks.writeText).toHaveBeenLastCalledWith(value.slice(value.indexOf('{"n"', 1), -1));
+  expect(queryByRole("toolbar")).toBeNull();
+  expect(container.querySelector("pre [tabindex]")).toBeNull();
+  fireEvent.click(getByRole("button", { name: "Copy JSON" }));
+  expect(mocks.writeText).toHaveBeenCalledWith(formatJsonLiteral(value));
 });
 
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: { Component: { Tooltip: (props: any) => <MockTooltip {...props} /> } },
 }));
+
+it("formats numeric timestamps like live logs without changing the raw row value", () => {
+  const value = Date.UTC(2026, 0, 1, 12, 34, 56);
+  const { container } = render(<LogJsonCell value={String(value)} rawValue={value} column="timestamp" Icon={Icon} />);
+  expect(container.querySelector(".power-logs-cell")?.textContent).toBe(formatDateTime(value).slice(-8));
+  expect(tooltipText(container.querySelector(".power-logs-cell")!)).toContain(String(value));
+});

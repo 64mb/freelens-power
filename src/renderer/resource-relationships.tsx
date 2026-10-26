@@ -8,8 +8,10 @@ import {
   type RelationshipObject,
 } from "../common/resource-relationships";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
+import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { loadGatewayInventory } from "./gateway-relationships-client";
 import { NativeTooltip } from "./native-tooltip";
+import { relationshipMapFinding } from "./relationship-map-finding";
 import { resourceRelationshipsStyles } from "./resource-relationships.css";
 import { createResourceSearchTransport } from "./resource-search-client";
 import { openSearchResource } from "./resource-search-routing";
@@ -353,6 +355,8 @@ function EnabledResourceRelationshipsPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [serviceName, setServiceName] = useState("");
   const [focusedPod, setFocusedPod] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => setShowAll(false), [namespace, serviceName, focusedPod]);
   const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
   const [hideUpstreams, setHideUpstreams] = useState(() =>
     preferences.hiddenUpstreamClusters.includes(clusterId.current ?? ""),
@@ -446,7 +450,17 @@ function EnabledResourceRelationshipsPage() {
   }, [namespace, service, refresh]);
   const current = inventory?.namespace === namespace && inventory.service === serviceName ? inventory : undefined;
   const graph =
-    current && service ? buildResourceRelationships(service, current.data, focusedPod || undefined) : undefined;
+    current && service
+      ? buildResourceRelationships(service, current.data, focusedPod || undefined, showAll)
+      : undefined;
+  useEffect(() => {
+    if (!graph || loading || !clusterId.current) return;
+    const id = clusterId.current;
+    const attach = () =>
+      explainDiagnosticFinding(relationshipMapFinding(id, namespace, serviceName, graph, hideUpstreams));
+    window.addEventListener("power-ai-request-screen-context", attach);
+    return () => window.removeEventListener("power-ai-request-screen-context", attach);
+  }, [graph, loading, namespace, serviceName, hideUpstreams]);
   const openResource = (path: string) => {
     const currentCluster = () =>
       mounted.current && Renderer.Catalog.activeCluster.get()?.metadata.uid === clusterId.current;
@@ -515,7 +529,7 @@ function EnabledResourceRelationshipsPage() {
             aria-label="Relationship pod focus"
             value={focusedPod}
             options={[
-              { value: "", label: "All selected pods (up to 8)" },
+              { value: "", label: showAll ? "All selected pods" : "All selected pods (up to 8)" },
               ...(graph?.podOptions ?? []).map((name) => ({ value: name, label: name })),
             ]}
             onChange={(option) => setFocusedPod(option?.value ?? "")}
@@ -599,10 +613,30 @@ function EnabledResourceRelationshipsPage() {
             ingressAvailable={current?.data.ingresses !== undefined}
             hideUpstreams={hideUpstreams}
           />
-          {graph.omitted > 0 && (
-            <div className="notice">
-              {graph.omitted} additional visible resources omitted to keep the graph readable. Focus a pod to inspect
-              its ownership and placement.
+          {(graph.omitted > 0 || showAll) && (
+            <div className="notice graph-omitted-notice">
+              {!showAll && <Icon material="warning_amber" className="graph-omitted-warning" size={16} />}
+              <span>
+                {showAll ? (
+                  "All available resources are shown."
+                ) : (
+                  <>
+                    Hidden resources: <strong>{graph.omitted}</strong>. Show all to expand the map.
+                  </>
+                )}
+              </span>
+              {!showAll && (
+                <NativeTooltip title="Show all available resources">
+                  <button
+                    type="button"
+                    className="graph-show-all"
+                    aria-label="Show all available resources"
+                    onClick={() => setShowAll(true)}
+                  >
+                    <Icon material="visibility" size={16} />
+                  </button>
+                </NativeTooltip>
+              )}
             </div>
           )}
           <details>

@@ -162,3 +162,36 @@ it.each([
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it("uses compact extraction predicates for ordinary scalar filters", () => {
+  const sql = buildJsonFilterSql("SELECT * FROM logs", [
+    { column: "json", path: ["hostname"], operator: "eq", value: "example-host" },
+    { column: "json", path: ["nested", "count"], operator: "neq", value: 2 },
+  ]);
+  expect(sql).toContain('AS "__power_rows" WHERE');
+  expect(sql).toContain(`json_extract("__power_rows"."json", '$.hostname') IS 'example-host'`);
+  expect(sql).toContain(" AND NOT ");
+  expect(sql).not.toContain("WITH RECURSIVE");
+  expect(sql.length).toBeLessThan(650);
+  const db = database([
+    '{"hostname":"example-host","nested":{"count":1}}',
+    '{"hostname":"example-host","nested":{"count":2}}',
+  ]);
+  expect(
+    db
+      .prepare(sql)
+      .all()
+      .map((row) => row.id),
+  ).toEqual([0]);
+});
+
+it("distinguishes JSON-looking strings from structures for scalar extraction", () => {
+  const db = database(['{"a":"{}"}', '{"a":{}}', '{"a":"[1,2]"}', '{"a":[1,2]}']);
+  expect(ids(db, [{ column: "json", path: ["a"], operator: "eq", value: "{}" }])).toEqual([0]);
+  expect(ids(db, [{ column: "json", path: ["a"], operator: "neq", value: "[1,2]" }])).toEqual([0, 1, 3]);
+});
+
+it.each(["value", "type"])("qualifies JSON columns named %s inside recursive predicates", (column) => {
+  const db = database(['{"a.b":3}', '{"a.b":4}'], column);
+  expect(ids(db, [{ column, path: ["a.b"], operator: "eq", value: 3 }])).toEqual([0]);
+});

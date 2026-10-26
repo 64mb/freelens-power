@@ -809,3 +809,31 @@ it("investigates running NotReady pods separately and preserves its selection", 
   expect(readDiagnosticsState("sample-cluster").notReadyUid).toBe("pod-a");
   expect(readDiagnosticsState("sample-cluster").pendingUid).toBe("");
 });
+
+it("attaches only the current Consumers or Timeline list when AI requests screen context", async () => {
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  vi.mocked(explainDiagnosticFinding).mockClear();
+  const view = render(<DiagnosticsPage />);
+  await waitFor(() => expect(view.container.querySelector(".consumers-table")).toBeTruthy());
+  fireEvent.change(view.getByLabelText("Filter consumers"), { target: { value: "missing-workload" } });
+  act(() => {
+    window.dispatchEvent(new Event("power-ai-request-screen-context"));
+  });
+  const consumer = vi.mocked(explainDiagnosticFinding).mock.calls.at(-1)![0];
+  expect(consumer.title).toBe("Diagnostics · Consumers");
+  expect(JSON.parse(consumer.summary).rows).toEqual([]);
+  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  fireEvent.change(view.getByLabelText("Filter timeline reason"), { target: { value: "FailedScheduling" } });
+  act(() => {
+    window.dispatchEvent(new Event("power-ai-request-screen-context"));
+  });
+  const timeline = vi.mocked(explainDiagnosticFinding).mock.calls.at(-1)![0];
+  expect(timeline.title).toBe("Diagnostics · Timeline");
+  expect(JSON.parse(timeline.summary).rows.map((row: { reason: string }) => row.reason)).toEqual(["FailedScheduling"]);
+  expect(timeline.summary).not.toContain("Other application");
+  expect(timeline.summary).not.toContain("containers");
+  view.unmount();
+  vi.mocked(explainDiagnosticFinding).mockClear();
+  window.dispatchEvent(new Event("power-ai-request-screen-context"));
+  expect(explainDiagnosticFinding).not.toHaveBeenCalled();
+});

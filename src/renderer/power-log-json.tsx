@@ -22,7 +22,6 @@ const fieldButtonStyle: CSSProperties = {
   border: 0,
   borderRadius: 0,
   background: "transparent",
-  color: "inherit",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -80,6 +79,8 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
         clearTimeout(leaveTimer.current);
         const rect = element.getBoundingClientRect();
         let lineRight = rect.right;
+        let actionTop = rect.top;
+        let actionHeight = Math.min(rect.height, Number.parseFloat(getComputedStyle(element).lineHeight) || 20);
         const pre = element.closest("pre");
         if (pre) {
           const lineEnd = text.indexOf("\n", start);
@@ -94,10 +95,14 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
             range.setStart(element, 0);
             range.setEnd(node, remaining);
             if (typeof range.getClientRects === "function") {
-              for (const fragment of Array.from(range.getClientRects())) {
-                if (Math.abs(fragment.top - rect.top) < Math.max(1, rect.height / 2)) {
-                  lineRight = Math.max(lineRight, fragment.right);
-                }
+              const fragments = Array.from(range.getClientRects()).filter(
+                (fragment) => fragment.width > 0 && fragment.height > 0,
+              );
+              if (fragments.length) {
+                actionTop = Math.max(...fragments.map((fragment) => fragment.top));
+                const lastLine = fragments.filter((fragment) => Math.abs(fragment.top - actionTop) < 1);
+                lineRight = Math.max(...lastLine.map((fragment) => fragment.right));
+                actionHeight = lastLine[0].height;
               }
             }
             break;
@@ -113,7 +118,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
           text: identity,
           lineTop: rect.top,
           x: Math.max(4, Math.min(lineRight + 4, visibleRight - 64)),
-          y: Math.max(0, Math.min(rect.top, window.innerHeight - 20)),
+          y: Math.max(0, Math.min(actionTop + (actionHeight - 20) / 2, window.innerHeight - 20)),
         });
         setFeedback("");
       };
@@ -194,6 +199,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
       {pre}
       {selected && (
         <div
+          className="power-log-json-actions"
           role="toolbar"
           aria-label="JSON field actions"
           style={{
@@ -230,7 +236,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
               }
             }}
           >
-            {Icon ? <Icon material="content_copy" size={14} tooltip="Copy value" /> : "⧉"}
+            {Icon ? <Icon material="content_copy" size={12} tooltip="Copy value" /> : "⧉"}
           </button>
           {onFilter && (
             <>
@@ -240,7 +246,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
                 aria-label="Include value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "eq" })}
               >
-                {Icon ? <Icon material="filter_alt" size={14} tooltip="Include value" /> : "="}
+                {Icon ? <Icon material="filter_alt" size={12} tooltip="Include value" /> : "="}
               </button>
               <button
                 type="button"
@@ -248,7 +254,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
                 aria-label="Exclude value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "neq" })}
               >
-                {Icon ? <Icon material="filter_alt_off" size={14} tooltip="Exclude value" /> : "!="}
+                {Icon ? <Icon material="filter_alt_off" size={12} tooltip="Exclude value" /> : "!="}
               </button>
             </>
           )}

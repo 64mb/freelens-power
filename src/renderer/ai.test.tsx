@@ -958,3 +958,88 @@ describe("selected diagnostic findings", () => {
     expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
   });
 });
+
+it("requests visible screen evidence on opening and preserves an existing conversation draft", async () => {
+  mocks.clusterId = "cluster-a";
+  mocks.preferences.conversations["cluster-a"] = [{ role: "assistant", text: "Previous investigation" }];
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  const attach = vi.fn(() =>
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      source: "relationships",
+      title: "Relationships · example",
+      summary: "Service example connected to Pod worker",
+    }),
+  );
+  window.addEventListener("power-ai-request-screen-context", attach);
+  try {
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(attach).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Selected diagnostic finding").textContent).toContain("Relationships · example");
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener("power-ai-request-screen-context", attach);
+  }
+});
+
+it("preserves already attached evidence when reopening AI instead of requesting the map", async () => {
+  mocks.clusterId = "cluster-a";
+  const request = vi.fn();
+  window.addEventListener("power-ai-request-screen-context", request);
+  try {
+    act(() => {
+      stop = startAiChat(() => true);
+    });
+    const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+    act(() => {
+      explainDiagnosticFinding({
+        clusterId: "cluster-a",
+        source: "logs",
+        title: "Selected logs",
+        summary: "Existing evidence",
+      });
+    });
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    expect(request).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Selected diagnostic finding").textContent).toContain("Selected logs");
+  } finally {
+    window.removeEventListener("power-ai-request-screen-context", request);
+  }
+});
+
+it("sends a large bounded relationship map within the question budget", async () => {
+  mocks.clusterId = "cluster-a";
+  mocks.invoke.mockResolvedValue({ text: "Ready" });
+  const { relationshipMapFinding } = await import("./relationship-map-finding");
+  const { buildResourceRelationships } = await import("../common/resource-relationships");
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  const graph = buildResourceRelationships({ metadata: { name: "example", namespace: "sample" } }, {});
+  graph.nodes = Array.from({ length: 60 }, (_, index) => ({
+    ...graph.nodes[0],
+    id: `node-${index}`,
+    name: `resource-${index}`,
+    detail: '"'.repeat(300),
+  }));
+  const finding = relationshipMapFinding("cluster-a", "sample", "example", graph, false);
+  expect(finding.summary.length).toBeLessThanOrEqual(8000);
+  expect(JSON.parse(finding.summary).omitted).toBeGreaterThan(0);
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  act(() => {
+    explainDiagnosticFinding(finding);
+  });
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Explain the map" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+  const payload = mocks.invoke.mock.calls.at(-1)?.[1] as { messages: { text: string }[] };
+  expect(payload.messages.at(-1)!.text).toContain("Relationships · example");
+  expect(payload.messages.at(-1)!.text.length).toBeLessThan(20_000);
+});

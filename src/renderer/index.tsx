@@ -33,6 +33,7 @@ import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
 import { startMonitoringHistoryCollection } from "./monitoring-history-collection";
 import { NodeMonitoringDetails } from "./node-monitoring";
+import { startPodDetailsEnhancements } from "./pod-details-enhancements";
 import { startPodMonitoring } from "./pod-monitoring";
 import { PowerLogsPage } from "./power-logs";
 import { PowerLogsMenu, startPowerLogsEntrypoints } from "./power-logs-entrypoints";
@@ -95,6 +96,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startMonitoringHistoryCollection,
             startMonitoring,
             startPodMonitoring,
+            startPodDetailsEnhancements,
             startPowerButtonStyles,
             startAppearanceOverride,
             startWelcomeOverride,
