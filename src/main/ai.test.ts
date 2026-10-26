@@ -314,7 +314,7 @@ describe("AI read boundary", () => {
   });
 
   it("passes only supported explicit reasoning efforts and leaves the default unset", () => {
-    for (const effort of ["none", "minimal", "low", "medium", "high", "xhigh"]) {
+    for (const effort of ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]) {
       expect(codexAiArguments("example-model", "default", "/tmp/example", effort)).toContain(
         `model_reasoning_effort="${effort}"`,
       );
@@ -387,6 +387,14 @@ describe("Claude native CLI boundary", () => {
     expect(args).not.toContain("--dangerously-skip-permissions");
     expect(() => claudeAiArguments("--unsafe")).toThrow();
     expect(() => claudeAiArguments("gpt-example")).toThrow();
+  });
+
+  it("passes only supported effort levels", () => {
+    expect(claudeAiArguments("opus")).not.toContain("--effort");
+    const args = claudeAiArguments("opus", "default", "max");
+    expect(args[args.indexOf("--effort") + 1]).toBe("max");
+    expect(() => claudeAiArguments("opus", "default", "minimal")).toThrow();
+    expect(() => claudeAiArguments("opus", "default", "--model")).toThrow();
   });
 
   it("opts in to fast mode only for the fast speed", () => {

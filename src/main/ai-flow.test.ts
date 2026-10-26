@@ -347,6 +347,21 @@ describe("Claude native read flow", () => {
     expect(options.env).toHaveProperty("ANTHROPIC_API_KEY", "example-native-key");
     expect(options.env).not.toHaveProperty("CODEX_HOME");
   });
+
+  it("checks effort against the selected CLI before launching it and passes it through", async () => {
+    vi.stubEnv("HOME", "/tmp/example-ai-test-home");
+    const claude = { ...request, context: {}, provider: "claude" as const, model: "sonnet" };
+    for (const reasoningEffort of ["ultra", "none"])
+      await expect(runAiChat({ ...claude, reasoningEffort }, vi.fn())).rejects.toThrow("Invalid AI request");
+    expect(spawnMock).not.toHaveBeenCalled();
+    mockTurns([{ text: "Ready", tool: null }], "claude");
+    await runAiChat({ ...claude, reasoningEffort: "max" }, vi.fn());
+    const args = spawnMock.mock.calls[0][1];
+    expect(args[args.indexOf("--effort") + 1]).toBe("max");
+    mockTurns([{ text: "Ready", tool: null }]);
+    await runAiChat({ ...request, context: {}, reasoningEffort: "ultra" }, vi.fn());
+    expect(spawnMock.mock.calls[1][1]).toContain('model_reasoning_effort="ultra"');
+  });
 });
 
 it("returns related resources only from successful projected reads and suppresses environment identities", async () => {

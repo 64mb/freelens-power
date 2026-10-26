@@ -56,6 +56,8 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     reasoningEffort: "high",
     speed: "fast",
     claudeModel: "",
+    claudeReasoningEffort: "",
+    claudeSpeed: "default",
     chatFontSize: 14,
     systemPrompt: "",
     clusterPrompt: "",
@@ -66,20 +68,33 @@ it("keeps provider controls separate and ignores late model catalogs after switc
       ? new Promise((resolve) => {
           finishCodex = resolve;
         })
-      : Promise.resolve([{ id: "sonnet", label: "Sonnet", reasoningEfforts: [] }]),
+      : Promise.resolve([
+          { id: "sonnet", label: "Sonnet", reasoningEfforts: ["low", "max"] },
+          { id: "haiku", label: "Haiku", reasoningEfforts: ["low"] },
+        ]),
   );
   const view = render(<AiPreferences />);
   try {
     expect(screen.getByLabelText("Speed")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "example-model" } });
+    expect(mocks.preferences.reasoningEffort).toBe("high");
     fireEvent.change(screen.getByLabelText("CLI"), { target: { value: "claude" } });
-    await waitFor(() => expect(screen.getByText("Sonnet · Default")).toBeTruthy());
-    expect(screen.getByLabelText("Speed")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Sonnet")).toBeTruthy());
+    expect((screen.getByLabelText("Speed") as HTMLSelectElement).value).toBe("default");
+    fireEvent.change(screen.getByLabelText("Speed"), { target: { value: "fast" } });
+    expect(mocks.preferences.claudeSpeed).toBe("fast");
     await act(async () => finishCodex([{ id: "stale-model", label: "Stale", reasoningEfforts: ["xhigh"] }]));
-    expect(screen.queryByText("Stale · xhigh")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Model"), { target: { value: JSON.stringify(["sonnet", ""]) } });
+    expect(screen.queryByText("Stale")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "sonnet" } });
+    fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "max" } });
     expect(mocks.preferences.claudeModel).toBe("sonnet");
+    expect(mocks.preferences.claudeReasoningEffort).toBe("max");
     expect(mocks.preferences.model).toBe("example-model");
     expect(mocks.preferences.reasoningEffort).toBe("high");
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "haiku" } });
+    expect(mocks.preferences.claudeReasoningEffort).toBe("");
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "" } });
+    expect((screen.getByLabelText("Effort") as HTMLSelectElement).options).toHaveLength(1);
     act(() =>
       runInAction(() => {
         mocks.preferences.enabled = false;

@@ -2,11 +2,16 @@ import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { BrowserWindow, ipcMain } from "electron";
-import { AI_MODELS_CHANNEL, type AiModel } from "../common/ai-models";
+import {
+  AI_MODELS_CHANNEL,
+  type AiModel,
+  CLAUDE_REASONING_EFFORTS,
+  CODEX_REASONING_EFFORTS,
+} from "../common/ai-models";
 
 const MAX_CACHE_BYTES = 2 * 1024 * 1024;
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/;
-const efforts = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+const efforts = new Set(CODEX_REASONING_EFFORTS);
 
 export function parseAiModels(value: unknown): AiModel[] {
   if (!value || typeof value !== "object" || !("models" in value) || !Array.isArray(value.models)) return [];
@@ -81,7 +86,7 @@ export function startAiModels(): () => void {
         return ["sonnet", "opus", "haiku", "fable"].map((id) => ({
           id,
           label: id[0].toUpperCase() + id.slice(1),
-          reasoningEfforts: [],
+          reasoningEfforts: CLAUDE_REASONING_EFFORTS,
           defaultReasoningEffort: "",
         }));
       if (provider !== "codex") return [];

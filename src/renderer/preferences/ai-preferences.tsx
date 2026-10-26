@@ -9,6 +9,17 @@ import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
 
 const { Select, Switch } = Renderer.Component;
 
+type SelectOption = { value: string; label: string };
+
+// keeps a saved value visible while the catalog loads or after the catalog drops it
+function withCurrent(options: SelectOption[], value: string): SelectOption[] {
+  return options.some((option) => option.value === value) ? options : [...options, { value, label: value }];
+}
+
+function effortsFor(models: AiModel[], id: string): string[] {
+  return models.find((model) => model.id === id)?.reasoningEfforts ?? [];
+}
+
 export const AiPreferences = observer(() => {
   const preferences = AiPreferencesStore.getInstanceOrCreate<AiPreferencesStore>();
   const [catalog, setCatalog] = useState<{ provider: string; models: AiModel[] }>({ provider: "", models: [] });
@@ -34,23 +45,22 @@ export const AiPreferences = observer(() => {
   const isClaude = preferences.provider === "claude";
   const providerLabel = isClaude ? "Claude" : "Codex";
   const currentModel = isClaude ? preferences.claudeModel : preferences.model;
-  const selectedModel = JSON.stringify([currentModel, isClaude ? "" : preferences.reasoningEffort]);
-  const modelOptions = [
-    { value: JSON.stringify(["", ""]), label: `${providerLabel} default` },
-    ...models.flatMap((model) => [
-      { value: JSON.stringify([model.id, ""]), label: `${model.label} · Default` },
-      ...model.reasoningEfforts.map((effort) => ({
-        value: JSON.stringify([model.id, effort]),
-        label: `${model.label} · ${effort}`,
-      })),
-    ]),
-  ];
-  if (!modelOptions.some((option) => option.value === selectedModel)) {
-    modelOptions.push({
-      value: selectedModel,
-      label: `${currentModel || `${providerLabel} default`} · ${isClaude ? "Default" : preferences.reasoningEffort || "Default"}`,
-    });
-  }
+  const currentEffort = isClaude ? preferences.claudeReasoningEffort : preferences.reasoningEffort;
+  const currentSpeed = isClaude ? preferences.claudeSpeed : preferences.speed;
+  const modelOptions = withCurrent(
+    [
+      { value: "", label: `${providerLabel} default` },
+      ...models.map((model) => ({ value: model.id, label: model.label })),
+    ],
+    currentModel,
+  );
+  const effortOptions = withCurrent(
+    [
+      { value: "", label: "Default" },
+      ...effortsFor(models, currentModel).map((effort) => ({ value: effort, label: effort })),
+    ],
+    currentEffort,
+  );
   const controlStyle = { width: 220, maxWidth: "100%", flexShrink: 0 };
   const rowStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 };
   return (
@@ -101,25 +111,45 @@ export const AiPreferences = observer(() => {
           <div className="power-settings-hint">
             {isClaude
               ? "Native Claude model aliases. Availability depends on your CLI account."
-              : "Models and reasoning effort from the local Codex catalog."}
+              : "Models from the local Codex catalog."}
           </div>
         </div>
         <div style={controlStyle}>
           <Select
             id="power-ai-model"
-            value={selectedModel}
+            value={currentModel}
             options={modelOptions}
             isDisabled={!preferences.enabled}
             isClearable={false}
             isSearchable={true}
             onChange={(option) => {
-              if (!option) return;
-              const [model, effort] = JSON.parse(option.value);
-              if (isClaude) preferences.claudeModel = model;
-              else {
-                preferences.model = model;
+              if (!option || option.value === currentModel) return;
+              const effort = effortsFor(models, option.value).includes(currentEffort) ? currentEffort : "";
+              if (isClaude) {
+                preferences.claudeModel = option.value;
+                preferences.claudeReasoningEffort = effort;
+              } else {
+                preferences.model = option.value;
                 preferences.reasoningEffort = effort;
               }
+            }}
+          />
+        </div>
+      </div>
+      <div className="power-settings-row" style={rowStyle}>
+        <label htmlFor="power-ai-effort">Effort</label>
+        <div style={controlStyle}>
+          <Select
+            id="power-ai-effort"
+            value={currentEffort}
+            options={effortOptions}
+            isDisabled={!preferences.enabled}
+            isClearable={false}
+            isSearchable={false}
+            onChange={(option) => {
+              if (!option) return;
+              if (isClaude) preferences.claudeReasoningEffort = option.value;
+              else preferences.reasoningEffort = option.value;
             }}
           />
         </div>
@@ -136,7 +166,7 @@ export const AiPreferences = observer(() => {
         <div style={controlStyle}>
           <Select
             id="power-ai-speed"
-            value={preferences.speed}
+            value={currentSpeed}
             options={[
               { value: "default", label: "Default" },
               { value: "fast", label: "Fast" },
@@ -145,7 +175,9 @@ export const AiPreferences = observer(() => {
             isClearable={false}
             isSearchable={false}
             onChange={(option) => {
-              if (option) preferences.speed = option.value as "default" | "fast";
+              if (!option) return;
+              if (isClaude) preferences.claudeSpeed = option.value as "default" | "fast";
+              else preferences.speed = option.value as "default" | "fast";
             }}
           />
         </div>
