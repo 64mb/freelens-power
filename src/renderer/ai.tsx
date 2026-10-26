@@ -5,6 +5,7 @@ import { observer } from "mobx-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { AI_CHAT_CHANNEL, AI_READ_ACTIVITY_CHANNEL, type AiReadActivity } from "../common/ai";
+import { normalizeAiAttachmentReceipts } from "../common/ai-attachments";
 import { AI_CANCEL_CHANNEL, attachedAiContext, normalizeAiReferences } from "../common/ai-extras";
 import { expandAiShortcut } from "../common/ai-shortcuts";
 import { type AiMessage, AiPreferencesStore } from "../common/store/ai-preferences-store";
@@ -17,7 +18,7 @@ import {
   diagnosticQuestion,
   sanitizeDiagnosticFinding,
 } from "./ai-diagnostic-handoff";
-import { AiContextPreview, AiResourceReferences } from "./ai-extras";
+import { AiAttachmentReceipts, AiContextInspector, AiContextPreview, AiResourceReferences } from "./ai-extras";
 import { AiIcon, AiPinIcon } from "./ai-icon";
 import { isPowerLogsWorkspace, POWER_LOGS_SQL_DRAFT_PROMPT } from "./ai-logs-sql";
 import { AiMessageContent } from "./ai-message";
@@ -181,16 +182,26 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 :root .power-ai-panel header button.power-ai-pin[aria-pressed="true"] { color: var(--primary); }
 .power-ai-panel header > button { flex-shrink: 0; }
 .power-ai-panel form { position: relative; flex-shrink: 0; margin: 0 16px 16px; border: 1px solid var(--borderFaintColor); border-radius: 12px; background: var(--mainBackground); transition: border-color 160ms ease; }
-.power-ai-panel form > .power-ai-context-preview { padding: 8px 48px 4px 16px !important; min-height: 34px; margin: 0; box-sizing: border-box; }
+.power-ai-attachments { padding:8px 48px 4px 16px; min-height:34px; max-height:40vh; overflow:auto; font-size:11px; }
+.power-ai-attachment-card { display:flex; align-items:flex-start; gap:8px; min-width:0; margin-bottom:6px; }
+.power-ai-attachment-card > .Icon { flex-shrink:0; margin-top:7px; }
+.power-ai-attachment-card > details { flex:1; min-width:0; }
+.power-ai-attachment-card summary { padding:6px 0; min-height:28px; box-sizing:border-box; cursor:pointer; overflow-wrap:anywhere; }
+.power-ai-attachment-card pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; }
+.power-ai-attachment-caption { color:var(--textColorSecondary); font-size:11px; margin:4px 0; }
+.power-ai-context-inspector { color:var(--textColorSecondary); font-size:11px; }
+.power-ai-context-inspector summary { padding:4px 0; cursor:pointer; }
+.power-ai-attachment-receipts { margin-top:10px; padding-top:6px; border-top:1px solid var(--borderFaintColor); font-size:11px; }
+.power-ai-attachment-receipts .power-ai-attachment-card { margin-bottom:0; }
 .power-ai-context-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
 .power-ai-finding-content pre { max-height: 140px; }
 .power-ai-context-content pre { max-height: 160px; }
-.power-ai-context-preview .power-log-json { --json-key:#9cdcfe; --json-string:#ce9178; --json-number:#b5cea8; --json-literal:#c586c0; }
-.theme-light .power-ai-context-preview .power-log-json { --json-key:#005a9e; --json-string:#9e2b1a; --json-number:#17642d; --json-literal:#7a288c; }
-.power-ai-context-preview .power-log-json [data-token=key] { color:var(--json-key); }
-.power-ai-context-preview .power-log-json [data-token=string] { color:var(--json-string); }
-.power-ai-context-preview .power-log-json [data-token=number] { color:var(--json-number); }
-.power-ai-context-preview .power-log-json [data-token=literal] { color:var(--json-literal); }
+.power-ai-panel .power-log-json { --json-key:#9cdcfe; --json-string:#ce9178; --json-number:#b5cea8; --json-literal:#c586c0; }
+.theme-light .power-ai-panel .power-log-json { --json-key:#005a9e; --json-string:#9e2b1a; --json-number:#17642d; --json-literal:#7a288c; }
+.power-ai-panel .power-log-json [data-token=key] { color:var(--json-key); }
+.power-ai-panel .power-log-json [data-token=string] { color:var(--json-string); }
+.power-ai-panel .power-log-json [data-token=number] { color:var(--json-number); }
+.power-ai-panel .power-log-json [data-token=literal] { color:var(--json-literal); }
 .power-ai-context-finding { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; min-width: 0; }
 .power-ai-context-finding > .Icon { flex-shrink: 0; margin-top: 7px; }
 .power-ai-context-finding > details { flex: 1; min-width: 0; }
@@ -257,27 +268,30 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const [draft, setDraft] = useState("");
   const [finding, setFinding] = useState<DiagnosticFinding>();
   const [resourceAttachment, setResourceAttachment] = useState<AiScreenContext>();
-  const dismissedResource = useRef<string>();
-  const panelOpen = useRef(open);
-  panelOpen.current = open;
-  const captureScreenResource = (current = readAiContext()) => {
-    if (
-      current.clusterId &&
-      current.resource &&
-      dismissedResource.current !== JSON.stringify({ clusterId: current.clusterId, resource: current.resource })
-    )
-      setResourceAttachment(current);
-  };
+  const dismissedScreens = useRef(new Set<string>());
+  const [terminalAttachment, setTerminalAttachment] = useState<AiTerminalAttachment>();
+  const attachments = useRef({ finding, resourceAttachment, terminalAttachment });
+  attachments.current = { finding, resourceAttachment, terminalAttachment };
+  const screenKey = (current = readAiContext()) => `${current.clusterId ?? ""}:${current.screen ?? ""}`;
   const attachScreenResource = () => {
-    dismissedResource.current = undefined;
-    captureScreenResource();
+    const current = readAiContext();
+    if (!current.clusterId || !current.resource) return;
+    dismissedScreens.current.clear();
+    setResourceAttachment(current);
+    setFinding(undefined);
   };
   const removeResource = () => {
-    const current = resourceAttachment ?? readAiContext();
-    dismissedResource.current = JSON.stringify({ clusterId: current.clusterId, resource: current.resource });
+    dismissedScreens.current.add(screenKey());
     setResourceAttachment(undefined);
   };
-  const [terminalAttachment, setTerminalAttachment] = useState<AiTerminalAttachment>();
+  const removeFinding = () => {
+    dismissedScreens.current.add(screenKey());
+    setFinding(undefined);
+  };
+  const changeTerminal = (value: AiTerminalAttachment | undefined, reason?: "manual" | "unavailable") => {
+    if (!value && reason !== "unavailable") dismissedScreens.current.add(screenKey());
+    setTerminalAttachment(value);
+  };
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [dismissedDraft, setDismissedDraft] = useState<string>();
   const suggestions =
@@ -303,12 +317,14 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   };
   const [context, setContext] = useState(readAiContext);
   useEffect(() => {
-    if (open && !finding && !terminalAttachment) window.dispatchEvent(new Event("power-ai-request-screen-context"));
+    if (open && !finding && !resourceAttachment && !terminalAttachment && !dismissedScreens.current.has(screenKey()))
+      window.dispatchEvent(new Event("power-ai-request-screen-context"));
   }, [open]);
   const [pending, setPending] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [stopped, setStopped] = useState<string[]>([]);
   const activeRequests = useRef(new Map<string, string>());
+  const requestDrafts = useRef(new Map<string, { previous: AiMessage[]; draft: string }>());
   const [activity, setActivity] = useState<{
     key: string;
     reads: { method: AiReadActivity["method"]; status: "reading" | "ok" | "unavailable" }[];
@@ -346,7 +362,6 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       updateDock();
       const nextContext = readAiContext();
       setContext(nextContext);
-      if (panelOpen.current) captureScreenResource(nextContext);
       setResourceAttachment((current) => (current?.clusterId === nextContext.clusterId ? current : undefined));
       setFinding((current) => (current && current.clusterId !== nextContext.clusterId ? undefined : current));
       setResourceDetailsOpen(hasAiResourceDetails());
@@ -392,7 +407,22 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const onDiagnostic = (event: Event) => {
       const next = sanitizeDiagnosticFinding((event as CustomEvent).detail);
       if (!next || !preferences.enabled || !isClusterDocument() || next.clusterId !== readAiContext().clusterId) return;
+      const current = attachments.current;
+      if (
+        next.automatic &&
+        (current.finding ||
+          current.resourceAttachment ||
+          current.terminalAttachment ||
+          dismissedScreens.current.has(screenKey()))
+      )
+        return;
       update();
+      if (!next.automatic) dismissedScreens.current.clear();
+      setResourceAttachment(
+        next.resource
+          ? { clusterId: next.clusterId, screen: readAiContext().screen, resource: next.resource }
+          : undefined,
+      );
       setFinding(next);
       setDraft(
         (previous) =>
@@ -417,18 +447,25 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       setOpen(true);
     }
     function updateAndOpen() {
-      openOnly();
-      clusterReview.current();
+      dismissedScreens.current.clear();
+      setResourceAttachment(undefined);
+      setFinding(undefined);
+      update();
+      setOpen(true);
+      requestAnimationFrame(() => clusterReview.current());
     }
     return () => {
       window.removeEventListener("resize", updateDock);
       window.removeEventListener("popstate", update);
       resizeObserver?.disconnect();
       ipcRenderer.removeListener(AI_READ_ACTIVITY_CHANNEL, onActivity);
-      for (const requestId of activeRequests.current.keys()) {
+      for (const [requestId, requestKey] of activeRequests.current) {
+        const pendingDraft = requestDrafts.current.get(requestId);
+        if (pendingDraft) preferences.setMessages(requestKey, pendingDraft.previous);
         void ipcRenderer.invoke(AI_CANCEL_CHANNEL, requestId).catch(() => {});
       }
       activeRequests.current.clear();
+      requestDrafts.current.clear();
       window.clearInterval(timer);
       observer.disconnect();
       window.removeEventListener("power-ai-open", updateAndOpen);
@@ -485,11 +522,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const previewContext = attachedAiContext({
     clusterId: context.clusterId,
     screen: context.screen,
-    ...(finding && finding.clusterId === context.clusterId && finding.resource
-      ? { resource: finding.resource }
-      : attachedResource
-        ? { resource: attachedResource }
-        : {}),
+    ...(attachedResource ? { resource: attachedResource } : {}),
   });
   const key = context.clusterId ?? "global";
   const messages = preferences.conversations[key] ?? [];
@@ -530,7 +563,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       (starter ?? draft).trim(),
       AiShortcutsStore.getInstanceOrCreate<AiShortcutsStore>().shortcuts,
     );
-    if (!question || busy) return;
+    if (!question || busy || [...activeRequests.current.values()].includes(key)) return;
     if (question.length > 20_000) {
       setError("Message is too long. Please keep it under 20,000 characters.");
       return;
@@ -543,10 +576,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     }
     const currentContext = readAiContext();
     const requestResource =
-      activeFinding?.resource ??
-      (resourceAttachment && resourceAttachment.clusterId === currentContext.clusterId
+      resourceAttachment && resourceAttachment.clusterId === currentContext.clusterId
         ? resourceAttachment.resource
-        : undefined);
+        : undefined;
     const requestContext = attachedAiContext({
       clusterId: currentContext.clusterId,
       screen: currentContext.screen,
@@ -565,10 +597,46 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       setError("The attached terminal changed or is unavailable. Attach it again before sending.");
       return;
     }
-    setTerminalAttachment(undefined);
-    setFinding(undefined);
+    const sentTerminal = terminalAttachment;
+    const capturedAt = new Date().toISOString();
+    const receipts = normalizeAiAttachmentReceipts([
+      ...(requestResource
+        ? [
+            {
+              kind: "resource",
+              title: `${requestResource.kind}/${requestResource.name}`,
+              text: JSON.stringify(requestResource),
+              capturedAt,
+            },
+          ]
+        : []),
+      ...(activeFinding
+        ? [
+            {
+              kind: "evidence",
+              title: activeFinding.title,
+              text: activeFinding.summary,
+              source: activeFinding.source,
+              capturedAt,
+            },
+          ]
+        : []),
+      ...(terminalSnapshot
+        ? [
+            {
+              kind: "terminal",
+              title: "Terminal",
+              text: terminalSnapshot.text,
+              capturedAt: terminalSnapshot.capturedAt,
+            },
+          ]
+        : []),
+    ]);
     following.current = true;
-    const next: AiMessage[] = [...messages, { role: "user", text: question }];
+    const next: AiMessage[] = [
+      ...messages,
+      { role: "user", text: question, ...(receipts.length ? { attachments: receipts } : {}) },
+    ];
     preferences.setMessages(key, next);
     setDraft("");
     setError("");
@@ -578,6 +646,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const provider = preferences.provider;
     const requestId = crypto.randomUUID();
     activeRequests.current.set(requestId, key);
+    requestDrafts.current.set(requestId, { previous: messages, draft: starter ?? draft });
     try {
       const response = await ipcRenderer.invoke(AI_CHAT_CHANNEL, {
         requestId,
@@ -603,6 +672,8 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       });
       if (activeRequests.current.get(requestId) !== key) return;
       if (!response || typeof response.text !== "string") throw new Error("Invalid response");
+      setFinding((current) => (current === activeFinding ? undefined : current));
+      setTerminalAttachment((current) => (current === sentTerminal ? undefined : current));
       setActivity({
         key,
         reads: Array.isArray(response.reads)
@@ -626,6 +697,11 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       ]);
     } catch (failure) {
       if (activeRequests.current.get(requestId) !== key) return;
+      const failedDraft = requestDrafts.current.get(requestId);
+      if (failedDraft) {
+        preferences.setMessages(key, failedDraft.previous);
+        if (readAiContext().clusterId === key) setDraft((current) => current || failedDraft.draft);
+      }
       const code = String(failure).match(/FREELENS_AI_([A-Z_]+)/)?.[1];
       const messages: Record<string, string> = {
         READ_LIMIT: "The assistant reached the read limit. Try a more specific question.",
@@ -643,6 +719,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       );
     } finally {
       activeRequests.current.delete(requestId);
+      requestDrafts.current.delete(requestId);
       setPending((keys) => keys.filter((entry) => entry !== key));
     }
   };
@@ -650,6 +727,12 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const requestId = [...activeRequests.current].find(([, requestKey]) => requestKey === key)?.[0];
     if (!requestId) return;
     activeRequests.current.delete(requestId);
+    const canceledDraft = requestDrafts.current.get(requestId);
+    if (canceledDraft) {
+      preferences.setMessages(key, canceledDraft.previous);
+      setDraft((current) => current || canceledDraft.draft);
+      requestDrafts.current.delete(requestId);
+    }
     setStopped((keys) => [...keys.filter((entry) => entry !== key), key]);
     setActivity({ key, reads: [] });
     setError("");
@@ -697,9 +780,6 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
         <aside
           className="power-ai-panel"
           aria-label="AI assistant"
-          onPointerDownCapture={() => captureScreenResource()}
-          onMouseDownCapture={() => captureScreenResource()}
-          onFocusCapture={() => captureScreenResource()}
           style={{ "--power-ai-font-size": `${preferences.chatFontSize ?? 14}px`, width: panelWidth } as CSSProperties}
         >
           <AiResizeHandle
@@ -763,29 +843,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               </button>
             </NativeTooltip>
           </header>
-          <div className="power-ai-context">
-            {context.clusterId ? "Cluster conversation" : "General conversation"} · {context.screen}
-            {attachedResource && !(finding?.clusterId === context.clusterId && finding?.resource) && (
-              <div className="power-ai-attached-resource" aria-label="Attached resource">
-                <span>
-                  {attachedResource.kind}/{attachedResource.name}
-                  {attachedResource.namespace ? ` · ${attachedResource.namespace}` : ""}
-                </span>
-                <NativeTooltip title="Remove resource from attached context">
-                  <button
-                    type="button"
-                    className="power-ai-remove-context"
-                    aria-label="Remove attached resource"
-                    onClick={removeResource}
-                  >
-                    <AiIcon material="close" size={14} />
-                  </button>
-                </NativeTooltip>
-              </div>
-            )}
-            <br />
-            Only screen and resource metadata are attached automatically.
-          </div>
+          <div className="power-ai-context">{context.clusterId ? "Cluster conversation" : "General conversation"}</div>
           <div
             className="power-ai-messages"
             onScroll={(event) => {
@@ -822,6 +880,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                   {message.role === "assistant" && <AiCopyAnswer text={message.text} />}
                 </strong>
                 <AiMessageContent text={message.text} />
+                {message.role === "user" && <AiAttachmentReceipts attachments={message.attachments} />}
                 {message.role === "assistant" && context.clusterId && (
                   <AiResourceReferences
                     clusterId={context.clusterId}
@@ -917,17 +976,23 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 ))}
               </div>
             )}
-            <AiContextPreview
-              finding={finding?.clusterId === context.clusterId ? finding : undefined}
-              onRemoveFinding={() => setFinding(undefined)}
-              context={previewContext}
-            />
-            <AiTerminalContext
-              clusterId={context.clusterId}
-              attachment={terminalAttachment}
-              onChange={setTerminalAttachment}
-              disabled={busy}
-            />
+            <div className="power-ai-attachments">
+              <AiContextPreview
+                hideInspector
+                finding={finding?.clusterId === context.clusterId ? finding : undefined}
+                onRemoveFinding={removeFinding}
+                resource={previewContext.resource}
+                onRemoveResource={removeResource}
+                context={previewContext}
+              />
+              <AiTerminalContext
+                clusterId={context.clusterId}
+                attachment={terminalAttachment}
+                onChange={changeTerminal}
+                disabled={busy}
+              />
+              <AiContextInspector context={previewContext} />
+            </div>
             <textarea
               ref={composer}
               aria-controls={suggestions.length ? "power-ai-commands" : undefined}

@@ -65,3 +65,17 @@ it("keeps a redacted query failure ahead of a long SQL draft", () => {
   expect(evidence).toContain('"state": "Query failed"');
   expect(evidence).toContain("Query stopped or failed. Check SQL syntax.");
 });
+
+it("keeps oversized line evidence valid JSON", () => {
+  const evidence = powerLogLineEvidence(target, {
+    timestamp: null,
+    pod: "sample",
+    podUid: "pod-1",
+    container: "app",
+    level: "info",
+    message: "x".repeat(20000),
+    fieldsJson: "{}",
+  });
+  expect(evidence.length).toBeLessThanOrEqual(6000);
+  expect(JSON.parse(evidence).line.pod).toBe("sample");
+});

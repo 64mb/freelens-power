@@ -49,5 +49,5 @@ export function diagnosticsScreenFinding(
     snapshot.omitted++;
     summary = JSON.stringify(snapshot);
   }
-  return { clusterId, source: "diagnostics", title: `Diagnostics · ${tab}`, summary };
+  return { automatic: true, clusterId, source: "diagnostics", title: `Diagnostics · ${tab}`, summary };
 }

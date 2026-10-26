@@ -143,6 +143,8 @@ describe("terminal snapshot capture", () => {
     });
     expect(view.container.querySelector("pre")?.textContent).toBe("output after clear");
     const caption = screen.getByText(/Preview captured/).textContent;
+    expect(caption).toContain("The sent attachment is stored in chat history");
+    expect(view.container.querySelector(".power-ai-attachment-terminal")).toBeTruthy();
     act(() => {
       vi.advanceTimersByTime(2000);
       mocks.listener?.();
@@ -178,7 +180,7 @@ describe("terminal snapshot capture", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(onChange).toHaveBeenCalledWith(undefined);
+    expect(onChange).toHaveBeenCalledWith(undefined, "unavailable");
     expect(screen.queryByText(/polled output/)).toBeNull();
     const changes = onChange.mock.calls.length;
     act(() => {

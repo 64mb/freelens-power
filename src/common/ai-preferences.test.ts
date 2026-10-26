@@ -72,3 +72,23 @@ it("preserves a local panel width and defaults old or invalid settings safely", 
   restored.setChatPanelWidth(20);
   expect(restored.chatPanelWidth).toBe(360);
 });
+
+it("persists sanitized attachment receipts only on user messages with copied snapshots", () => {
+  const store = new AiPreferencesStore();
+  const receipt = {
+    kind: "evidence" as const,
+    title: "Snapshot",
+    text: '{"token":"[REDACTED]","state":"ready"}',
+  };
+  store.setMessages("cluster-a", [
+    { role: "user", text: "Inspect", attachments: [receipt] },
+    { role: "assistant", text: "Answer", attachments: [receipt] },
+  ]);
+  receipt.text = "Changed";
+  const restored = new AiPreferencesStore();
+  restored.fromStore(store.toJSON());
+  const messages = restored.toJSON().conversations["cluster-a"];
+  expect(messages[0].attachments?.[0].text).toContain('"state":"ready"');
+  expect(messages[0].attachments?.[0].text).not.toContain("sample-sensitive");
+  expect(messages[1]).not.toHaveProperty("attachments");
+});

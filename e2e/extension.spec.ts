@@ -343,8 +343,9 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   await expect(chat).toBeVisible();
   const finding = chat.getByRole("button", { name: "Remove diagnostic finding", exact: true });
   if (await finding.isVisible()) await finding.click();
-  const resource = chat.getByLabel("Attached resource", { exact: true });
+  const resource = chat.locator("form").getByLabel("Attached resource", { exact: true });
   await expect(resource).toContainText("ready-workload");
+  await expect(chat.locator(".power-ai-context")).not.toContainText("ready-workload");
   const pin = chat.getByRole("button", { name: "Pin AI assistant", exact: true });
   const originalPin = await pin.locator("svg").getAttribute("viewBox");
   await pin.click();
@@ -353,8 +354,8 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   await chat.getByRole("textbox", { name: "Message", exact: true }).click();
   await expect(drawer).toBeHidden();
   await expect(resource).toContainText("ready-workload");
-  await chat.getByText("Attached context", { exact: true }).click();
-  const preview = chat.locator(".power-ai-context-preview > details pre");
+  await chat.getByText("What will be sent", { exact: true }).click();
+  const preview = chat.locator(".power-ai-context-inspector pre");
   await expect(preview).toContainText("ready-workload");
   await expect(preview.locator('[data-token="key"]').first()).toBeVisible();
   await session.screenshot(info, "ai-retained-resource", frame);
@@ -500,8 +501,8 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(finding.locator("pre")).toContainText(logsDeployment);
   await expect(finding.locator("pre")).toContainText("[REDACTED]");
   await expect(finding.locator("pre")).not.toContainText(logsSecretSentinel);
-  await assistant.getByText("Attached context", { exact: true }).click();
-  await expect(assistant.locator(".power-ai-context-preview > details pre")).toContainText(logsDeployment);
+  await assistant.getByText("What will be sent", { exact: true }).click();
+  await expect(assistant.locator(".power-ai-context-inspector pre")).toContainText(logsDeployment);
   await expect(assistant.locator(".power-ai-message-user")).toHaveCount(0);
   await session.screenshot(info, "power-logs-attached-ai-context");
   await assistant.getByRole("button", { name: "Close AI assistant", exact: true }).click();

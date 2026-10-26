@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useState } from "react";
 import { type AiTerminalSnapshot, sanitizeAiTerminalSnapshot } from "../common/ai-terminal-context";
 import { formatDateTime } from "../common/date-time";
+import { AiAttachmentCard } from "./ai-attachment-card";
 import { AiIcon } from "./ai-icon";
 import { NativeTooltip } from "./native-tooltip";
 
@@ -83,7 +84,7 @@ export function AiTerminalContext({
 }: {
   clusterId?: string;
   attachment?: AiTerminalAttachment;
-  onChange(value: AiTerminalAttachment | undefined): void;
+  onChange(value: AiTerminalAttachment | undefined, reason?: "manual" | "unavailable"): void;
   disabled: boolean;
 }) {
   const [terminalId, setTerminalId] = useState(() => activeAiTerminal(clusterId));
@@ -98,7 +99,7 @@ export function AiTerminalContext({
   const attached = Boolean(attachment && attachment.clusterId === clusterId && attachment.terminalId === terminalId);
   useEffect(() => {
     if (!attached) {
-      if (attachment) onChange(undefined);
+      if (attachment) onChange(undefined, "unavailable");
       setPreview(undefined);
       return;
     }
@@ -122,7 +123,7 @@ export function AiTerminalContext({
         setPreview(undefined);
         if (activeAiTerminal(clusterId) !== attachment?.terminalId) {
           stop();
-          onChange(undefined);
+          onChange(undefined, "unavailable");
         }
         return;
       }
@@ -190,17 +191,15 @@ export function AiTerminalContext({
         </NativeTooltip>
       </span>
       {attached && preview && (
-        <details style={{ padding: "0 16px 4px", margin: 0 }}>
-          <summary>
-            Terminal · {preview.text.split("\n").length} rows{preview.truncated ? " · truncated" : ""}
-          </summary>
-          <p>
-            Preview captured <span style={{ whiteSpace: "pre-wrap" }}>{formatDateTime(preview.capturedAt)}</span> ·
-            captured again when sent · up to 300 rows / 32 KiB · Common credentials masked. Review before sending.
-          </p>
-          <pre style={{ maxHeight: 160, overflow: "auto", whiteSpace: "pre-wrap" }}>{preview.text}</pre>
-          <p>The attachment is not stored in chat history. Assistant replies may quote it.</p>
-        </details>
+        <AiAttachmentCard
+          kind="terminal"
+          title={`Terminal · ${preview.text.split("\n").length} rows${preview.truncated ? " · truncated" : ""}`}
+          text={preview.text}
+          ariaLabel="Attached terminal output"
+          removeLabel="Remove terminal output"
+          onRemove={() => onChange(undefined)}
+          caption={`Preview captured ${formatDateTime(preview.capturedAt)} · captured again when sent · up to 300 rows / 32 KiB · Common credentials masked. Review before sending. The sent attachment is stored in chat history.`}
+        />
       )}
       {unavailable && (
         <div role="status" style={{ padding: "4px 16px 8px" }}>
