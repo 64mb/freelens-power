@@ -125,8 +125,8 @@ export function codexAiArguments(
   return args;
 }
 
-export function claudeAiArguments(model: string, finalAnswer = false): string[] {
-  if (!["", "sonnet", "opus", "haiku"].includes(model)) throw new Error("Invalid AI request");
+export function claudeAiArguments(model: string, speed: "default" | "fast" = "default", finalAnswer = false): string[] {
+  if (!["", "sonnet", "opus", "haiku", "fable"].includes(model)) throw new Error("Invalid AI request");
   const args = [
     "--print",
     "--output-format",
@@ -146,7 +146,12 @@ export function claudeAiArguments(model: string, finalAnswer = false): string[] 
     "--permission-mode",
     "dontAsk",
     "--settings",
-    '{"disableAllHooks":true,"enabledPlugins":{},"autoMemoryEnabled":false}',
+    JSON.stringify({
+      disableAllHooks: true,
+      enabledPlugins: {},
+      autoMemoryEnabled: false,
+      ...(speed === "fast" ? { fastMode: true } : {}),
+    }),
     "--system-prompt",
     `You are a read-only assistant. No built-in tools are available. Return only one JSON object matching this schema, without markdown fences or any other text: ${JSON.stringify(finalAnswer ? finalAnswerSchema : schema)}`,
   ];
@@ -185,7 +190,13 @@ export function parseClaudeAiOutput(output: string): { text: string; tool: AiRea
 }
 
 export function claudeAiEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { HOME: source.HOME, PATH: source.PATH, TMPDIR: source.TMPDIR };
+  // the CLI reads its OAuth login from the macOS keychain, which requires USER
+  const environment: NodeJS.ProcessEnv = {
+    HOME: source.HOME,
+    PATH: source.PATH,
+    TMPDIR: source.TMPDIR,
+    USER: source.USER,
+  };
   for (const key of [
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -239,6 +250,7 @@ export async function readClaudeAiEnvironment(
       delete profile.HOME;
       delete profile.PATH;
       delete profile.TMPDIR;
+      delete profile.USER;
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT")
@@ -501,7 +513,7 @@ export async function runAiChat(
       const output = await execute(
         provider,
         provider === "claude"
-          ? claudeAiArguments(request.model, finalAnswer)
+          ? claudeAiArguments(request.model, request.speed, finalAnswer)
           : codexAiArguments(request.model, request.speed, directory, request.reasoningEffort),
         prompt,
         directory,

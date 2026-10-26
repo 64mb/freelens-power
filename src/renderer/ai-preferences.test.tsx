@@ -73,7 +73,7 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     expect(screen.getByLabelText("Speed")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("CLI"), { target: { value: "claude" } });
     await waitFor(() => expect(screen.getByText("Sonnet · Default")).toBeTruthy());
-    expect(screen.queryByLabelText("Speed")).toBeNull();
+    expect(screen.getByLabelText("Speed")).toBeTruthy();
     await act(async () => finishCodex([{ id: "stale-model", label: "Stale", reasoningEfforts: ["xhigh"] }]));
     expect(screen.queryByText("Stale · xhigh")).toBeNull();
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: JSON.stringify(["sonnet", ""]) } });

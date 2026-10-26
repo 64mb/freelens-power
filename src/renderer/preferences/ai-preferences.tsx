@@ -124,27 +124,32 @@ export const AiPreferences = observer(() => {
           />
         </div>
       </div>
-      {!isClaude && (
-        <div className="power-settings-row" style={rowStyle}>
+      <div className="power-settings-row" style={rowStyle}>
+        <div>
           <label htmlFor="power-ai-speed">Speed</label>
-          <div style={controlStyle}>
-            <Select
-              id="power-ai-speed"
-              value={preferences.speed}
-              options={[
-                { value: "default", label: "Default" },
-                { value: "fast", label: "Fast" },
-              ]}
-              isDisabled={!preferences.enabled}
-              isClearable={false}
-              isSearchable={false}
-              onChange={(option) => {
-                if (option) preferences.speed = option.value as "default" | "fast";
-              }}
-            />
-          </div>
+          {isClaude && (
+            <div className="power-settings-hint">
+              Fast mode applies to Opus models. Availability depends on your CLI account.
+            </div>
+          )}
         </div>
-      )}
+        <div style={controlStyle}>
+          <Select
+            id="power-ai-speed"
+            value={preferences.speed}
+            options={[
+              { value: "default", label: "Default" },
+              { value: "fast", label: "Fast" },
+            ]}
+            isDisabled={!preferences.enabled}
+            isClearable={false}
+            isSearchable={false}
+            onChange={(option) => {
+              if (option) preferences.speed = option.value as "default" | "fast";
+            }}
+          />
+        </div>
+      </div>
       <div className="power-settings-row" style={rowStyle}>
         <div>
           <label htmlFor="power-ai-font-size">Chat font size</label>

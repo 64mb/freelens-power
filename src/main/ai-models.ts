@@ -78,7 +78,7 @@ export function startAiModels(): () => void {
       )
         return [];
       if (provider === "claude")
-        return ["sonnet", "opus", "haiku"].map((id) => ({
+        return ["sonnet", "opus", "haiku", "fable"].map((id) => ({
           id,
           label: id[0].toUpperCase() + id.slice(1),
           reasoningEfforts: [],

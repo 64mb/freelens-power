@@ -389,6 +389,13 @@ describe("Claude native CLI boundary", () => {
     expect(() => claudeAiArguments("gpt-example")).toThrow();
   });
 
+  it("opts in to fast mode only for the fast speed", () => {
+    const standard = claudeAiArguments("opus");
+    const fast = claudeAiArguments("opus", "fast");
+    expect(JSON.parse(standard[standard.indexOf("--settings") + 1])).not.toHaveProperty("fastMode");
+    expect(JSON.parse(fast[fast.indexOf("--settings") + 1])).toMatchObject({ disableAllHooks: true, fastMode: true });
+  });
+
   it("accepts only successful structured results, never arbitrary result text", () => {
     expect(
       parseClaudeAiOutput(
@@ -420,6 +427,7 @@ it("preserves native Claude authentication and transport only in the child envir
     HOME: "example-home",
     PATH: "example-path",
     TMPDIR: "example-tmp",
+    USER: "example-user",
     ANTHROPIC_AUTH_TOKEN: "example-token",
     ANTHROPIC_API_KEY: "example-key",
     CLAUDE_CODE_OAUTH_TOKEN: "example-oauth",
@@ -438,6 +446,7 @@ it("preserves native Claude authentication and transport only in the child envir
     HOME: "example-home",
     PATH: "example-path",
     TMPDIR: "example-tmp",
+    USER: "example-user",
     ANTHROPIC_AUTH_TOKEN: "example-token",
     ANTHROPIC_API_KEY: "example-key",
     CLAUDE_CODE_OAUTH_TOKEN: "example-oauth",
