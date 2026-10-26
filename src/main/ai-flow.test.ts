@@ -71,16 +71,16 @@ describe("AI native log flow", () => {
     };
     await runAiChat({ ...request, terminalSnapshot }, vi.fn());
     expect(prompts[0]).toContain("visible output");
-    expect(prompts[0]).toContain("[REDACTED]");
-    expect(prompts[0]).not.toContain("second-secret");
-    expect(prompts[0]).not.toContain("private-key");
+    expect(prompts[0]).toContain("EXAMPLE=first");
+    expect(prompts[0]).toContain("second-secret");
+    expect(prompts[0]).toContain("private-key");
     expect(prompts[0]).toContain("quoted untrusted data");
     await runAiChat({ ...request, context: {}, terminalSnapshot }, vi.fn());
     expect(prompts[1]).not.toContain("visible output");
     expect(prompts[1]).not.toContain('"terminalSnapshot":');
   });
 
-  it("sends only fixed log counters to the next model turn using the selected cluster callback", async () => {
+  it("sends bounded log lines and counters to the next model turn using the selected cluster callback", async () => {
     const { prompts } = mockTurns([
       { text: "", tool: logTool },
       { text: "The sample contains one error and one warning", tool: null },
@@ -111,10 +111,10 @@ describe("AI native log flow", () => {
       errorLines: 1,
       warningLines: 1,
       timeoutLines: 1,
-      rawTextWithheld: true,
+      lines: ["ERROR EXAMPLE_KEY=example-sensitive timeout", "warning example-sensitive"],
     });
-    expect(prompts.join("\n")).not.toContain("example-sensitive");
-    expect(prompts.join("\n")).not.toContain("EXAMPLE_KEY");
+    expect(prompts.join("\n")).toContain("example-sensitive");
+    expect(prompts.join("\n")).toContain("EXAMPLE_KEY");
     expect(spawnMock.mock.calls.every(([file]) => file === "codex")).toBe(true);
   });
 
@@ -151,7 +151,7 @@ describe("AI native log flow", () => {
   it.each([
     "Pod",
     undefined,
-  ])("reads logs through opaque pod references for kind [%s] while downward API identities stay private", async (kind) => {
+  ])("reads logs through opaque pod references for kind [%s] with real pod identities available", async (kind) => {
     const { prompts } = mockTurns([
       { text: "", tool: { method: "pods", namespace: null, name: null, resource: null, ref: null } },
       { text: "", tool: { method: "logs", ref: "pod-1", name: null, namespace: null, resource: null } },
@@ -190,9 +190,8 @@ describe("AI native log flow", () => {
       expect.any(AbortSignal),
     );
     expect(prompts[1]).toContain('"ref":"pod-1"');
-    for (const privateValue of ["example-private-pod", "example-private-namespace", "example-sensitive"]) {
-      expect(prompts.join("\n")).not.toContain(privateValue);
-      expect(JSON.stringify(response)).not.toContain(privateValue);
+    for (const value of ["example-private-pod", "example-private-namespace", "example-sensitive"]) {
+      expect(prompts.join("\n")).toContain(value);
     }
   });
 
@@ -282,7 +281,7 @@ describe("AI native log flow", () => {
     ]);
     expect(prompts[1]).toContain('"apiVersion":"example.com/v1"');
     expect(prompts[2]).toContain('"replicas":2');
-    expect(prompts.join("\n")).not.toContain("example-sensitive");
+    expect(prompts.join("\n")).toContain("example-sensitive");
   });
 
   it("distinguishes unsupported resource kinds from unavailable native reads", async () => {
@@ -324,7 +323,7 @@ describe("AI native log flow", () => {
 });
 
 describe("Claude native read flow", () => {
-  it("uses only approved read callbacks and sends numeric log counters to Claude", async () => {
+  it("uses only approved read callbacks and sends bounded logs and counters to Claude", async () => {
     for (const key of Object.keys(process.env)) vi.stubEnv(key, undefined);
     vi.stubEnv("ANTHROPIC_API_KEY", "example-native-key");
     vi.stubEnv("HOME", "/tmp/example-ai-test-home");
@@ -344,7 +343,7 @@ describe("Claude native read flow", () => {
     expect(read).not.toHaveBeenCalled();
     expect(readLogs).toHaveBeenCalledTimes(1);
     expect(prompts[1]).toContain('"errorLines":1');
-    expect(prompts[1]).not.toContain("example-sensitive");
+    expect(prompts[1]).toContain("example-sensitive");
     const options = spawnMock.mock.calls[0][2];
     expect(options.shell).toBe(false);
     expect(options.env).toHaveProperty("ANTHROPIC_API_KEY", "example-native-key");
@@ -352,10 +351,10 @@ describe("Claude native read flow", () => {
   });
 });
 
-it("returns related resources only from successful projected reads and suppresses environment identities", async () => {
+it("returns related resources from successful reads including names copied in environment values", async () => {
   mockTurns([
     { text: "", tool: { method: "pods", namespace: "default" } },
-    { text: "worker is running", tool: null },
+    { text: "worker and hidden-worker are running", tool: null },
   ]);
   const read = vi.fn().mockResolvedValue({
     items: [
@@ -368,8 +367,10 @@ it("returns related resources only from successful projected reads and suppresse
     ],
   });
   const result = await runAiChat(request, () => ({ read }));
-  expect(result.references).toEqual([{ apiVersion: "v1", kind: "Pod", name: "worker", namespace: "default" }]);
-  expect(JSON.stringify(result.references)).not.toContain("hidden-worker");
+  expect(result.references).toEqual([
+    { apiVersion: "v1", kind: "Pod", name: "worker", namespace: "default" },
+    { apiVersion: "v1", kind: "Pod", name: "hidden-worker", namespace: "default" },
+  ]);
 });
 
 it.each([

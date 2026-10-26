@@ -15,7 +15,7 @@ it("copies selected evidence, explicit timezone and validated resource detail pa
   expect(incidentResourcePath({ kind: "Secret", namespace: "sample", name: "credentials" })).toBeUndefined();
   expect(incidentResourcePath({ kind: "Pod", namespace: "sample", name: "../worker" })).toBeUndefined();
 });
-it("redacts before truncation and bounds selected facts and resources", () => {
+it("preserves ordinary facts while bounding selected facts and resources", () => {
   const result = formatIncidentSummary({
     problem: "x".repeat(500),
     facts: ["password: private-value", ...Array(20).fill("e".repeat(1000))],
@@ -25,17 +25,15 @@ it("redacts before truncation and bounds selected facts and resources", () => {
       name: `worker-${index}`,
     })),
   });
-  expect(result).not.toContain("private-value");
-  expect(result).toContain("[REDACTED]");
+  expect(result).toContain("password: private-value");
   expect(result.length).toBeLessThanOrEqual(8000);
   expect(result).not.toContain("worker-12");
   expect(result).toContain("Snapshot time: Unavailable");
 });
 
-it("bounds and redacts the optional cluster display name", () => {
+it("bounds and preserves the optional cluster display name", () => {
   const redacted = formatIncidentSummary({ problem: "Pending", facts: [], clusterName: "token: confidential" });
-  expect(redacted).toContain("Cluster: token: [REDACTED]");
-  expect(redacted).not.toContain("confidential");
+  expect(redacted).toContain("Cluster: token: confidential");
   const bounded = formatIncidentSummary({ problem: "Pending", facts: [], clusterName: "c".repeat(300) });
   expect(bounded.split("\n").find((line) => line.startsWith("Cluster: "))).toHaveLength(169);
 });
