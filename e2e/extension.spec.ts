@@ -586,6 +586,20 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   }
   const snapshotSelect = page.getByRole("combobox", { name: "Capture snapshot", exact: true });
   await snapshotSelect.click();
+  const keepSnapshot = frame.getByRole("button", { name: `Keep snapshot ${logsDeployment}`, exact: true }).first();
+  await keepSnapshot.click();
+  await frame.getByRole("button", { name: "Cancel", exact: true }).click();
+  await snapshotSelect.click();
+  await keepSnapshot.click();
+  await frame.getByRole("button", { name: "Keep snapshot", exact: true }).click();
+  await snapshotSelect.click();
+  const allowExpiration = frame
+    .getByRole("button", { name: `Allow expiration for snapshot ${logsDeployment}`, exact: true })
+    .first();
+  await expect(allowExpiration).toHaveAttribute("aria-pressed", "true");
+  await allowExpiration.click();
+  await frame.getByRole("button", { name: "Allow expiration", exact: true }).click();
+  await snapshotSelect.click();
   await snapshotSelect.fill(logsDeployment);
   await snapshotSelect.press("Alt+Delete");
   const deleteSnapshot = frame.getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true });
@@ -595,6 +609,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.getByLabel("SQL query")).toBeEditable();
   await snapshotSelect.fill("");
   await snapshotSelect.press("Alt+Delete");
+  await frame.getByRole("button", { name: "Delete snapshot", exact: true }).click();
   await expect(page.locator(".power-logs-results table")).toHaveCount(0);
   await page.getByRole("button", { name: "Capture logs", exact: true }).click();
   await expect(page.locator(".power-logs-results tbody tr")).not.toHaveCount(0);
@@ -603,7 +618,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .getByRole("button", { name: `Delete snapshot ${logsDeployment}`, exact: true })
     .first()
     .click();
-  await page.getByRole("combobox", { name: "Capture snapshot", exact: true }).press("Escape");
+  await frame.getByRole("button", { name: "Delete snapshot", exact: true }).click();
   await expect(page.locator(".power-logs-results table")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "SQL" })).toBeVisible();
   const agentSearch = await openSearch(frame);

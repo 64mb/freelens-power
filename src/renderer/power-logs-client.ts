@@ -12,12 +12,15 @@ export function createPowerLogsClient(partition: LogPartition) {
   const invoke = <T>(operation: string, fields: object = {}): Promise<T> =>
     ipcRenderer.invoke(POWER_LOGS_CHANNEL, { ...partition, operation, ...fields });
   return {
+    clearPersistent: () => invoke<boolean>("clear-persistent"),
     list: () => invoke<LogCapture[]>("list"),
     create: (target: LogTarget) => invoke<LogCapture>("create", { target }),
     append: (captureId: string, records: LogRecord[]) => invoke<LogCapture>("append", { captureId, records }),
     finish: (captureId: string, partial: boolean, notes: string[]) =>
       invoke<LogCapture>("finish", { captureId, partial, notes }),
     delete: (captureId: string) => invoke<boolean>("delete", { captureId }),
+    setPersistent: (captureId: string, persistent: boolean) =>
+      invoke<LogCapture>("set-persistent", { captureId, persistent }),
     saveSql: (captureId: string, sql: string) => invoke<LogCapture>("save-sql", { captureId, sql }),
     query: (captureId: string, queryId: string, sql: string) =>
       invoke<LogQueryResult>("query", { captureId, queryId, sql }),

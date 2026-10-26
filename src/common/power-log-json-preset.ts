@@ -6,7 +6,7 @@ LIMIT 65`;
 
 export function buildJsonProjectionSql(keys: string[], options: { recent?: boolean } = {}): string {
   if (options.recent)
-    return "SELECT message, level, container, pod, timestamp FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200";
+    return "SELECT timestamp, level, message, container, pod FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200";
   const fallbackSql = "SELECT fieldsJson FROM logs WHERE fieldsJson IS NOT NULL LIMIT 100";
   if (!keys.length || keys.length > 64) return fallbackSql;
   const usable = (key: string) => typeof key === "string" && key.length <= 128 && !key.includes("\0");
@@ -21,5 +21,5 @@ export function buildJsonProjectionSql(keys: string[], options: { recent?: boole
     ? `json_extract(logs.fieldsJson, '$.${key}')`
     : `(SELECT value FROM json_each(logs.fieldsJson) WHERE key = ${literal} LIMIT 1)`;
   const tail = "WHERE fieldsJson IS NOT NULL\nORDER BY logs.timestamp DESC NULLS LAST\nLIMIT 100";
-  return `SELECT\n  ${value} AS ${identifier}\nFROM logs\n${tail}`;
+  return `SELECT\n  ${value} AS ${identifier},\n  logs.fieldsJson AS "${key.toLowerCase() === "json" ? "fieldsJson" : "json"}"\nFROM logs\n${tail}`;
 }

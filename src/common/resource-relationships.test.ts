@@ -141,3 +141,27 @@ describe("resource relationship evidence", () => {
     expect(relationshipReferencePath("Node", "worker")).toBe("/api/v1/nodes/worker");
   });
 });
+
+it("expands all observed pods, upstreams and endpoint slices on explicit request", () => {
+  const inventory = {
+    pods: Array.from({ length: 27 }, (_, i) => ({
+      ...pod,
+      metadata: { ...pod.metadata, uid: `pod-${i}`, name: `web-${i}` },
+    })),
+    ingresses: Array.from({ length: 7 }, (_, i) => ({
+      metadata: { uid: `ingress-${i}`, name: `entry-${i}`, namespace: "sample" },
+      spec: { defaultBackend: { service: { name: "web" } } },
+    })),
+    slices: Array.from({ length: 7 }, (_, i) => ({
+      metadata: { name: `web-slice-${i}`, namespace: "sample", labels: { "kubernetes.io/service-name": "web" } },
+      addressType: "IPv4",
+      endpoints: [],
+    })),
+  };
+  expect(buildResourceRelationships(service, inventory).omitted).toBe(23);
+  const graph = buildResourceRelationships(service, inventory, undefined, true);
+  expect(graph.omitted).toBe(0);
+  expect(graph.nodes.filter((n) => n.kind === "Pod")).toHaveLength(27);
+  expect(graph.nodes.filter((n) => n.kind === "Ingress")).toHaveLength(7);
+  expect(graph.nodes.filter((n) => n.kind === "EndpointSlice")).toHaveLength(7);
+});

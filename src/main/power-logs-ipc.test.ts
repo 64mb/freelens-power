@@ -133,3 +133,21 @@ it("accepts bounded SQL drafts including blank or invalid syntax and strips unre
   expect(() => validateLogRequest({ ...partition, operation: "save-sql", captureId: "../other", sql: "" })).toThrow();
   expect(() => validateLogRequest({ ...partition, operation: "save-sql", sql: "" })).toThrow();
 });
+
+it("accepts only boolean snapshot persistence flags", () => {
+  for (const persistent of [true, false]) {
+    expect(
+      validateLogRequest({ ...partition, operation: "set-persistent", captureId: "capture-example", persistent }),
+    ).toEqual({
+      ...partition,
+      operation: "set-persistent",
+      captureId: "capture-example",
+      persistent,
+    });
+  }
+  for (const persistent of [undefined, null, 1, "true", {}]) {
+    expect(() =>
+      validateLogRequest({ ...partition, operation: "set-persistent", captureId: "capture-example", persistent }),
+    ).toThrow();
+  }
+});

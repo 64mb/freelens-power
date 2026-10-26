@@ -1,12 +1,12 @@
 import { clipboard } from "electron";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
+import { formatDateTime } from "../common/date-time";
 import { sqlCellLevel } from "../common/power-log-sql-level";
 import { NativeTooltip } from "./native-tooltip";
 import { LogJson } from "./power-log-json";
-import { compactJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
+import { compactJsonLiteral, formatJsonLiteral } from "./power-log-json-fields";
 import { LogMessage } from "./power-log-message";
 
-import type { JsonFieldFilter } from "../common/power-log-field-filters";
 import type { LogCell } from "../common/power-logs";
 
 export function LogJsonCell({
@@ -14,13 +14,11 @@ export function LogJsonCell({
   column,
   rawValue,
   Icon,
-  onFilter,
 }: {
   value: string | null;
   message?: boolean;
   column?: string;
   rawValue?: LogCell;
-  onFilter?: (filter: JsonFieldFilter) => void;
   Icon: ComponentType<{ material: string; size?: number }>;
 }) {
   const preview = useMemo(() => {
@@ -31,8 +29,6 @@ export function LogJsonCell({
       const compact = compactJsonLiteral(value);
       return {
         text: compact.length > 2048 ? `${compact.slice(0, 2048)}…` : compact,
-        full: compact,
-        fieldsEnabled: !jsonHasDuplicateKeys(value),
       };
     } catch {
       return null;
@@ -40,6 +36,20 @@ export function LogJsonCell({
   }, [value]);
   const [feedback, setFeedback] = useState("");
   useEffect(() => setFeedback(""), [value]);
+  if (
+    (column?.toLowerCase() === "timestamp" || column?.toLowerCase() === "minute") &&
+    typeof rawValue === "number" &&
+    Number.isFinite(new Date(rawValue).getTime())
+  ) {
+    const formatted = formatDateTime(rawValue);
+    return (
+      <NativeTooltip title={`${formatted} · ${rawValue}`}>
+        <span className="power-logs-cell">
+          {column?.toLowerCase() === "minute" ? formatted.slice(0, -3) : formatted.slice(-8)}
+        </span>
+      </NativeTooltip>
+    );
+  }
   if (preview === null) {
     const level = sqlCellLevel(column ?? "", rawValue === undefined ? value : rawValue);
     return (
@@ -60,13 +70,7 @@ export function LogJsonCell({
   }
   return (
     <div className="power-logs-cell power-logs-json-cell">
-      <LogJson
-        text={preview.text}
-        fieldText={preview.full}
-        fieldsEnabled={preview.fieldsEnabled}
-        Icon={Icon}
-        onFilter={onFilter}
-      />
+      <LogJson text={preview.text} />
       <NativeTooltip title={feedback || "Copy JSON"}>
         <button
           type="button"
@@ -77,7 +81,7 @@ export function LogJsonCell({
           onClick={(event) => {
             event.stopPropagation();
             try {
-              clipboard.writeText(value!);
+              clipboard.writeText(formatJsonLiteral(value!));
               setFeedback("Copied");
             } catch {
               setFeedback("Unable to copy JSON");

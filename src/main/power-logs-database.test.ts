@@ -1,12 +1,15 @@
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   truncateSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -329,5 +332,177 @@ it("bounds SQL drafts, preserves whitespace and blank drafts, and enforces captu
     expect(await db.run({ ...partition, operation: "list" })).toEqual([]);
   } finally {
     clock.mockRestore();
+  }
+});
+
+it("retains saved snapshots, drafts and partition isolation across expiry and restart", async () => {
+  const root = mkdtempSync(join(tmpdir(), "power-logs-persistent-test-"));
+  const saved = join(root, "saved");
+  const db = new PowerLogsDatabase(join(root, "session-one"), saved);
+  databases.push(db);
+  try {
+    const id = await capture(db);
+    await db.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true });
+    await db.run({ ...partition, operation: "save-sql", captureId: id, sql: "SELECT message FROM logs" });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 7200000);
+    expect((await query(db, id, "SELECT message FROM logs")).rows).toEqual([["example message"]]);
+    db.close();
+    const restored = new PowerLogsDatabase(join(root, "session-two"), saved);
+    databases.push(restored);
+    expect(await restored.run({ ...partition, operation: "list" })).toEqual([
+      expect.objectContaining({ id, persistent: true, lastSql: "SELECT message FROM logs" }),
+    ]);
+    expect(await restored.run({ ...partition, contextId: "different", operation: "list" })).toEqual([]);
+    expect((await query(restored, id, "SELECT message FROM logs")).rows).toEqual([["example message"]]);
+    applyPowerLogsLimits({ captures: 1 });
+    await expect(restored.run({ ...partition, operation: "create", target })).rejects.toThrow("limit");
+    const unpinned = (await restored.run({
+      ...partition,
+      operation: "set-persistent",
+      captureId: id,
+      persistent: false,
+    })) as LogCapture;
+    expect(unpinned.expiresAt).toBe(Date.now() + 3600000);
+    expect(
+      await restored.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true }),
+    ).toMatchObject({ persistent: true });
+    await restored.run({ ...partition, operation: "set-persistent", captureId: id, persistent: false });
+    restored.close();
+    expect(readdirSync(saved)).toEqual([]);
+  } finally {
+    vi.restoreAllMocks();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("requires a finished snapshot and its owning partition before persistence changes", async () => {
+  const { db } = database();
+  const created = (await db.run({ ...partition, operation: "create", target })) as LogCapture;
+  await expect(
+    db.run({ ...partition, operation: "set-persistent", captureId: created.id, persistent: true }),
+  ).rejects.toThrow("Finish capture");
+  await db.run({ ...partition, operation: "finish", captureId: created.id, partial: false, notes: [] });
+  await expect(
+    db.run({
+      ...partition,
+      contextId: "different",
+      operation: "set-persistent",
+      captureId: created.id,
+      persistent: true,
+    }),
+  ).rejects.toThrow("unavailable");
+});
+
+it("removes retired temporary files before releasing pinned capture capacity", async () => {
+  const root = mkdtempSync(join(tmpdir(), "power-logs-retired-test-"));
+  const session = join(root, "session"),
+    saved = join(root, "saved");
+  const db = new PowerLogsDatabase(session, saved);
+  databases.push(db);
+  try {
+    applyPowerLogsLimits({ captures: 1 });
+    for (let iteration = 0; iteration < 4; iteration++) {
+      const id = await capture(db);
+      const original = db.exportPath({ ...partition, operation: "export", captureId: id });
+      await db.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true });
+      expect(existsSync(original)).toBe(true);
+      expect(runPowerLogsQuery(join(session, id, "logs.sqlite"), "SELECT message FROM logs").rows).toEqual([
+        ["example message"],
+      ]);
+      expect(readdirSync(session)).toEqual([id]);
+      await db.run({ ...partition, operation: "delete", captureId: id });
+      expect(readdirSync(session)).toEqual([]);
+      expect(readdirSync(saved)).toEqual([]);
+    }
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("cleans interrupted pin staging directories without following unrelated links", () => {
+  const root = mkdtempSync(join(tmpdir(), "power-logs-pending-test-"));
+  const saved = join(root, "saved"),
+    outside = join(root, "outside");
+  mkdirSync(saved);
+  mkdirSync(outside);
+  writeFileSync(join(outside, "keep"), "untouched");
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  mkdirSync(join(saved, `${id}.pending`));
+  writeFileSync(join(saved, `${id}.pending`, "partial"), "incomplete");
+  symlinkSync(outside, join(saved, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.pending"));
+  const db = new PowerLogsDatabase(join(root, "session"), saved);
+  try {
+    expect(existsSync(join(saved, `${id}.pending`))).toBe(false);
+    expect(readFileSync(join(outside, "keep"), "utf8")).toBe("untouched");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("bounds saved and temporary pools separately across context changes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "power-logs-pools-"));
+  const db = new PowerLogsDatabase(join(root, "session"), join(root, "saved"));
+  databases.push(db);
+  applyPowerLogsLimits({ captures: 1 });
+  const other = { ...partition, contextId: "other-context" };
+  try {
+    const pinned = await capture(db);
+    await db.run({ ...partition, operation: "set-persistent", captureId: pinned, persistent: true });
+    await expect(db.run({ ...partition, operation: "create", target })).rejects.toThrow("limit");
+    const temporary = (await db.run({ ...other, operation: "create", target })) as LogCapture;
+    await db.run({ ...other, operation: "finish", captureId: temporary.id, partial: false, notes: [] });
+    await expect(db.run({ ...other, contextId: "third-context", operation: "create", target })).rejects.toThrow(
+      "limit",
+    );
+    await expect(
+      db.run({ ...other, operation: "set-persistent", captureId: temporary.id, persistent: true }),
+    ).rejects.toThrow("Saved snapshot limit reached");
+    expect(await db.run({ ...other, operation: "list" })).toEqual([expect.objectContaining({ id: temporary.id })]);
+    expect(existsSync(join(root, "session", temporary.id, "logs.sqlite"))).toBe(true);
+    expect(existsSync(join(root, "saved", temporary.id))).toBe(false);
+    await expect(
+      db.run({ ...partition, operation: "set-persistent", captureId: pinned, persistent: false }),
+    ).rejects.toThrow("limit");
+    expect(await db.run({ ...partition, operation: "list" })).toEqual([
+      expect.objectContaining({ id: pinned, persistent: true }),
+    ]);
+    await db.run({ ...partition, operation: "delete", captureId: pinned });
+    await db.run({ ...other, operation: "set-persistent", captureId: temporary.id, persistent: true });
+    await db.run({ ...partition, operation: "create", target });
+    expect(
+      ((await db.run({ ...partition, operation: "list" })) as LogCapture[]).length +
+        ((await db.run({ ...other, operation: "list" })) as LogCapture[]).length,
+    ).toBe(2);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("clears saved snapshots from old partitions while preserving temporary snapshots", async () => {
+  const root = mkdtempSync(join(tmpdir(), "power-logs-clear-saved-"));
+  const db = new PowerLogsDatabase(join(root, "session"), join(root, "saved"));
+  databases.push(db);
+  try {
+    applyPowerLogsLimits({ captures: 1 });
+    const id = await capture(db);
+    await db.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true });
+    const next = { ...partition, contextId: "new-context" };
+    const temporary = (await db.run({ ...next, operation: "create", target })) as LogCapture;
+    await db.run({ ...next, operation: "finish", captureId: temporary.id, partial: false, notes: [] });
+    await expect(
+      db.run({ ...next, operation: "set-persistent", captureId: temporary.id, persistent: true }),
+    ).rejects.toThrow("Saved snapshot limit");
+    await db.run({ ...next, operation: "clear-persistent" });
+    expect(await db.run({ ...next, operation: "list" })).toEqual([expect.objectContaining({ id: temporary.id })]);
+    expect(await db.run({ ...partition, operation: "list" })).toEqual([]);
+    await expect(
+      db.run({ ...next, operation: "set-persistent", captureId: temporary.id, persistent: true }),
+    ).resolves.toMatchObject({ persistent: true });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

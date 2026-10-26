@@ -46,29 +46,6 @@ export function openPowerLogs(target: LogTarget, container?: string): void {
   Renderer.Navigation.hideDetails();
 }
 
-function cachedWorkloadPods(target: LogTarget): Renderer.K8sApi.Pod[] {
-  const owners = new Set([target.uid]);
-  const intermediates =
-    target.kind === "Deployment"
-      ? Renderer.K8sApi.replicaSetStore?.items
-      : target.kind === "CronJob"
-        ? Renderer.K8sApi.jobStore?.items
-        : [];
-  for (const object of intermediates ?? []) {
-    if (
-      object.metadata.namespace === target.namespace &&
-      object.metadata.uid &&
-      object.metadata.ownerReferences?.some((owner) => owner.controller === true && owner.uid === target.uid)
-    )
-      owners.add(object.metadata.uid);
-  }
-  return Renderer.K8sApi.podsStore.items.filter(
-    (pod) =>
-      pod.metadata.namespace === target.namespace &&
-      pod.metadata.ownerReferences?.some((owner) => owner.controller === true && owners.has(owner.uid)),
-  );
-}
-
 function containerStatusClass(
   container: { type?: string },
   status: ReturnType<Renderer.K8sApi.Pod["getContainerStatuses"]>[number],
@@ -94,23 +71,22 @@ export const PowerLogsMenu = observer(
     if (!target) return null;
     const containers = target.kind === "Pod" ? (object as Renderer.K8sApi.Pod).getAllContainersWithType() : [];
     const statuses = target.kind === "Pod" ? ((object as Renderer.K8sApi.Pod).getContainerStatuses?.() ?? []) : [];
-    const pods = target.kind === "Pod" ? [] : cachedWorkloadPods(target);
     const open = (event: React.MouseEvent, container?: string) => {
       event.stopPropagation();
       openPowerLogs(target, container);
     };
     return (
-      <Renderer.Component.MenuItem onClick={(event) => open(event)}>
+      <Renderer.Component.MenuItem className="power-logs-entry-menu" onClick={(event) => open(event)}>
         <Renderer.Component.Icon material="subject" interactive={toolbar} tooltip="Power Logs" />
         <span className="title" {...{ [marker]: JSON.stringify(target) }}>
           Logs
         </span>
-        {(containers.length > 0 || pods.length > 0) && (
+        {containers.length > 0 && (
           <>
             <Renderer.Component.Icon className="arrow" material="keyboard_arrow_right" />
             <Renderer.Component.SubMenu>
               <Renderer.Component.MenuItem onClick={(event) => open(event)}>
-                <span>{target.kind === "Pod" ? "All containers" : "All pods"}</span>
+                <span>All containers</span>
               </Renderer.Component.MenuItem>
               {containers.map((container) => (
                 <Renderer.Component.MenuItem key={container.name} onClick={(event) => open(event, container.name)}>
@@ -125,32 +101,10 @@ export const PowerLogsMenu = observer(
                   <span>{container.name}</span>
                 </Renderer.Component.MenuItem>
               ))}
-              {pods.map((pod) => {
-                const status = pod.getStatus();
-                return (
-                  <Renderer.Component.MenuItem
-                    key={pod.metadata.uid}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openPowerLogs({
-                        kind: "Pod",
-                        name: pod.getName(),
-                        namespace: pod.getNs(),
-                        uid: pod.metadata.uid ?? "",
-                      });
-                    }}
-                  >
-                    <Renderer.Component.StatusBrick
-                      tooltip={status}
-                      className={status.toLowerCase().replaceAll(" ", "-")}
-                    />
-                    <span>{pod.getName()}</span>
-                  </Renderer.Component.MenuItem>
-                );
-              })}
             </Renderer.Component.SubMenu>
           </>
         )}
+        <style>{`.power-logs-entry-menu .SubMenu .MenuItem:hover { background-color:var(--primary)!important; }`}</style>
       </Renderer.Component.MenuItem>
     );
   },

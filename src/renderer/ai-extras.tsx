@@ -21,7 +21,12 @@ export function AiContextPreview({
     <div className="power-ai-context-preview" style={{ padding: "8px 16px", fontSize: 11 }}>
       {finding && (
         <div className="power-ai-context-finding" aria-label="Selected diagnostic finding">
-          <AiIcon material={finding.source === "logs" ? "subject" : "insights"} size={14} />
+          <AiIcon
+            material={
+              finding.source === "logs" ? "subject" : finding.source === "relationships" ? "account_tree" : "insights"
+            }
+            size={14}
+          />
           <details key={`${finding.clusterId}:${finding.title}:${finding.summary}`}>
             <NativeTooltip title="Review the selected evidence attached to your next message">
               <summary>{finding.title}</summary>

@@ -6,7 +6,7 @@ export const AI_DIAGNOSTIC_EVENT = "power-ai-diagnostic";
 
 export interface DiagnosticFinding {
   clusterId: string;
-  source?: "logs";
+  source?: "logs" | "relationships" | "diagnostics";
   title: string;
   summary: string;
   resource?: { kind: string; namespace?: string; name: string };
@@ -28,7 +28,10 @@ export function sanitizeDiagnosticFinding(value: unknown): DiagnosticFinding | u
   )
     return;
   const title = redactAiTerminalText(input.title).slice(0, 160);
-  const summary = redactAiTerminalText(input.summary).slice(0, 6000);
+  const summary = redactAiTerminalText(input.summary).slice(
+    0,
+    input.source === "relationships" || input.source === "diagnostics" ? 60_000 : 6000,
+  );
   let resource: DiagnosticFinding["resource"];
   if (input.resource && typeof input.resource === "object") {
     const { kind, name, namespace } = input.resource;
@@ -43,7 +46,9 @@ export function sanitizeDiagnosticFinding(value: unknown): DiagnosticFinding | u
     clusterId: input.clusterId,
     title,
     summary,
-    ...(input.source === "logs" ? { source: "logs" } : {}),
+    ...(input.source === "logs" || input.source === "relationships" || input.source === "diagnostics"
+      ? { source: input.source }
+      : {}),
     ...(resource ? { resource } : {}),
   };
 }

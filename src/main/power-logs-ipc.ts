@@ -48,7 +48,7 @@ export function validateLogRequest(input: unknown): LogRequest {
       return { ...partition, operation: "permit", lane: "bytes", bytes: r.bytes };
     return fail();
   }
-  if (r.operation === "list") return { ...partition, operation: "list" };
+  if (r.operation === "list" || r.operation === "clear-persistent") return { ...partition, operation: r.operation };
   if (r.operation === "cancel") {
     if (!identifier(r.queryId)) return fail();
     return { ...partition, operation: "cancel", queryId: r.queryId };
@@ -72,6 +72,10 @@ export function validateLogRequest(input: unknown): LogRequest {
   if (!("captureId" in r) || !identifier(r.captureId)) return fail();
   const scoped = { ...partition, captureId: r.captureId };
   if (r.operation === "delete" || r.operation === "export") return { ...scoped, operation: r.operation };
+  if (r.operation === "set-persistent") {
+    if (typeof r.persistent !== "boolean") throw new Error("Invalid persistence flag");
+    return { ...scoped, operation: "set-persistent", persistent: r.persistent };
+  }
   if (r.operation === "save-sql") {
     if (!text(r.sql, 65536)) return fail();
     return { ...scoped, operation: "save-sql", sql: r.sql };
@@ -242,7 +246,12 @@ export function startPowerLogs(): () => void {
       const result = await worker.call({ ...request, contextId }, destination);
       if (!allowed() || fingerprint(request) !== contextId) throw new Error("Log context changed");
       return result;
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Saved snapshot limit reached. Delete a saved snapshot before keeping another."
+      )
+        throw error;
       throw new Error("Power Logs operation failed or is unavailable");
     }
   });

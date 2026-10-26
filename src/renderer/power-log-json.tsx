@@ -22,7 +22,6 @@ const fieldButtonStyle: CSSProperties = {
   border: 0,
   borderRadius: 0,
   background: "transparent",
-  color: "inherit",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -113,7 +112,14 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
           text: identity,
           lineTop: rect.top,
           x: Math.max(4, Math.min(lineRight + 4, visibleRight - 64)),
-          y: Math.max(0, Math.min(rect.top, window.innerHeight - 20)),
+          y: Math.max(
+            0,
+            Math.min(
+              rect.top +
+                (Math.min(rect.height, Number.parseFloat(getComputedStyle(element).lineHeight) || 20) - 20) / 2,
+              window.innerHeight - 20,
+            ),
+          ),
         });
         setFeedback("");
       };
@@ -194,6 +200,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
       {pre}
       {selected && (
         <div
+          className="power-log-json-actions"
           role="toolbar"
           aria-label="JSON field actions"
           style={{
@@ -230,7 +237,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
               }
             }}
           >
-            {Icon ? <Icon material="content_copy" size={14} tooltip="Copy value" /> : "⧉"}
+            {Icon ? <Icon material="content_copy" size={12} tooltip="Copy value" /> : "⧉"}
           </button>
           {onFilter && (
             <>
@@ -240,7 +247,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
                 aria-label="Include value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "eq" })}
               >
-                {Icon ? <Icon material="filter_alt" size={14} tooltip="Include value" /> : "="}
+                {Icon ? <Icon material="filter_alt" size={12} tooltip="Include value" /> : "="}
               </button>
               <button
                 type="button"
@@ -248,7 +255,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
                 aria-label="Exclude value"
                 onClick={() => onFilter({ path: selected.field.path, value: selected.field.value, operator: "neq" })}
               >
-                {Icon ? <Icon material="filter_alt_off" size={14} tooltip="Exclude value" /> : "!="}
+                {Icon ? <Icon material="filter_alt_off" size={12} tooltip="Exclude value" /> : "!="}
               </button>
             </>
           )}

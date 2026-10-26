@@ -62,6 +62,7 @@ export interface LogCapture {
   bytes: number;
   notes: string[];
   lastSql?: string;
+  persistent?: boolean;
 }
 export type LogCell = string | number | boolean | null;
 export interface LogQueryResult {
@@ -84,7 +85,9 @@ export type LogRequest = LogPartition &
     | { operation: "append"; captureId: string; records: LogRecord[] }
     | { operation: "finish"; captureId: string; partial: boolean; notes: string[] }
     | { operation: "list" }
+    | { operation: "clear-persistent" }
     | { operation: "delete"; captureId: string }
+    | { operation: "set-persistent"; captureId: string; persistent: boolean }
     | { operation: "save-sql"; captureId: string; sql: string }
     | { operation: "query"; captureId: string; queryId: string; sql: string }
     | { operation: "cancel"; queryId: string }

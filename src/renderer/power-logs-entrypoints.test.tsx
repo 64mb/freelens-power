@@ -192,70 +192,22 @@ it("keeps native container status markers in the logs hover submenu", () => {
   expect(view.getByText("failed").previousElementSibling?.className).toBe("StatusBrick terminated");
 });
 
-it("shows cached workload pod names and statuses and opens the selected pod", () => {
-  const workload = { kind: "Deployment", metadata: { name: "sample", namespace: "default", uid: "deployment-uid" } };
-  mocks.replicaSets = [
-    {
-      metadata: {
-        namespace: "default",
-        uid: "replicaset-uid",
-        ownerReferences: [{ uid: "deployment-uid", controller: true }],
-      },
-    },
-  ];
-  mocks.pods = ["Running", "Pending", "Failed"].map((status, index) => ({
-    metadata: {
-      namespace: "default",
-      name: `sample-${index}`,
-      uid: `pod-${index}`,
-      ownerReferences: [{ uid: "replicaset-uid", controller: true }],
-    },
-    getName: () => `sample-${index}`,
-    getNs: () => "default",
-    getStatus: () => status,
-  }));
-  mocks.pods.push({ metadata: { namespace: "other", ownerReferences: [{ uid: "replicaset-uid", controller: true }] } });
+it.each([
+  "Deployment",
+  "DaemonSet",
+  "StatefulSet",
+  "ReplicaSet",
+  "Job",
+  "CronJob",
+])("opens %s logs directly without a pod submenu", (kind) => {
+  const workload = { kind, metadata: { name: "sample", namespace: "default", uid: "workload-uid" } };
   const view = render(<PowerLogsMenu object={workload as any} toolbar />);
-  for (const [index, status] of ["running", "pending", "failed"].entries()) {
-    expect(view.getByText(`sample-${index}`).previousElementSibling?.className).toBe(`StatusBrick ${status}`);
-  }
-  fireEvent.click(view.getByText("sample-1"));
-  expect(mocks.navigate).toHaveBeenCalledOnce();
+  expect(view.container.querySelector(".SubMenu")).toBeNull();
+  fireEvent.click(view.getByText("Logs"));
   expect(JSON.parse(new URLSearchParams(mocks.navigate.mock.calls[0][0].split("?")[1]).get("target")!)).toEqual({
-    kind: "Pod",
-    name: "sample-1",
+    kind,
+    name: "sample",
     namespace: "default",
-    uid: "pod-1",
+    uid: "workload-uid",
   });
-  act(() =>
-    runInAction(() => {
-      mocks.logs.enabled = false;
-    }),
-  );
-  expect(view.queryByText("sample-0")).toBeNull();
-});
-
-it("excludes pods connected only by non-controller owner references", () => {
-  const workload = { kind: "Deployment", metadata: { name: "sample", namespace: "default", uid: "deployment-uid" } };
-  mocks.replicaSets = [true, false].map((controller) => ({
-    metadata: {
-      namespace: "default",
-      uid: `replicaset-${controller}`,
-      ownerReferences: [{ uid: "deployment-uid", controller }],
-    },
-  }));
-  mocks.pods = [
-    { name: "controlled", owner: "replicaset-true", controller: true },
-    { name: "pod-reference-only", owner: "replicaset-true", controller: false },
-    { name: "replicaset-reference-only", owner: "replicaset-false", controller: true },
-  ].map(({ name, owner, controller }) => ({
-    metadata: { namespace: "default", uid: name, ownerReferences: [{ uid: owner, controller }] },
-    getName: () => name,
-    getNs: () => "default",
-    getStatus: () => "Running",
-  }));
-  const view = render(<PowerLogsMenu object={workload as any} toolbar />);
-  expect(view.getByText("controlled")).toBeTruthy();
-  expect(view.queryByText("pod-reference-only")).toBeNull();
-  expect(view.queryByText("replicaset-reference-only")).toBeNull();
 });

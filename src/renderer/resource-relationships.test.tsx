@@ -9,6 +9,8 @@ vi.mock("./resource-search-client", () => ({
 }));
 vi.mock("./resource-search-routing", () => ({ openSearchResource: vi.fn() }));
 
+vi.mock("./ai-diagnostic-handoff", () => ({ explainDiagnosticFinding: vi.fn() }));
+
 const preferences = vi.hoisted(() => ({ hiddenUpstreamClusters: [] as string[] }));
 vi.mock("../common/store/monitoring-preferences-store", () => ({
   MonitoringPreferencesStore: { getInstanceOrCreate: () => preferences },
@@ -282,4 +284,23 @@ it("reserves the upstream routing gutter only for visible upstream chains and co
   expect(view.container.querySelector(".gateway-evidence")?.hasAttribute("open")).toBe(false);
   view.rerender(<RelationshipGraph graph={graph} onOpen={vi.fn()} ingressAvailable hideUpstreams />);
   expect(view.container.querySelector(".upstream-gutter")).toBeNull();
+});
+
+it("expands all graph resources and replaces the omission notice", async () => {
+  state.namespace.mockResolvedValue([{ getName: () => "sample" }]);
+  state.pods.mockResolvedValue(
+    Array.from({ length: 12 }, (_, i) => ({
+      metadata: { uid: `pod-${i}`, name: `web-${i}`, namespace: "sample", labels: { app: "web" } },
+      spec: {},
+      status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] },
+    })),
+  );
+  const view = render(<ResourceRelationshipsPage enabled />);
+  const expand = await view.findByRole("button", { name: "Show all available resources" });
+  expect(view.container.querySelector(".graph-omitted-notice strong")?.textContent).toBe("4");
+  expect(tooltipText(expand)).toBe("Show all available resources");
+  fireEvent.click(expand);
+  expect(view.queryByRole("button", { name: "Show all available resources" })).toBeNull();
+  expect(view.getByText("All available resources are shown.")).toBeTruthy();
+  expect(view.container.querySelector(".graph")?.textContent).toContain("web-11");
 });

@@ -35,6 +35,26 @@ function predicate(filter: SqlJsonFieldFilter): string {
     !jsonValuesEqual(filter.value, filter.value)
   )
     throw new Error("Invalid JSON field filter");
+  const simplePath = filter.path.every(
+    (part) =>
+      (typeof part === "number" && Number.isSafeInteger(part) && part >= 0) ||
+      (typeof part === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(part)),
+  );
+  if (simplePath && (filter.value === null || typeof filter.value !== "object")) {
+    const source = `"__power_rows".${quoteIdentifier(filter.column)}`;
+    const path = literal(
+      "$" + filter.path.map((part) => (typeof part === "number" ? `[${part}]` : `.${part}`)).join(""),
+    );
+    const type = `json_type(${source}, ${path})`;
+    const value = `json_extract(${source}, ${path})`;
+    let equal: string;
+    if (filter.value === null) equal = `${type} IS 'null'`;
+    else if (typeof filter.value === "boolean") equal = `${type} IS '${filter.value}'`;
+    else if (typeof filter.value === "number")
+      equal = `(${type} IN ('integer', 'real') AND CAST(${value} AS REAL) IS ${filter.value})`;
+    else equal = `(${type} IS 'text' AND ${value} IS ${literal(filter.value)})`;
+    return `${filter.operator === "neq" ? "NOT " : ""}(CASE WHEN json_valid(${source}) THEN ${equal} ELSE 0 END)`;
+  }
   const steps: string[] = [];
   for (const [depth, part] of filter.path.entries()) {
     if (typeof part !== "string" && !(typeof part === "number" && Number.isSafeInteger(part) && part >= 0)) {

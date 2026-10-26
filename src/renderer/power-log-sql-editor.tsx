@@ -46,7 +46,7 @@ export function tokenizeSql(value: string): SqlToken[] {
 }
 
 const styles = `
-.power-logs .power-logs-sql-editor{position:relative;box-sizing:border-box;width:100%;height:56px;min-height:48px;max-height:max(120px,60vh);flex-shrink:0;resize:vertical;overflow:hidden;border:1px solid var(--borderColor);border-radius:4px;background:var(--inputControlBackground,var(--contentColor));--sql-string:#e6a28c;--sql-number:#98c78e;--sql-function:#81b9e6;--sql-identifier:var(--textColorPrimary)}
+.power-logs .power-logs-sql-editor{position:relative;box-sizing:border-box;width:100%;height:56px;min-height:48px;max-height:var(--sql-content-max-height,120px);flex-shrink:0;resize:vertical;overflow:hidden;border:1px solid var(--borderColor);border-radius:4px;background:var(--inputControlBackground,var(--contentColor));--sql-string:#e6a28c;--sql-number:#98c78e;--sql-function:#81b9e6;--sql-identifier:var(--textColorPrimary)}
 .power-logs .power-logs-sql-editor::-webkit-resizer{border:0;background:linear-gradient(135deg,transparent 45%,var(--borderColor) 46% 53%,transparent 54% 70%,var(--borderColor) 71% 78%,transparent 79%) center/10px 10px no-repeat}
 .theme-light .power-logs-sql-editor{--sql-string:#9e2b1a;--sql-number:#17642d;--sql-function:#005a9e;--sql-identifier:#684c9b}
 .power-logs .power-logs-sql-editor>textarea,.power-logs .power-logs-sql-editor>pre{position:absolute;inset:0;box-sizing:border-box;width:100%;height:100%;min-height:0;max-height:none;margin:0;padding:4px 8px;border:0;border-radius:0;font:12px/1.6 var(--font-monospace,monospace);letter-spacing:normal;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2;overflow:auto;scrollbar-gutter:stable;resize:none}
@@ -61,7 +61,18 @@ const styles = `
 .power-logs-sql-editor [data-sql-token=comment]{color:var(--textColorSecondary)}
 `;
 
-export function SqlEditor({ id, value, onChange }: { id: string; value: string; onChange(value: string): void }) {
+export function SqlEditor({
+  id,
+  value,
+  onChange,
+  fitVersion = 0,
+}: {
+  id: string;
+  value: string;
+  onChange(value: string): void;
+  fitVersion?: number;
+}) {
+  const fitted = useRef(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const highlight = useRef<HTMLPreElement>(null);
   const tokens = useMemo(() => tokenizeSql(value), [value]);
@@ -71,6 +82,34 @@ export function SqlEditor({ id, value, onChange }: { id: string; value: string; 
     highlight.current.scrollLeft = textarea.current.scrollLeft;
   };
   useLayoutEffect(syncScroll, [value]);
+  useLayoutEffect(() => {
+    const pre = highlight.current;
+    const editor = pre?.parentElement;
+    if (!pre || !editor) return;
+    const measure = () => {
+      pre.style.height = "auto";
+      pre.style.bottom = "auto";
+      const height = pre.getBoundingClientRect().height;
+      pre.style.removeProperty("height");
+      pre.style.removeProperty("bottom");
+      editor.style.setProperty("--sql-content-max-height", `${Math.max(120, Math.min(240, Math.ceil(height) + 10))}px`);
+      if (fitVersion !== fitted.current) {
+        editor.style.height = `${Math.max(48, Math.min(240, Math.ceil(height) + 2))}px`;
+        fitted.current = fitVersion;
+      }
+      syncScroll();
+    };
+    measure();
+    let width = editor.clientWidth;
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (editor.clientWidth === width) return;
+      width = editor.clientWidth;
+      measure();
+    });
+    observer.observe(editor);
+    return () => observer.disconnect();
+  }, [value, fitVersion]);
   const selectQuery = (event: MouseEvent<HTMLTextAreaElement>) => {
     if (event.detail < 3) return;
     event.preventDefault();

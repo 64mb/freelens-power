@@ -81,3 +81,40 @@ it("selects only the query on triple click and leaves single clicks untouched", 
   expect([input.selectionStart, input.selectionEnd]).toEqual([0, input.value.length]);
   expect(bubble).not.toHaveBeenCalled();
 });
+
+it("limits resizing to measured query content with a small allowance and a modest ceiling", () => {
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 142 } as DOMRect);
+  try {
+    const { container, rerender } = render(<SqlEditor id="query" value="SELECT 1" onChange={() => {}} />);
+    const editor = container.querySelector<HTMLElement>(".power-logs-sql-editor")!;
+    expect(editor.style.getPropertyValue("--sql-content-max-height")).toBe("152px");
+    expect(container.querySelector("pre")!.style.height).toBe("");
+    rect.mockReturnValue({ height: 800 } as DOMRect);
+    rerender(<SqlEditor id="query" value="SELECT 2" onChange={() => {}} />);
+    expect(editor.style.getPropertyValue("--sql-content-max-height")).toBe("240px");
+    rect.mockReturnValue({ height: 30 } as DOMRect);
+    rerender(<SqlEditor id="query" value="SELECT 3" onChange={() => {}} />);
+    expect(editor.style.getPropertyValue("--sql-content-max-height")).toBe("120px");
+  } finally {
+    rect.mockRestore();
+  }
+});
+
+it("fits preset content once and preserves manual height until another preset is chosen", () => {
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 142 } as DOMRect);
+  try {
+    const { container, rerender } = render(
+      <SqlEditor id="query" value="SELECT 1" onChange={() => {}} fitVersion={1} />,
+    );
+    const editor = container.querySelector<HTMLElement>(".power-logs-sql-editor")!;
+    expect(editor.style.height).toBe("144px");
+    editor.style.height = "170px";
+    rerender(<SqlEditor id="query" value="SELECT 2" onChange={() => {}} fitVersion={1} />);
+    expect(editor.style.height).toBe("170px");
+    rect.mockReturnValue({ height: 46 } as DOMRect);
+    rerender(<SqlEditor id="query" value="SELECT 3" onChange={() => {}} fitVersion={2} />);
+    expect(editor.style.height).toBe("48px");
+  } finally {
+    rect.mockRestore();
+  }
+});

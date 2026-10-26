@@ -66,6 +66,7 @@ export function buildResourceRelationships(
   service: ServiceDiagnosticObject & { selfLink?: string },
   inventory: RelationshipInventory,
   focusedPod?: string,
+  showAll = false,
 ) {
   const external = service.spec?.type === "ExternalName";
   const diagnostics = diagnoseService(service, external ? [] : inventory.pods, external ? [] : inventory.slices);
@@ -73,6 +74,8 @@ export function buildResourceRelationships(
   const edges: RelationshipEdge[] = [];
   const gaps = [...(inventory.gaps ?? [])];
   let omitted = 0;
+  const upstreamLimit = showAll ? Infinity : 5;
+  const podLimit = showAll ? Infinity : 8;
   const namespace = service.metadata.namespace;
   const add = (node: RelationshipNode) => {
     if (!nodes.some((n) => n.id === node.id)) nodes.push(node);
@@ -99,8 +102,8 @@ export function buildResourceRelationships(
           ),
         ].includes(service.metadata.name),
     ) ?? [];
-  omitted += Math.max(0, upstream.length - 5);
-  for (const ingress of upstream.slice(0, 5)) {
+  omitted += Math.max(0, upstream.length - upstreamLimit);
+  for (const ingress of upstream.slice(0, upstreamLimit)) {
     const id = add({
       id: `ingress/${ingress.metadata.uid ?? ingress.metadata.name}`,
       kind: "Ingress",
@@ -113,15 +116,15 @@ export function buildResourceRelationships(
     edges.push({ from: id, to: svc, label: "references backend" });
   }
   if (inventory.gateway) {
-    const gateway = gatewayRelationships(service, inventory.gateway);
+    const gateway = gatewayRelationships(service, inventory.gateway, showAll);
     nodes.push(...gateway.nodes);
     edges.push(...gateway.edges);
     omitted += gateway.omitted;
     gaps.push(...inventory.gateway.gaps);
   }
   const pods = diagnostics.matchingPods?.filter((pod) => !focusedPod || pod.metadata.name === focusedPod) ?? [];
-  omitted += Math.max(0, pods.length - 8);
-  for (const pod of pods.slice(0, 8)) {
+  omitted += Math.max(0, pods.length - podLimit);
+  for (const pod of pods.slice(0, podLimit)) {
     const ready = pod.status?.conditions?.find((c) => c.type === "Ready");
     const id = add({
       id: `pod/${pod.metadata.uid ?? pod.metadata.name}`,
@@ -194,8 +197,8 @@ export function buildResourceRelationships(
     }
   }
   const slices = diagnostics.matchingSlices ?? [];
-  omitted += Math.max(0, slices.length - 5);
-  for (const slice of slices.slice(0, 5)) {
+  omitted += Math.max(0, slices.length - upstreamLimit);
+  for (const slice of slices.slice(0, upstreamLimit)) {
     const ready = slice.endpoints?.filter((e) => e.conditions?.ready !== false && !e.conditions?.terminating).length;
     const id = add({
       id: `slice/${slice.metadata.name}`,

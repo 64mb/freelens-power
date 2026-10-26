@@ -264,6 +264,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     composer.current?.focus();
   };
   const [context, setContext] = useState(readAiContext);
+  useEffect(() => {
+    if (open && !finding && !terminalAttachment) window.dispatchEvent(new Event("power-ai-request-screen-context"));
+  }, [open]);
   const [pending, setPending] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [stopped, setStopped] = useState<string[]>([]);
@@ -354,7 +357,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       setDraft(
         (previous) =>
           previous ||
-          (preferences.conversations[next.clusterId]?.length
+          (next.source === "relationships" ||
+          next.source === "diagnostics" ||
+          preferences.conversations[next.clusterId]?.length
             ? ""
             : "Explain this finding and suggest the next read-only checks."),
       );

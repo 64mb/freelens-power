@@ -1,5 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, chmodSync, createReadStream, mkdirSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  cpSync,
+  createReadStream,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
@@ -13,15 +26,66 @@ type Capture = {
   directory: string;
   spool: string;
   database: string;
+  retiredDirectory?: string;
   limits: { captureBytes: number; captureRows: number };
 };
 export class PowerLogsDatabase {
   private captures = new Map<string, Capture>();
   private closed = false;
   private timer: ReturnType<typeof setInterval>;
-  constructor(private directory: string) {
+  constructor(
+    private directory: string,
+    private persistentDirectory?: string,
+  ) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     chmodSync(directory, 0o700);
+    if (persistentDirectory) {
+      mkdirSync(persistentDirectory, { recursive: true, mode: 0o700 });
+      chmodSync(persistentDirectory, 0o700);
+      for (const id of readdirSync(persistentDirectory)) {
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.pending$/.test(id)) {
+          const pending = join(persistentDirectory, id);
+          const info = lstatSync(pending);
+          if (info.isDirectory() && !info.isSymbolicLink() && (!process.getuid || info.uid === process.getuid())) {
+            rmSync(pending, { recursive: true, force: true });
+          }
+          continue;
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) continue;
+        const directory = join(persistentDirectory, id);
+        try {
+          if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink()) continue;
+          const manifest = join(directory, "capture.json");
+          if (!lstatSync(manifest).isFile() || lstatSync(manifest).isSymbolicLink()) continue;
+          const saved = JSON.parse(readFileSync(manifest, "utf8"));
+          if (saved.meta?.id === id && saved.meta.persistent === false) {
+            rmSync(directory, { recursive: true, force: true });
+            continue;
+          }
+          if (
+            saved.meta?.id !== id ||
+            saved.meta.persistent !== true ||
+            !["ready", "partial"].includes(saved.meta.state) ||
+            typeof saved.partition !== "string"
+          )
+            continue;
+          const spool = join(directory, "logs.ndjson"),
+            database = join(directory, "logs.sqlite");
+          if (![spool, database].every((path) => lstatSync(path).isFile() && !lstatSync(path).isSymbolicLink()))
+            continue;
+          this.captures.set(id, {
+            meta: saved.meta,
+            partition: saved.partition,
+            limits: saved.limits,
+            directory,
+            spool,
+            database,
+          });
+        } catch {
+          // leave unreadable saved captures available for recovery
+        }
+      }
+    }
     this.timer = setInterval(() => this.expire(), 30000);
     this.timer.unref();
   }
@@ -30,7 +94,7 @@ export class PowerLogsDatabase {
   }
   private expire(): void {
     for (const [id, capture] of this.captures) {
-      if (capture.meta.expiresAt > Date.now()) continue;
+      if (capture.meta.persistent || capture.meta.expiresAt > Date.now()) continue;
       try {
         this.remove(id);
       } catch {
@@ -42,6 +106,7 @@ export class PowerLogsDatabase {
     const capture = this.captures.get(id);
     if (!capture) return;
     try {
+      if (capture.retiredDirectory) rmSync(capture.retiredDirectory, { recursive: true, force: true });
       rmSync(capture.directory, { recursive: true, force: true });
     } catch {
       throw new Error("Log capture storage is busy or unavailable");
@@ -53,7 +118,11 @@ export class PowerLogsDatabase {
   }
   private capture(request: LogRequest & { captureId: string }): Capture {
     const capture = this.captures.get(request.captureId);
-    if (!capture || capture.partition !== this.partition(request) || capture.meta.expiresAt <= Date.now())
+    if (
+      !capture ||
+      capture.partition !== this.partition(request) ||
+      (!capture.meta.persistent && capture.meta.expiresAt <= Date.now())
+    )
       throw new Error("Capture unavailable");
     return capture;
   }
@@ -63,12 +132,21 @@ export class PowerLogsDatabase {
     if (request.operation === "permit" || "streamId" in request) throw new Error("Log permits require main process");
     const partition = this.partition(request);
     if (request.operation === "cancel") return true;
+    if (request.operation === "clear-persistent") {
+      for (const [id, capture] of this.captures) if (capture.meta.persistent) this.remove(id);
+      return true;
+    }
     if (request.operation === "list")
       return [...this.captures.values()]
-        .filter((c) => c.partition === partition && c.meta.expiresAt > Date.now())
+        .filter((c) => c.partition === partition && (c.meta.persistent || c.meta.expiresAt > Date.now()))
         .map((c) => ({ ...c.meta }));
     if (request.operation === "create") {
-      if (this.captures.size >= L.captures) throw new Error("Capture limit reached");
+      const captures = [...this.captures.values()];
+      if (
+        captures.filter((capture) => capture.partition === partition).length >= L.captures ||
+        captures.filter((capture) => !capture.meta.persistent).length >= L.captures
+      )
+        throw new Error("Capture limit reached");
       const id = randomUUID(),
         directory = join(this.directory, id),
         now = Date.now();
@@ -100,10 +178,63 @@ export class PowerLogsDatabase {
       this.remove(request.captureId);
       return true;
     }
+    if (request.operation === "set-persistent") {
+      if (typeof request.persistent !== "boolean") throw new Error("Invalid persistence flag");
+      if (capture.meta.state === "collecting") throw new Error("Finish capture before saving");
+      if (request.persistent === !!capture.meta.persistent) return { ...capture.meta };
+      if (request.persistent) {
+        if ([...this.captures.values()].filter((item) => item.meta.persistent).length >= L.captures)
+          throw new Error("Saved snapshot limit reached. Delete a saved snapshot before keeping another.");
+        if (!this.persistentDirectory) throw new Error("Persistent storage unavailable");
+        const directory = join(this.persistentDirectory, capture.meta.id);
+        if (capture.directory === directory) {
+          this.saveMetadata({ ...capture, meta: { ...capture.meta, persistent: true } });
+          capture.meta.persistent = true;
+          return { ...capture.meta };
+        }
+        const staging = join(this.persistentDirectory, `${capture.meta.id}.pending`);
+        try {
+          cpSync(capture.directory, staging, { recursive: true, errorOnExist: true, force: false });
+          this.saveMetadata({ ...capture, directory, meta: { ...capture.meta, persistent: true } }, staging);
+          renameSync(staging, directory);
+        } catch {
+          rmSync(staging, { recursive: true, force: true });
+          throw new Error("Persistent storage unavailable");
+        }
+        // retain the original directory for active readers until capture deletion drains them
+        capture.retiredDirectory = capture.directory;
+        capture.directory = directory;
+        capture.spool = join(directory, "logs.ndjson");
+        capture.database = join(directory, "logs.sqlite");
+        capture.meta.persistent = true;
+      } else {
+        if ([...this.captures.values()].filter((item) => !item.meta.persistent).length >= L.captures)
+          throw new Error("Capture limit reached");
+        const directory = join(this.directory, capture.meta.id);
+        const staging = `${directory}.pending`;
+        try {
+          cpSync(capture.directory, staging, { recursive: true, errorOnExist: true, force: false });
+          rmSync(directory, { recursive: true, force: true });
+          renameSync(staging, directory);
+          rmSync(capture.directory, { recursive: true, force: true });
+        } catch {
+          rmSync(staging, { recursive: true, force: true });
+          throw new Error("Temporary storage unavailable");
+        }
+        capture.directory = directory;
+        capture.retiredDirectory = undefined;
+        capture.spool = join(directory, "logs.ndjson");
+        capture.database = join(directory, "logs.sqlite");
+        capture.meta = { ...capture.meta, persistent: false, expiresAt: Date.now() + L.ttlMs };
+      }
+      return { ...capture.meta };
+    }
     if (request.operation === "save-sql") {
       if (typeof request.sql !== "string" || request.sql.length > 65536 || request.sql.includes("\0"))
         throw new Error("Invalid SQL draft");
-      capture.meta.lastSql = request.sql;
+      const meta = { ...capture.meta, lastSql: request.sql };
+      if (capture.meta.persistent) this.saveMetadata({ ...capture, meta });
+      capture.meta = meta;
       return { ...capture.meta };
     }
     if (request.operation === "export") throw new Error("Export requires trusted destination");
@@ -187,12 +318,24 @@ export class PowerLogsDatabase {
     return {
       database: capture.database,
       captureId: capture.meta.id,
-      expiresAt: capture.meta.expiresAt,
+      expiresAt: capture.meta.persistent ? Number.MAX_SAFE_INTEGER : capture.meta.expiresAt,
     } satisfies PowerLogsQuerySnapshot;
+  }
+  private saveMetadata(capture: Capture, directory = capture.directory): void {
+    const temporary = join(directory, "capture.json.pending");
+    writeFileSync(
+      temporary,
+      JSON.stringify({ meta: capture.meta, partition: capture.partition, limits: capture.limits }),
+      { mode: 0o600 },
+    );
+    renameSync(temporary, join(directory, "capture.json"));
   }
   close(): void {
     this.closed = true;
     clearInterval(this.timer);
+    for (const [id, capture] of this.captures) {
+      if (!capture.meta.persistent) this.remove(id);
+    }
     this.captures.clear();
     rmSync(this.directory, { recursive: true, force: true });
   }

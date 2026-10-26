@@ -143,6 +143,8 @@ it("distinguishes attached log context from diagnostic findings by its icon", ()
   const chip = within(screen.getByLabelText("Selected diagnostic finding"));
   expect(chip.getByRole("img", { name: "subject" })).toBeTruthy();
   expect(chip.queryByRole("img", { name: "insights" })).toBeNull();
+  view.rerender(<AiContextPreview context={{}} finding={{ ...finding, source: "relationships" }} />);
+  expect(view.container.querySelector('[aria-label="account_tree"]')).toBeTruthy();
   view.rerender(<AiContextPreview context={{}} finding={finding} />);
   expect(chip.getByRole("img", { name: "insights" })).toBeTruthy();
   expect(chip.queryByRole("img", { name: "subject" })).toBeNull();
