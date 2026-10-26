@@ -3,7 +3,7 @@ import { action, makeObservable, observable } from "mobx";
 import { type AiAttachmentReceipt, normalizeAiAttachmentReceipts } from "../ai-attachments";
 import { type AiResourceReference, normalizeAiReferences } from "../ai-extras";
 import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../ai-models";
-import { DEFAULT_AI_CLUSTER_PROMPT, DEFAULT_AI_SYSTEM_PROMPT } from "../ai-prompts";
+import { DEFAULT_AI_CLUSTER_PROMPT, DEFAULT_AI_SYSTEM_PROMPT, upgradeBundledAiPrompt } from "../ai-prompts";
 
 import type { AiProvider } from "../ai";
 
@@ -91,8 +91,10 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     const claudeReasoningEffort = data?.claudeReasoningEffort ?? "";
     this.claudeReasoningEffort = CLAUDE_REASONING_EFFORTS.includes(claudeReasoningEffort) ? claudeReasoningEffort : "";
     this.claudeSpeed = data?.claudeSpeed === "fast" ? "fast" : "default";
-    if (typeof data?.systemPrompt === "string") this.systemPrompt = data.systemPrompt;
-    if (typeof data?.clusterPrompt === "string") this.clusterPrompt = data.clusterPrompt;
+    if (typeof data?.systemPrompt === "string")
+      this.systemPrompt = upgradeBundledAiPrompt(data.systemPrompt, "systemPrompt");
+    if (typeof data?.clusterPrompt === "string")
+      this.clusterPrompt = upgradeBundledAiPrompt(data.clusterPrompt, "clusterPrompt");
     this.model = typeof data?.model === "string" ? data.model : "";
     const reasoningEffort = data?.reasoningEffort ?? "";
     this.reasoningEffort = CODEX_REASONING_EFFORTS.includes(reasoningEffort) ? reasoningEffort : "";

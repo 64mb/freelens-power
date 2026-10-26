@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { AI_CHAT_CHANNEL, AI_READ_ACTIVITY_CHANNEL } from "../common/ai";
+import { AI_CHAT_CHANNEL, AI_PROGRESS_CHANNEL, AI_READ_ACTIVITY_CHANNEL } from "../common/ai";
 import { AI_CANCEL_CHANNEL } from "../common/ai-extras";
 import { startAiIpc } from "./ai-ipc";
 
@@ -319,6 +319,55 @@ it("cancels only the matching request from its originating sender and frame and 
     finish({ text: "Late answer" });
     await rejected;
     expect(cancel(event, "active-request")).toBe(false);
+  } finally {
+    stop();
+  }
+});
+
+it("routes progress only to the active originating frame and forwards read cancellation", async () => {
+  vi.clearAllMocks();
+  const frame = { url: "https://renderer.freelens.app/", detached: false, send: vi.fn() };
+  const event = { sender: Object.assign(new EventEmitter(), { id: 84 }), senderFrame: frame };
+  let emit!: (value: unknown) => void;
+  let finish!: (value: unknown) => void;
+  mocks.runAiChat.mockImplementation(async (_request, resolve, _signal, _activity, progress) => {
+    emit = progress;
+    const readController = new AbortController();
+    await resolve("example-cluster").read(
+      { apiVersion: "v1", kind: "Pod", resource: "pods", namespace: "default" },
+      readController.signal,
+    );
+    expect(mocks.get).toHaveBeenCalledWith("/api/v1/namespaces/default/pods", undefined, {
+      signal: readController.signal,
+    });
+    progress({ phase: "model", elapsedMs: 0, round: 0 });
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const stop = startAiIpc();
+  try {
+    const chat = mocks.handle.mock.calls.find(([channel]) => channel === AI_CHAT_CHANNEL)![1];
+    const cancel = mocks.handle.mock.calls.find(([channel]) => channel === AI_CANCEL_CHANNEL)![1];
+    const pending = chat(event, { requestId: "progress-request", messages: [], context: {} });
+    const rejected = expect(pending).rejects.toThrow("FREELENS_AI_");
+    await vi.waitFor(() =>
+      expect(frame.send).toHaveBeenCalledWith(AI_PROGRESS_CHANNEL, {
+        requestId: "progress-request",
+        phase: "model",
+        elapsedMs: 0,
+        round: 0,
+      }),
+    );
+    frame.detached = true;
+    emit({ phase: "answer", elapsedMs: 10, round: 0, text: "Hidden" });
+    expect(frame.send).toHaveBeenCalledTimes(1);
+    frame.detached = false;
+    expect(cancel(event, "progress-request")).toBe(true);
+    emit({ phase: "answer", elapsedMs: 20, round: 0, text: "Late" });
+    expect(frame.send).toHaveBeenCalledTimes(1);
+    finish({ text: "Late" });
+    await rejected;
   } finally {
     stop();
   }

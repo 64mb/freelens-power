@@ -1,3 +1,4 @@
+import { redactAiTerminalText } from "../common/ai-terminal-context";
 import { type AiReadRequest, aiReadQuery } from "./ai-resources";
 
 export interface AiLogQuery {
@@ -8,17 +9,17 @@ export interface AiLogQuery {
 export function aiLogQuery(request: AiReadRequest): AiLogQuery {
   if (request.method !== "logs") throw new Error("Unsupported log method");
   const resource = aiReadQuery({ method: "pods", name: request.name, namespace: request.namespace });
-  if (!resource.name || !resource.namespace) throw new Error("Select a pod and namespace to inspect log counters");
+  if (!resource.name || !resource.namespace) throw new Error("Select a pod and namespace to inspect logs");
   return {
     path: `/api/v1/namespaces/${resource.namespace}/pods/${resource.name}/log`,
     query: { tailLines: 100, limitBytes: 65536, follow: false, timestamps: false },
   };
 }
 
-// count fixed patterns locally without forwarding log text, identifiers or captured values
+// redact recognized Kubernetes payloads before bounding the forwarded log sample
 export function summarizeAiLogs(input: unknown) {
   if (typeof input !== "string") throw new Error("Log response is unavailable");
-  const bounded = Buffer.from(input, "utf8").subarray(0, 65536).toString("utf8");
+  const bounded = Buffer.from(redactAiTerminalText(input), "utf8").subarray(0, 65536).toString("utf8");
   const lines = bounded
     .split(/\r?\n/)
     .filter((line) => line.length > 0)
@@ -44,5 +45,5 @@ export function summarizeAiLogs(input: unknown) {
       if (patterns[key].test(line)) counts[key]++;
     }
   }
-  return { sampledNonemptyLines: lines.length, ...counts, rawTextWithheld: true, boundedSample: true };
+  return { lines, sampledNonemptyLines: lines.length, ...counts, boundedSample: true };
 }

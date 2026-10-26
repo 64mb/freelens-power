@@ -12,6 +12,7 @@ import {
   readClaudeAiEnvironment,
   safeAiContext,
 } from "./ai";
+import { collectAiReferences } from "./ai-references";
 import { aiReadPath, aiReadQuery, summarizeAiResource } from "./ai-resources";
 
 describe("AI read boundary", () => {
@@ -19,15 +20,18 @@ describe("AI read boundary", () => {
     expect(aiReadQuery({ method: "pods", namespace: "default" })).toEqual({
       apiVersion: "v1",
       kind: "Pod",
+      resource: "pods",
       namespace: "default",
     });
     expect(aiReadQuery({ method: "resources", resource: "deployments" })).toEqual({
       apiVersion: "apps/v1",
       kind: "Deployment",
+      resource: "deployments",
     });
     expect(aiReadQuery({ method: "nodes", name: "example-node" })).toEqual({
       apiVersion: "v1",
       kind: "Node",
+      resource: "nodes",
       name: "example-node",
     });
     expect(() => aiReadQuery({ method: "resources", resource: "pods/exec" })).toThrow();
@@ -38,7 +42,7 @@ describe("AI read boundary", () => {
     expect(() => aiReadQuery({ method: "logs", name: "example" })).toThrow("withheld");
   });
 
-  it("never forwards environment values or arbitrary nested resource strings", () => {
+  it("preserves ordinary environment values and arbitrary resource content", () => {
     const result = summarizeAiResource({
       kind: "Pod",
       metadata: { annotations: { arbitrary: "example-sensitive" } },
@@ -63,12 +67,12 @@ describe("AI read boundary", () => {
       kind: "Pod",
       counts: { readyReplicas: 2 },
       environmentNames: ["EXAMPLE_KEY"],
-      detailsWithheld: true,
+      detailsWithheld: false,
     });
-    expect(JSON.stringify(result)).not.toContain("example-sensitive");
+    expect(JSON.stringify(result)).toContain("example-sensitive");
   });
 
-  it("returns useful bounded pod and node health without free-form payloads", () => {
+  it("returns bounded pod and node health with free-form messages", () => {
     const result = summarizeAiResource({
       items: [
         {
@@ -119,14 +123,15 @@ describe("AI read boundary", () => {
           conditions: [
             { type: "Ready", status: "True" },
             { type: "MemoryPressure", status: "False" },
+            { type: "example-sensitive", status: "True" },
           ],
         },
       ],
     });
-    expect(JSON.stringify(result)).not.toContain("example-sensitive");
+    expect(JSON.stringify(result)).toContain("example-sensitive");
   });
 
-  it("removes literal environment values repeated in identities across list entries", () => {
+  it("preserves identities matching environment values across list entries", () => {
     const items = Array.from({ length: 201 }, () => ({ kind: "Pod", metadata: { name: "example-sensitive-pod" } }));
     items.push({
       kind: "Pod",
@@ -136,10 +141,36 @@ describe("AI read boundary", () => {
     const result = summarizeAiResource({ items }) as { items: unknown[]; truncated: boolean };
     expect(result.items).toHaveLength(200);
     expect(result.truncated).toBe(true);
-    expect(JSON.stringify(result)).not.toContain("sensitive");
+    expect(JSON.stringify(result)).toContain("example-sensitive-pod");
   });
 
-  it("withholds identities exposed through downward API environment references", () => {
+  it("does not suppress identities or keys matching another list entry's environment", () => {
+    expect(
+      summarizeAiResource({
+        items: [
+          { kind: "Pod", metadata: { name: "example-pod", namespace: "default" }, spec: { example: "visible" } },
+          {
+            kind: "Pod",
+            metadata: { name: "other-pod" },
+            spec: {
+              containers: [
+                {
+                  env: [
+                    { name: "EXAMPLE", value: "example" },
+                    { name: "NAMESPACE", value: "default" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      items: [{ name: "example-pod", namespace: "default", spec: { example: "visible" } }, { name: "other-pod" }],
+    });
+  });
+
+  it("preserves identities exposed through downward API environment references", () => {
     const result = summarizeAiResource({
       kind: "Pod",
       metadata: { name: "example-pod", namespace: "default" },
@@ -155,8 +186,8 @@ describe("AI read boundary", () => {
       },
       status: { phase: "Running" },
     });
-    expect(result).not.toHaveProperty("name");
-    expect(result).not.toHaveProperty("namespace");
+    expect(result).toHaveProperty("name", "example-pod");
+    expect(result).toHaveProperty("namespace", "default");
     expect(result).toMatchObject({ phase: "Running", environmentNames: ["POD_NAME", "POD_NAMESPACE"] });
   });
 
@@ -184,6 +215,7 @@ describe("AI read boundary", () => {
     expect(aiReadQuery({ method: "resources", resource: "certificates.cert-manager.io" })).toEqual({
       apiVersion: "cert-manager.io/v1",
       kind: "Certificate",
+      resource: "certificates",
     });
     const catalog = [
       {
@@ -233,84 +265,152 @@ describe("AI read boundary", () => {
     expect(() => aiReadPath({ ...query, namespace: "../default" })).toThrow();
   });
 
-  it("preserves useful spec structure and Secret key names while dropping nested payloads and env values", () => {
+  it("redacts nested Kubernetes payloads while preserving ordinary spec values and payload keys", () => {
     const result = summarizeAiResource({
       kind: "Deployment",
       spec: {
-        replicas: 2,
-        enabled: true,
-        strategy: { type: "RollingUpdate" },
-        template: {
-          spec: {
-            containers: [
-              {
-                env: [{ name: "EXAMPLE_KEY", value: "100m" }],
-                resources: { requests: { cpu: "100m", memory: "128Mi" } },
-                nested: {
-                  kind: "Secret",
-                  data: { "tls.crt": "example-sensitive" },
-                  stringData: { password: "example-sensitive" },
-                  binaryData: { payload: "example-sensitive" },
-                },
-                command: ["example-sensitive"],
-              },
-            ],
-          },
+        containers: [{ env: [{ name: "EXAMPLE_KEY", value: "100m" }], command: ["example-command"] }],
+        data: { ordinary: "visible" },
+        nested: {
+          kind: "Secret",
+          apiVersion: "v1",
+          data: { "tls.crt": "private-certificate" },
+          stringData: { password: "private-password" },
         },
       },
     });
     expect(result).toMatchObject({
       spec: {
-        replicas: 2,
-        enabled: true,
-        strategy: { type: "RollingUpdate" },
-        template: {
-          spec: {
-            containers: [
-              {
-                env: [{ name: "EXAMPLE_KEY" }],
-                resources: { requests: { cpu: "[withheld]", memory: "128Mi" } },
-                nested: { dataKeys: ["tls.crt"], stringDataKeys: ["password"], binaryDataKeys: ["payload"] },
-                command: ["[withheld]"],
-              },
-            ],
-          },
-        },
+        containers: [{ env: [{ name: "EXAMPLE_KEY", value: "100m" }], command: ["example-command"] }],
+        data: { ordinary: "visible" },
+        nested: { data: { "tls.crt": "[REDACTED]" }, stringData: { password: "[REDACTED]" } },
       },
     });
-    expect(JSON.stringify(result)).not.toContain("example-sensitive");
-    expect(JSON.stringify(result)).not.toContain("100m");
+    expect(JSON.stringify(result)).not.toContain("private-certificate");
+    expect(JSON.stringify(result)).not.toContain("private-password");
   });
 
-  it("withholds sensitive spec fields for all value types without losing payload key names", () => {
-    const result = summarizeAiResource({
-      spec: {
-        nested: {
+  it("uses the approved root identity and redacts last-applied payloads", () => {
+    const annotation = "kubectl.kubernetes.io/last-applied-configuration";
+    const result = summarizeAiResource(
+      {
+        metadata: {
+          name: "example",
+          annotations: {
+            ordinary: "visible",
+            [annotation]: JSON.stringify({ apiVersion: "v1", kind: "ConfigMap", data: { setting: "private-setting" } }),
+          },
+        },
+        data: { setting: "private-setting" },
+        binaryData: { file: "private-binary" },
+      },
+      { kind: "ConfigMap", apiVersion: "v1" },
+    );
+    expect(result).toMatchObject({
+      name: "example",
+      kind: "ConfigMap",
+      dataKeys: ["setting"],
+      binaryDataKeys: ["file"],
+      data: { setting: "[REDACTED]" },
+      metadata: { annotations: { ordinary: "visible" } },
+    });
+    expect(JSON.stringify(result)).not.toContain("private-setting");
+    expect(JSON.stringify(result)).not.toContain("private-binary");
+  });
+
+  it("redacts actual Secret payloads even when the approved query kind differs", () => {
+    const result = summarizeAiResource(
+      {
+        kind: "Secret",
+        apiVersion: "v1",
+        metadata: { name: "example", namespace: "default" },
+        data: { key: "private-payload" },
+      },
+      { kind: "Pod", apiVersion: "v1" },
+    );
+    expect(result).toMatchObject({ kind: "Secret", data: { key: "[REDACTED]" } });
+    expect(JSON.stringify(result)).not.toContain("private-payload");
+    expect(collectAiReferences(result, { kind: "Pod", apiVersion: "v1" })).toEqual([]);
+  });
+
+  it("redacts approved Secret payloads even when the returned kind differs", () => {
+    const result = summarizeAiResource(
+      { kind: "Pod", data: { key: "private-payload" } },
+      { kind: "Secret", apiVersion: "v1" },
+    );
+    expect(result).toMatchObject({ kind: "Pod", data: { key: "[REDACTED]" } });
+    expect(JSON.stringify(result)).not.toContain("private-payload");
+  });
+
+  it.each([
+    "Secret",
+    "ConfigMap",
+  ])("redacts actual %sList items without allowing a mismatched query to forge references", (kind) => {
+    const input = {
+      kind: `${kind}List`,
+      items: [{ metadata: { name: "example", namespace: "default" }, data: { key: "private-payload" } }],
+    };
+    for (const approved of [undefined, { kind: "Pod", apiVersion: "v1" }]) {
+      const result = summarizeAiResource(input, approved);
+      expect(result).toMatchObject({ items: [{ data: { key: "[REDACTED]" } }] });
+      expect(JSON.stringify(result)).not.toContain("private-payload");
+      expect(collectAiReferences(result, { kind: "Pod", apiVersion: "v1" })).toEqual([]);
+    }
+  });
+
+  it("preserves every pod identity and restart count fairly within a bounded verbose list", () => {
+    const result = summarizeAiResource(
+      {
+        items: Array.from({ length: 200 }, (_, index) => ({
+          kind: "Pod",
+          metadata: { name: `example-${index}`, namespace: "default", annotations: { note: "a".repeat(8000) } },
+          spec: { containers: [{ args: ["b".repeat(8000)] }] },
+          status: {
+            phase: "Running",
+            readyReplicas: 1,
+            containerStatuses: [{ name: "app", ready: true, restartCount: index }],
+          },
+        })),
+      },
+      { kind: "Pod", apiVersion: "v1" },
+    ) as { items: Record<string, unknown>[]; truncated: boolean };
+    expect(result.items).toHaveLength(200);
+    for (let index = 0; index < 200; index++)
+      expect(result.items[index]).toMatchObject({
+        name: `example-${index}`,
+        namespace: "default",
+        kind: "Pod",
+        phase: "Running",
+        counts: { readyReplicas: 1 },
+        containers: [{ name: "app", restartCount: index }],
+        truncated: true,
+      });
+    expect(result.truncated).toBe(true);
+    expect(JSON.stringify(result).length).toBeLessThan(200000);
+  });
+
+  it("preserves ordinary credential-like field names and custom resource payloads", () => {
+    expect(
+      summarizeAiResource({
+        kind: "Widget",
+        spec: {
           password: 12345,
           access_token: "Always",
           credentials: { enabled: true },
           API_KEY: false,
-          privateKey: [123],
+          data: { password: "visible" },
         },
-        data: { password: "example-sensitive", token: "example-sensitive" },
-        replicas: 2,
-      },
-    });
-    expect(result).toMatchObject({
+      }),
+    ).toMatchObject({
+      kind: "Widget",
       spec: {
-        nested: {
-          password: "[withheld]",
-          access_token: "[withheld]",
-          credentials: "[withheld]",
-          API_KEY: "[withheld]",
-          privateKey: "[withheld]",
-        },
-        dataKeys: ["password", "token"],
-        replicas: 2,
+        password: 12345,
+        access_token: "Always",
+        credentials: { enabled: true },
+        API_KEY: false,
+        data: { password: "visible" },
       },
     });
-    expect(JSON.stringify(result)).not.toContain("12345");
-    expect(JSON.stringify(result)).not.toContain("Always");
   });
 
   it("passes only supported explicit reasoning efforts and leaves the default unset", () => {

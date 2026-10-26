@@ -6,7 +6,7 @@ it("formats complete JSON without rounding numbers and preserves legacy prose", 
     '{\n  "id": 9007199254740993,\n  "ratio": 1.2300\n}',
   );
   expect(formatAiAttachmentText("legacy { incomplete")).toBe("legacy { incomplete");
-  expect(formatAiAttachmentText('{"token":"sample-sensitive","text":"hello"}', 8000, true)).not.toContain(
+  expect(formatAiAttachmentText('{"token":"sample-sensitive","text":"hello"}', 8000, true)).toContain(
     "sample-sensitive",
   );
 });
@@ -18,7 +18,7 @@ it("bounds structured evidence without cutting JSON and redacts before pruning",
   );
   expect(evidence.length).toBeLessThanOrEqual(6000);
   expect(JSON.parse(evidence).error).toBe("Query failed");
-  expect(evidence).not.toContain("sample-sensitive");
+  expect(evidence).toContain("sample-sensitive");
 });
 
 it("copies only plain bounded receipts without accepting inherited data", () => {
@@ -56,7 +56,7 @@ it("marks every structural size reduction without claiming redaction itself is t
     JSON.parse(boundedAiJson({ rows: Array.from({ length: 101 }, (_, index) => index), omitted: 0 })).attachmentLimited,
   ).toBe(true);
   expect(JSON.parse(boundedAiJson({ message: "x".repeat(3000) })).attachmentLimited).toBe(true);
-  expect(JSON.parse(boundedAiJson({ password: "sample-sensitive" }))).toEqual({ password: "[REDACTED]" });
+  expect(JSON.parse(boundedAiJson({ password: "sample-sensitive" }))).toEqual({ password: "sample-sensitive" });
   expect(JSON.parse(boundedAiJson({ rows: [1, 2], truncated: false }))).toEqual({ rows: [1, 2], truncated: false });
   for (const limit of [0, 1, 2, 20, 100])
     expect(boundedAiJson({ rows: Array(100).fill("sample") }, limit).length).toBeLessThanOrEqual(limit);
@@ -72,14 +72,14 @@ it("keeps sanitized wire JSON byte identical across repeated receipt normalizati
   }
 });
 
-it("redacts sensitive subtrees and scalar values without rounding unrelated numbers", () => {
+it("preserves ordinary credential-like fields and numeric lexemes", () => {
   const text =
     '{"id":9007199254740993,"token":{"value":"sample-sensitive"},"password":123,"secret":true,"ratio":1.2300}';
   const formatted = formatAiAttachmentText(text, 8000, true);
   expect(formatted).toContain('"id": 9007199254740993');
   expect(formatted).toContain('"ratio": 1.2300');
-  expect(formatted).not.toContain("sample-sensitive");
-  expect(JSON.parse(formatted)).toMatchObject({ token: "[REDACTED]", password: "[REDACTED]", secret: "[REDACTED]" });
+  expect(formatted).toContain("sample-sensitive");
+  expect(JSON.parse(formatted)).toMatchObject({ token: { value: "sample-sensitive" }, password: 123, secret: true });
   const deep = `${"[".repeat(35)}9007199254740993${"]".repeat(35)}`;
   expect(formatAiAttachmentText(deep, 1000)).toBe(deep);
   const partial = formatAiAttachmentText(`{"id":9007199254740993,"data":"${"x".repeat(1000)}"}`, 200);
@@ -102,4 +102,9 @@ it("bounds traversal across adversarial broad nested evidence before serializing
   expect(evidence.length).toBeLessThanOrEqual(6000);
   expect(JSON.parse(evidence).attachmentLimited).toBe(true);
   expect(reads).toBeLessThan(500);
+});
+
+it("redacts nested typed-list attachment payloads without per-item kinds", () => {
+  const value = { nested: { kind: "ConfigMapList", items: [{ data: { file: "private" } }] } };
+  expect(boundedAiJson(value)).not.toContain("private");
 });

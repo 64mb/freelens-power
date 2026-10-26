@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { Common, Main } from "@freelensapp/extensions";
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from "electron";
 import { reaction } from "mobx";
-import { AI_CHAT_CHANNEL, AI_READ_ACTIVITY_CHANNEL, type AiChatRequest, validAiRequestId } from "../common/ai";
+import {
+  AI_CHAT_CHANNEL,
+  AI_PROGRESS_CHANNEL,
+  AI_READ_ACTIVITY_CHANNEL,
+  type AiChatRequest,
+  validAiRequestId,
+} from "../common/ai";
 import { AI_CANCEL_CHANNEL } from "../common/ai-extras";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { aiFailureCode, runAiChat } from "./ai";
@@ -109,11 +115,11 @@ export function startAiIpc(): () => void {
                 releasePowerLogStream(id, streamId);
               }
             },
-            read: async (query) => {
-              if (controller.signal.aborted) throw new Error("AI request canceled");
+            read: async (query, signal) => {
+              if (controller.signal.aborted || signal?.aborted) throw new Error("AI request canceled");
               if (query.resource) {
                 const api = Main.K8sApi.KubeJsonApi.forCluster.call(undefined, id);
-                return api.get(aiReadPath(query), undefined, { signal: controller.signal });
+                return api.get(aiReadPath(query), undefined, { signal: signal ?? controller.signal });
               }
               return query.name
                 ? Main.K8s.getResource(id, { ...query, name: query.name })
@@ -136,6 +142,24 @@ export function startAiIpc(): () => void {
             return;
           try {
             frame.send(AI_READ_ACTIVITY_CHANNEL, { requestId: request.requestId, ...activity });
+          } catch {
+            /* the originating frame may have closed */
+          }
+        },
+        (progress) => {
+          if (
+            !request.requestId ||
+            controller.signal.aborted ||
+            pending.get(event.sender.id) !== controller ||
+            !preferences.enabled ||
+            !frame ||
+            frame.detached ||
+            frame.url !== frameUrl ||
+            !trusted(event)
+          )
+            return;
+          try {
+            frame.send(AI_PROGRESS_CHANNEL, { ...progress, requestId: request.requestId });
           } catch {
             /* the originating frame may have closed */
           }

@@ -1,3 +1,4 @@
+import { isKubernetesPayloadResource, redactKubernetesJsonText } from "./ai-resource-payload";
 import { redactAiTerminalText } from "./ai-terminal-context";
 
 export interface AiAttachmentReceipt {
@@ -8,18 +9,13 @@ export interface AiAttachmentReceipt {
   source?: "logs" | "relationships" | "diagnostics";
 }
 
-const sensitive = (key: string) =>
-  /password|passwd|token|secret|authorization|credential|apikey|privatekey|clientkeydata|clientcertificatedata/i.test(
-    key.replace(/[^a-z0-9]/gi, ""),
-  );
-
 export function boundedAiJson(value: unknown, maxLength = 8000): string {
   const limit = Number.isFinite(maxLength) ? Math.max(0, Math.floor(maxLength)) : 8000;
   let limited = false;
   let remainingCharacters = 0;
   let remainingNodes = 0;
   const available = () => remainingCharacters > 0 && remainingNodes > 0;
-  const project = (item: unknown, budget: number, depth: number): unknown => {
+  const project = (item: unknown, budget: number, depth: number, resourceHint = false): unknown => {
     remainingNodes--;
     if (depth > 8 || !available()) {
       limited = true;
@@ -37,7 +33,7 @@ export function boundedAiJson(value: unknown, maxLength = 8000): string {
       const count = Math.max(1, Math.min(100, Math.floor(budget / 20)));
       const result: unknown[] = [];
       for (let index = 0; index < item.length && index < count && available(); index++) {
-        result.push(project(item[index], budget, depth + 1));
+        result.push(project(item[index], budget, depth + 1, resourceHint));
       }
       if (item.length > result.length) limited = true;
       return result;
@@ -54,9 +50,27 @@ export function boundedAiJson(value: unknown, maxLength = 8000): string {
         const safeKey = key.slice(0, Math.min(200, remainingCharacters));
         if (safeKey.length < key.length) limited = true;
         remainingCharacters -= safeKey.length;
-        result[safeKey] = sensitive(key)
-          ? project("[REDACTED]", budget, depth + 1)
-          : project((item as Record<string, unknown>)[key], budget, depth + 1);
+        const child = (item as Record<string, unknown>)[key];
+        const payload =
+          (resourceHint || isKubernetesPayloadResource(item)) && ["data", "stringData", "binaryData"].includes(key);
+        result[safeKey] = project(
+          payload
+            ? child && typeof child === "object" && !Array.isArray(child)
+              ? Object.fromEntries(Object.keys(child).map((name) => [name, "[REDACTED]"]))
+              : "[REDACTED]"
+            : key === "kubectl.kubernetes.io/last-applied-configuration" && typeof child === "string"
+              ? (() => {
+                  try {
+                    return redactKubernetesJsonText(child);
+                  } catch {
+                    return "[REDACTED]";
+                  }
+                })()
+              : child,
+          budget,
+          depth + 1,
+          ["SecretList", "ConfigMapList"].includes((item as Record<string, unknown>).kind as string) && key === "items",
+        );
         count++;
       }
       return result;
@@ -91,24 +105,10 @@ export function formatAiAttachmentText(text: string, maxLength = 64000, redact =
   const limit = Number.isFinite(maxLength) ? Math.max(0, Math.floor(maxLength)) : 64000;
   try {
     JSON.parse(text);
-    const tokens = text.match(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|[{}\[\],:]/g) ?? [];
-    const safe: string[] = [];
-    for (let index = 0; index < tokens.length; index++) {
-      let token = tokens[index];
-      if (redact && tokens[index - 1] === ":" && sensitive(JSON.parse(tokens[index - 2]) as string)) {
-        if (token === "{" || token === "[") {
-          let nesting = 1;
-          while (nesting && ++index < tokens.length) {
-            if (tokens[index] === "{" || tokens[index] === "[") nesting++;
-            else if (tokens[index] === "}" || tokens[index] === "]") nesting--;
-          }
-        }
-        token = JSON.stringify("[REDACTED]");
-      } else if (redact && token.startsWith('"') && tokens[index + 1] !== ":") {
-        token = JSON.stringify(redactAiTerminalText(JSON.parse(token) as string));
-      }
-      safe.push(token);
-    }
+    const safe =
+      (redact ? redactKubernetesJsonText(text) : text).match(
+        /"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|[{}\[\],:]/g,
+      ) ?? [];
     const compact = safe.join("");
     let depth = 0;
     let formatted = "";

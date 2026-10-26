@@ -36,7 +36,7 @@ describe("diagnostic finding boundary", () => {
     ])
       expect(sanitizeDiagnosticFinding(value)).toBeUndefined();
   });
-  it("redacts complete evidence before bounding title and summary and drops malformed resource references", () => {
+  it("preserves ordinary evidence before bounding and drops malformed resource references", () => {
     const safe = sanitizeDiagnosticFinding({
       ...finding(),
       title: "x".repeat(200),
@@ -46,8 +46,7 @@ describe("diagnostic finding boundary", () => {
     })!;
     expect(safe.title).toHaveLength(160);
     expect(safe.summary).toHaveLength(6000);
-    expect(safe.summary).toContain("[REDACTED]");
-    expect(JSON.stringify(safe)).not.toContain("confidential");
+    expect(safe.summary).toContain("password: confidential");
     expect(safe.resource).toBeUndefined();
     expect(safe).not.toHaveProperty("extra");
   });
@@ -57,7 +56,7 @@ describe("diagnostic finding boundary", () => {
     try {
       expect(explainDiagnosticFinding({ ...finding(), summary: "token: confidential" })).toBe(true);
       expect(listener).toHaveBeenCalledTimes(1);
-      expect((listener.mock.calls[0][0] as CustomEvent).detail.summary).toBe("token: [REDACTED]");
+      expect((listener.mock.calls[0][0] as CustomEvent).detail.summary).toBe("token: confidential");
       state.enabled = false;
       expect(explainDiagnosticFinding(finding())).toBe(false);
       state.enabled = true;
@@ -90,7 +89,7 @@ it("bounds structured summaries while keeping valid JSON and the automatic snaps
     ...finding(),
     automatic: true,
     source: "diagnostics",
-    summary: JSON.stringify({ message: "x".repeat(20000), password: "sample-sensitive" }),
+    summary: JSON.stringify({ kind: "Secret", data: { password: "sample-sensitive" }, message: "x".repeat(20000) }),
   })!;
   expect(safe.automatic).toBe(true);
   expect(safe.summary.length).toBeLessThanOrEqual(8000);

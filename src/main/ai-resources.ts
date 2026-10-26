@@ -1,3 +1,5 @@
+import { redactKubernetesPayload } from "../common/ai-resource-payload";
+
 import type { AiLogQuery } from "./ai-logs";
 export interface AiReadQuery {
   resource?: string;
@@ -96,7 +98,12 @@ export function aiReadQuery(request: AiReadRequest, catalog: AiDiscoveredResourc
   if ("verbs" in definition && !(definition.verbs as string[]).includes(request.name ? "get" : "list"))
     throw new AiUnsupportedResourceError();
   const query: AiReadQuery = { apiVersion: definition.apiVersion, kind: definition.kind };
-  if ("resource" in definition) query.resource = definition.resource as string;
+  query.resource =
+    "resource" in definition
+      ? (definition.resource as string)
+      : Object.entries(resources)
+          .find(([, item]) => item === definition)?.[0]
+          .split(".")[0];
   if (request.name) query.name = identifier(request.name);
   if (request.namespace) {
     if (!definition.namespaced) throw new Error("This resource does not have a namespace");
@@ -130,222 +137,125 @@ function record(value: unknown): RecordValue {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordValue) : {};
 }
 
-const kinds = new Set([
-  "Pod",
-  "Node",
-  "Deployment",
-  "StatefulSet",
-  "DaemonSet",
-  "ReplicaSet",
-  "Service",
-  "Namespace",
-  "Job",
-  "CronJob",
-  "PersistentVolumeClaim",
-  "PersistentVolume",
-  "Ingress",
-  "ConfigMap",
-  "Secret",
-  "Event",
-  "Certificate",
-  "CertificateRequest",
-  "Issuer",
-  "ClusterIssuer",
-]);
-const phases = new Set([
-  "Pending",
-  "Running",
-  "Succeeded",
-  "Failed",
-  "Unknown",
-  "Active",
-  "Terminating",
-  "Bound",
-  "Available",
-  "Released",
-  "Lost",
-]);
-const conditionTypes = new Set([
-  "Ready",
-  "Initialized",
-  "ContainersReady",
-  "PodScheduled",
-  "PodReadyToStartContainers",
-  "MemoryPressure",
-  "DiskPressure",
-  "PIDPressure",
-  "NetworkUnavailable",
-  "Available",
-  "Progressing",
-  "ReplicaFailure",
-  "Complete",
-  "Failed",
-]);
-const conditionStatuses = new Set(["True", "False", "Unknown"]);
-const containerReasons = new Set([
-  "CrashLoopBackOff",
-  "ImagePullBackOff",
-  "ErrImagePull",
-  "ContainerCreating",
-  "PodInitializing",
-  "CreateContainerConfigError",
-  "CreateContainerError",
-  "RunContainerError",
-  "OOMKilled",
-  "Completed",
-  "Error",
-]);
-
-// only fixed health enums, numeric status, validated identities and environment names leave this boundary
-// suppress identities containing literal environment values found anywhere in this response
-export function summarizeAiResource(value: unknown, approved?: Pick<AiReadQuery, "kind" | "apiVersion">): unknown {
-  const environmentValues = new Set<string>();
-  function collect(current: unknown, owner: RecordValue = {}) {
-    if (Array.isArray(current)) {
-      current.forEach((entry) => collect(entry, owner));
-      return;
-    }
-    const item = record(current);
-    if (item.metadata && item.spec) owner = item;
-    if (Array.isArray(item.env)) {
-      for (const entry of item.env) {
-        const literal = record(entry).value;
-        if (typeof literal === "string" && literal) environmentValues.add(literal);
-        const fieldPath = record(record(record(entry).valueFrom).fieldRef).fieldPath;
-        if (
-          typeof fieldPath === "string" &&
-          [
-            "metadata.name",
-            "metadata.namespace",
-            "spec.nodeName",
-            "spec.serviceAccountName",
-            "status.hostIP",
-            "status.podIP",
-          ].includes(fieldPath)
-        ) {
-          const [section, field] = fieldPath.split(".");
-          const resolved = record(owner[section])[field];
-          if (typeof resolved === "string" && resolved) environmentValues.add(resolved);
-        }
-      }
-    }
-    for (const [key, nested] of Object.entries(item)) {
-      if (key !== "data" && key !== "stringData" && key !== "annotations" && key !== "env") collect(nested, owner);
-    }
+// payload redaction follows Kubernetes resource origins, independently of ordinary resource values
+export function summarizeAiResource(
+  value: unknown,
+  approved?: Pick<AiReadQuery, "kind" | "apiVersion">,
+  detailBudget = 100000,
+  payloadKind?: string,
+): unknown {
+  const source = record(value);
+  if (Array.isArray(source.items)) {
+    const listPayloadKind =
+      source.kind === "SecretList" ? "Secret" : source.kind === "ConfigMapList" ? "ConfigMap" : payloadKind;
+    const childApproved = listPayloadKind && approved && listPayloadKind !== approved.kind ? undefined : approved;
+    const items = source.items
+      .slice(0, 200)
+      .map((item) =>
+        summarizeAiResource(
+          item,
+          childApproved,
+          Math.min(
+            detailBudget,
+            Math.floor(60000 / Math.max(1, source.items instanceof Array ? source.items.length : 1)),
+          ),
+          listPayloadKind,
+        ),
+      );
+    return { items, truncated: source.items.length > 200 || items.some((item) => record(item).truncated === true) };
   }
-  collect(value);
-  function safeIdentity(input: unknown): string | undefined {
-    if (typeof input !== "string" || !/^[a-z0-9][a-z0-9.-]{0,252}$/.test(input)) return undefined;
-    if ([...environmentValues].some((literal) => input.includes(literal))) return undefined;
+  function identify(current: unknown): unknown {
+    const object = record(current);
+    if (Array.isArray(object.items)) return { ...object, items: object.items.map(identify) };
+    return approved
+      ? { ...object, kind: object.kind ?? approved.kind, apiVersion: object.apiVersion ?? approved.apiVersion }
+      : current;
+  }
+  let remainingNodes = 12000;
+  let remainingCharacters = detailBudget;
+  let limited = false;
+  function bound(input: unknown, depth = 0): unknown {
+    if (--remainingNodes < 0 || depth > 20) {
+      limited = true;
+      return "[content omitted]";
+    }
+    if (typeof input === "string") {
+      const count = Math.max(0, Math.min(8000, remainingCharacters));
+      const result = input.slice(0, count);
+      remainingCharacters -= result.length;
+      if (result.length < input.length) limited = true;
+      return result;
+    }
+    if (Array.isArray(input)) {
+      if (input.length > 200) limited = true;
+      return input.slice(0, 200).map((item) => bound(item, depth + 1));
+    }
+    if (input && typeof input === "object") {
+      const output: Record<string, unknown> = Object.create(null);
+      const entries = Object.entries(input);
+      if (entries.length > 200) limited = true;
+      for (const [key, nested] of entries.slice(0, 200)) {
+        if (remainingNodes <= 0 || remainingCharacters <= 0) {
+          limited = true;
+          break;
+        }
+        const safeKey = key.slice(0, Math.min(512, remainingCharacters));
+        remainingCharacters -= safeKey.length;
+        if (safeKey.length < key.length) limited = true;
+        output[safeKey] = bound(nested, depth + 1);
+      }
+      return output;
+    }
     return input;
   }
-  let structuralBudget = 6000;
-  const specEnums = new Set([
-    "Always",
-    "Never",
-    "OnFailure",
-    "IfNotPresent",
-    "TCP",
-    "UDP",
-    "SCTP",
-    "ClusterIP",
-    "NodePort",
-    "LoadBalancer",
-    "ExternalName",
-    "ReadWriteOnce",
-    "ReadOnlyMany",
-    "ReadWriteMany",
-    "ReadWriteOncePod",
-    "Filesystem",
-    "Block",
-    "RollingUpdate",
-    "Recreate",
-    "ClusterFirst",
-    "Default",
-    "None",
-    "ClusterFirstWithHostNet",
-  ]);
-  function safeKey(key: string): boolean {
-    return (
-      /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(key) && ![...environmentValues].some((literal) => key.includes(literal))
-    );
+  const raw = record(identify(value));
+  const rawMetadata = record(raw.metadata);
+  const rawStatus = record(raw.status);
+  const healthStatus: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(rawStatus)) {
+    if (typeof field === "number" || key === "phase") healthStatus[key] = field;
   }
-  function payloadKeys(value: unknown): string[] {
-    return Object.keys(record(value)).filter(safeKey).slice(0, 100);
-  }
-  function specSummary(input: unknown, depth = 0): unknown {
-    if (--structuralBudget < 0 || depth > 10) return "[withheld]";
-    if (input === null || typeof input === "boolean") return input;
-    if (typeof input === "number") return Number.isFinite(input) ? input : "[withheld]";
-    if (typeof input === "string") {
-      if ([...environmentValues].some((literal) => input.includes(literal))) return "[withheld]";
-      return specEnums.has(input) || /^\d+(?:\.\d+)?(?:m|Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$/.test(input)
-        ? input
-        : "[withheld]";
-    }
-    if (Array.isArray(input)) return input.slice(0, 100).map((item) => specSummary(item, depth + 1));
-    const output: Record<string, unknown> = Object.create(null);
-    for (const [key, nested] of Object.entries(record(input)).slice(0, 100)) {
-      if (!safeKey(key) || ["annotations", "managedFields"].includes(key)) continue;
-      if (["data", "stringData", "binaryData"].includes(key)) {
-        output[`${key}Keys`] = payloadKeys(nested);
-        continue;
-      }
-      if (
-        /^(?:password|passwd|token|accessToken|refreshToken|idToken|clientSecret|privateKey|apiKey|credentials|authorization|connectionString|secretAccessKey|accessKey|secretKey|bearerToken|certificateData|clientKeyData)$/i.test(
-          key.replace(/[_-]/g, ""),
-        )
-      ) {
-        output[key] = "[withheld]";
-        continue;
-      }
-      if (key === "env") {
-        output.env = Array.isArray(nested)
-          ? nested.slice(0, 100).flatMap((entry) => {
-              const name = record(entry).name;
-              return typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && safeKey(name)
-                ? [{ name }]
-                : [];
-            })
-          : [];
-        continue;
-      }
-      output[key] = specSummary(nested, depth + 1);
-    }
-    return output;
-  }
-  function summarize(current: unknown): unknown {
+  if (Array.isArray(rawStatus.conditions))
+    healthStatus.conditions = rawStatus.conditions.slice(0, 30).map((entry) => {
+      const condition = record(entry);
+      return { type: condition.type, status: condition.status };
+    });
+  if (Array.isArray(rawStatus.containerStatuses))
+    healthStatus.containerStatuses = rawStatus.containerStatuses.slice(0, 100).map((entry) => {
+      const container = record(entry);
+      const state = record(container.state);
+      const compactState: Record<string, unknown> = {};
+      for (const key of ["running", "waiting", "terminated"])
+        if (state[key]) {
+          const detail = record(state[key]);
+          compactState[key] = { reason: detail.reason, exitCode: detail.exitCode };
+        }
+      return {
+        name: container.name,
+        ready: container.ready,
+        restartCount: container.restartCount,
+        state: compactState,
+      };
+    });
+  const healthInput = {
+    kind: raw.kind,
+    apiVersion: raw.apiVersion,
+    metadata: { name: rawMetadata.name, namespace: rawMetadata.namespace },
+    status: healthStatus,
+  };
+  const safe = bound(redactKubernetesPayload(raw, payloadKind ?? approved?.kind));
+  const detailLimited = limited;
+
+  function summarize(current: unknown): Record<string, unknown> {
     const object = record(current);
     if (Array.isArray(object.items))
       return {
-        items: object.items.slice(0, 200).map(summarize),
-        truncated: object.items.length > 200,
+        ...object,
+        items: object.items.map(summarize),
+        truncated: limited || (record(value).items instanceof Array && (record(value).items as unknown[]).length > 200),
       };
-    const status = record(object.status);
     const metadata = record(object.metadata);
-    const environmentNames = new Set<string>();
-    function visit(currentSpec: unknown) {
-      if (Array.isArray(currentSpec)) {
-        currentSpec.forEach(visit);
-        return;
-      }
-      const item = record(currentSpec);
-      if (Array.isArray(item.env)) {
-        for (const entry of item.env) {
-          const name = record(entry).name;
-          if (
-            typeof name === "string" &&
-            /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
-            ![...environmentValues].some((literal) => name.includes(literal))
-          )
-            environmentNames.add(name);
-        }
-      }
-      for (const [key, nested] of Object.entries(item)) {
-        if (key !== "data" && key !== "stringData" && key !== "annotations" && key !== "env") visit(nested);
-      }
-    }
-    visit(object.spec);
+    const status = record(object.status);
     const counts: Record<string, number> = {};
     for (const key of [
       "replicas",
@@ -361,71 +271,71 @@ export function summarizeAiResource(value: unknown, approved?: Pick<AiReadQuery,
     ]) {
       if (typeof status[key] === "number" && Number.isFinite(status[key])) counts[key] = status[key];
     }
+    const environmentNames = new Set<string>();
+    function visit(input: unknown) {
+      if (Array.isArray(input)) return input.forEach(visit);
+      const item = record(input);
+      if (Array.isArray(item.env))
+        for (const entry of item.env) {
+          const name = record(entry).name;
+          if (typeof name === "string") environmentNames.add(name);
+        }
+      Object.values(item).forEach((nested) => {
+        if (nested && typeof nested === "object") visit(nested);
+      });
+    }
+    visit(object.spec);
     const result: Record<string, unknown> = {
+      ...object,
       counts,
       environmentNames: [...environmentNames].sort(),
-      detailsWithheld: true,
+      detailsWithheld: false,
     };
-    if (object.spec !== undefined) result.spec = specSummary(object.spec);
-    for (const field of ["data", "stringData", "binaryData"]) {
-      if (object[field] !== undefined) result[`${field}Keys`] = payloadKeys(object[field]);
-    }
-    const kind = approved?.kind ?? object.kind;
-    const apiVersion = approved?.apiVersion;
-    const hiddenIdentity = (identity: string) => [...environmentValues].some((literal) => identity.includes(literal));
-    if (
-      typeof kind === "string" &&
-      /^[A-Z][A-Za-z0-9]{0,100}$/.test(kind) &&
-      (approved ? object.kind === undefined || object.kind === kind : kinds.has(kind)) &&
-      !hiddenIdentity(kind)
-    )
-      result.kind = kind;
-    if (
-      typeof apiVersion === "string" &&
-      /^(?:[a-z0-9][a-z0-9.-]{0,200}\/)?v[0-9]+(?:(?:alpha|beta)[0-9]+)?$/.test(apiVersion) &&
-      (object.apiVersion === undefined || object.apiVersion === apiVersion) &&
-      !hiddenIdentity(apiVersion)
-    )
-      result.apiVersion = apiVersion;
-    const name = safeIdentity(metadata.name);
-    const namespace = safeIdentity(metadata.namespace);
-    if (name) result.name = name;
-    if (namespace) result.namespace = namespace;
-    if (phases.has(status.phase as string)) result.phase = status.phase;
-    if (Array.isArray(status.conditions))
-      result.conditions = status.conditions.slice(0, 30).flatMap((value) => {
-        const condition = record(value);
-        return conditionTypes.has(condition.type as string) && conditionStatuses.has(condition.status as string)
-          ? [{ type: condition.type, status: condition.status }]
-          : [];
-      });
+    if (limited) result.truncated = true;
+    for (const key of ["name", "namespace"]) if (typeof metadata[key] === "string") result[key] = metadata[key];
+    if (status.phase !== undefined) result.phase = status.phase;
+    if (status.conditions !== undefined) result.conditions = status.conditions;
     if (Array.isArray(status.containerStatuses))
-      result.containers = status.containerStatuses.slice(0, 100).map((value) => {
-        const container = record(value);
-        const summary: Record<string, unknown> = {};
-        const containerName = safeIdentity(container.name);
-        if (containerName) summary.name = containerName;
-        if (typeof container.ready === "boolean") summary.ready = container.ready;
-        if (
-          typeof container.restartCount === "number" &&
-          Number.isSafeInteger(container.restartCount) &&
-          container.restartCount >= 0
-        )
-          summary.restartCount = container.restartCount;
-        const state = record(container.state);
+      result.containers = status.containerStatuses.map((input) => {
+        const container = record(input);
+        const summary: Record<string, unknown> = { ...container };
         for (const key of ["running", "waiting", "terminated"]) {
-          if (state[key] && typeof state[key] === "object") {
+          const detail = record(record(container.state)[key]);
+          if (record(container.state)[key] && typeof record(container.state)[key] === "object") {
             summary.state = key;
-            const detail = record(state[key]);
-            if (containerReasons.has(detail.reason as string)) summary.reason = detail.reason;
-            if (key === "terminated" && typeof detail.exitCode === "number" && Number.isSafeInteger(detail.exitCode))
-              summary.exitCode = detail.exitCode;
+            if (detail.reason !== undefined) summary.reason = detail.reason;
+            if (detail.exitCode !== undefined) summary.exitCode = detail.exitCode;
             break;
           }
         }
         return summary;
       });
+    for (const field of ["data", "stringData", "binaryData"]) {
+      if (object[field] !== undefined && ["Secret", "ConfigMap"].includes(String(object.kind))) {
+        result[`${field}Keys`] = Object.keys(record(object[field]));
+      }
+    }
     return result;
   }
-  return summarize(value);
+  const details = summarize(safe);
+  remainingNodes = 2000;
+  remainingCharacters = 8000;
+  limited = false;
+  const health = summarize(bound(redactKubernetesPayload(healthInput)));
+  const result: Record<string, unknown> = { ...details, ...health, environmentNames: details.environmentNames };
+  if (detailLimited || limited) result.truncated = true;
+  // compact fields remain available even when a verbose detail branch consumes its allocation
+  for (const key of ["metadata", "status"]) if (record(safe)[key] !== undefined) result[key] = record(safe)[key];
+  const ceiling = Math.max(900, detailBudget * 3);
+  if (JSON.stringify(result).length > ceiling) {
+    const compact: Record<string, unknown> = { ...health, truncated: true };
+    delete compact.metadata;
+    delete compact.status;
+    for (const key of ["conditions", "containers"]) {
+      const entries = compact[key];
+      if (Array.isArray(entries)) while (entries.length && JSON.stringify(compact).length > ceiling) entries.pop();
+    }
+    return compact;
+  }
+  return result;
 }
