@@ -229,19 +229,19 @@ it.each([
   "during pagination",
   "after pagination",
 ])("refreshes all matches once when indexing completes %s", async (completion) => {
-  const documents = Array.from({ length: 210 }, (_, index) => resource(`resource-${index}`));
+  const documents = Array.from({ length: 21 }, (_, index) => resource(`resource-${index}`));
   await launch(documents.slice(0, 10), true);
   let finish!: (value: unknown) => void;
-  state.query.mockResolvedValueOnce({ documents: documents.slice(0, 100), total: documents.length, hasMore: true });
+  state.query.mockResolvedValueOnce({ documents: documents.slice(0, 10), total: documents.length, hasMore: true });
   state.query.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
         finish = resolve;
       }),
   );
-  state.query.mockResolvedValueOnce({ documents: documents.slice(200), total: documents.length, hasMore: false });
+  state.query.mockResolvedValueOnce({ documents: documents.slice(20), total: documents.length, hasMore: false });
   let finishRefresh!: (value: unknown) => void;
-  state.query.mockResolvedValueOnce({ documents: documents.slice(0, 100), total: 211, hasMore: true });
+  state.query.mockResolvedValueOnce({ documents: documents.slice(0, 10), total: 22, hasMore: true });
   state.query.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
@@ -249,7 +249,7 @@ it.each([
       }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Show all matches" }));
-  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 100 }));
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 10 }));
   for (const indexing of completion === "during pagination" ? [true, false] : [true]) {
     act(() =>
       state.coverage({
@@ -265,22 +265,22 @@ it.each([
       await new Promise((resolve) => setTimeout(resolve, 120));
     });
     expect(state.query).toHaveBeenCalledTimes(3);
-    expect(screen.getByRole("button", { name: "Loading matches… 100 / 210" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Loading matches… 10 / 21" })).toBeTruthy();
   }
-  await act(async () => finish({ documents: documents.slice(100, 200), total: documents.length, hasMore: true }));
-  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 200 }));
-  expect(screen.getAllByRole("listitem")).toHaveLength(210);
+  await act(async () => finish({ documents: documents.slice(10, 20), total: documents.length, hasMore: true }));
+  await waitFor(() => expect(state.query).toHaveBeenLastCalledWith("", 1000, { offset: 20 }));
+  expect(screen.getAllByRole("listitem")).toHaveLength(21);
   if (completion === "after pagination") {
     act(() =>
       state.coverage({ scanned: 20, discovered: 20, denied: 0, unavailable: 0, unsupported: 0, indexing: false }),
     );
   }
   await waitFor(() => expect(state.query).toHaveBeenCalledTimes(6));
-  expect(screen.getAllByRole("listitem")).toHaveLength(210);
+  expect(screen.getAllByRole("listitem")).toHaveLength(21);
   await act(async () =>
-    finishRefresh({ documents: [...documents.slice(100), resource("newly-indexed")], total: 211, hasMore: false }),
+    finishRefresh({ documents: [...documents.slice(10), resource("newly-indexed")], total: 22, hasMore: false }),
   );
-  expect(screen.getAllByRole("listitem")).toHaveLength(211);
+  expect(screen.getAllByRole("listitem")).toHaveLength(22);
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
   });
