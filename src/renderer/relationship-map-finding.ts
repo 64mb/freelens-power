@@ -42,6 +42,7 @@ export function relationshipMapFinding(
     summary = JSON.stringify(snapshot);
   }
   return {
+    automatic: true,
     clusterId,
     source: "relationships",
     title: `Relationships · ${service}`,

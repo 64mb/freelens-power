@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { aiLauncherBottom, aiLauncherLeft, readAiContext, startAiChat } from "./ai";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
+import type { AiMessage } from "../common/store/ai-preferences-store";
+
 const mocks = vi.hoisted(() => ({
   clusterId: "cluster-a",
   terminalOutput: "initial output",
@@ -22,8 +24,8 @@ const mocks = vi.hoisted(() => ({
     speed: "default",
     systemPrompt: "Help",
     clusterPrompt: "Review",
-    conversations: {} as Record<string, { role: string; text: string }[]>,
-    setMessages(key: string, messages: { role: string; text: string }[]) {
+    conversations: {} as Record<string, AiMessage[]>,
+    setMessages(key: string, messages: AiMessage[]) {
       this.conversations[key] = messages;
     },
   },
@@ -75,7 +77,8 @@ vi.mock("@freelensapp/extensions", () => ({
   },
 }));
 let stop: (() => void) | undefined;
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {});
   stop?.();
   stop = undefined;
   document.body.innerHTML = "";
@@ -134,14 +137,16 @@ describe("AI chat", () => {
     expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("fresh reopened output")).toBeTruthy();
     const terminalSummary = screen.getByText(/^Terminal · \d+ rows/);
-    expect(terminalSummary.parentElement?.style.paddingLeft).toBe("16px");
+    expect(terminalSummary.closest(".power-ai-attachment-card")).toBeTruthy();
     expect(screen.queryByText(/^Preview ·/)).toBeNull();
     mocks.terminalOutput = "fresh send-time output";
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
     expect(mocks.invoke.mock.calls.at(-1)?.[1]).toHaveProperty("terminalSnapshot.text", "fresh send-time output");
-    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("fresh ");
+    expect(mocks.preferences.conversations["cluster-a"][0].attachments).toEqual([
+      expect.objectContaining({ kind: "terminal", text: "fresh send-time output" }),
+    ]);
   });
   it("preserves attachment through search overlay clicks and refreshes the preview when it disappears", async () => {
     document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
@@ -175,7 +180,7 @@ describe("AI chat", () => {
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
     expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
   });
-  it("recaptures explicitly attached output for one request without storing it in history", async () => {
+  it("recaptures explicitly attached output, saves a receipt and consumes it after success", async () => {
     document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
     mocks.terminalOutput = "preview output";
     mocks.invoke.mockResolvedValue({ text: "Ready" });
@@ -194,7 +199,9 @@ describe("AI chat", () => {
         terminalSnapshot: expect.objectContaining({ text: "current output\nEXAMPLE=[REDACTED]" }),
       }),
     );
-    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("current output");
+    expect(mocks.preferences.conversations["cluster-a"][0].attachments).toEqual([
+      expect.objectContaining({ kind: "terminal", text: "current output\nEXAMPLE=[REDACTED]" }),
+    ]);
     expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("preview output");
     expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("sensitive");
     expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
@@ -208,7 +215,7 @@ describe("AI chat", () => {
     const previous = mocks.preferences;
     const preferences = observable({
       ...previous,
-      conversations: { "cluster-a": [{ role: "assistant", text: "Saved reply" }] },
+      conversations: { "cluster-a": [{ role: "assistant" as const, text: "Saved reply" }] },
     });
     mocks.preferences = preferences;
     try {
@@ -252,7 +259,7 @@ describe("AI chat", () => {
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Continue" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(3));
+    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.querySelector('.power-ai-read-activity [data-method="pods"]')?.getAttribute("data-status")).toBe(
       "ok",
@@ -336,7 +343,7 @@ describe("AI chat", () => {
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalled());
     const request = mocks.invoke.mock.calls.find(([channel]) => channel === "freelens-power:ai-chat")![1] as {
       systemPrompt: string;
-      messages: { role: string; text: string }[];
+      messages: AiMessage[];
     };
     expect(request.systemPrompt).toContain("logs(timestamp INTEGER");
     expect(request.systemPrompt).toContain("Draft queries only: never execute them");
@@ -367,7 +374,8 @@ describe("AI chat", () => {
     fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
     expect(mocks.invoke).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
   });
   it("shows live read activity only for the matching pending request", async () => {
     let finish: (response: { text: string }) => void = () => {};
@@ -384,7 +392,9 @@ describe("AI chat", () => {
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect pods" } });
     fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
     const request = mocks.invoke.mock.calls[0][1] as { requestId: string };
-    const listener = mocks.on.mock.calls.find(([channel]) => channel === "freelens-power:ai-read-activity")?.[1];
+    const listener = mocks.on.mock.calls
+      .filter(([channel]) => channel === "freelens-power:ai-read-activity")
+      .at(-1)?.[1];
     expect(listener).toBeTruthy();
     act(() => listener({}, { requestId: "stale", method: "pods", status: "reading" }));
     expect(document.querySelector('[data-status="reading"]')).toBeNull();
@@ -627,20 +637,21 @@ it("stops the originating request, ignores late progress and replies, and clears
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect pods" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   const request = mocks.invoke.mock.calls[0][1] as { requestId: string };
-  const listener = mocks.on.mock.calls.find(([channel]) => channel === "freelens-power:ai-read-activity")?.[1];
+  const listener = mocks.on.mock.calls.filter(([channel]) => channel === "freelens-power:ai-read-activity").at(-1)?.[1];
   fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
   expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:ai-cancel", request.requestId);
   act(() => listener({}, { requestId: request.requestId, method: "pods", status: "reading" }));
   expect(document.querySelector('[data-method="pods"]')).toBeNull();
   await act(async () => finish({ text: "Late answer" }));
-  expect(mocks.preferences.conversations["cluster-a"]).toEqual([{ role: "user", text: "Inspect pods" }]);
+  expect(mocks.preferences.conversations["cluster-a"]).toEqual([]);
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Inspect pods");
   expect(screen.queryByText("Late answer")).toBeNull();
   expect(screen.getByRole("status").textContent).toContain("Response stopped");
   fireEvent.click(screen.getByRole("button", { name: "Dismiss cancellation" }));
   expect(screen.queryByRole("status")).toBeNull();
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Try again" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(3));
+  await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
@@ -674,7 +685,7 @@ it("keeps the explicitly attached resource after the host drawer closes until it
   await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
 });
 
-it("captures a newly opened drawer in pinned chat on keyboard focus and respects explicit dismissal", async () => {
+it("ignores a newly opened drawer in pinned chat on keyboard focus", async () => {
   window.history.replaceState({}, "", "/pods");
   stop = startAiChat(() => true);
   fireEvent.click(screen.getByLabelText("Open AI assistant"));
@@ -685,12 +696,11 @@ it("captures a newly opened drawer in pinned chat on keyboard focus and respects
     window.history.replaceState({}, "", "/pods");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
-  expect(screen.getByLabelText("Attached resource").textContent).toContain("pods/worker");
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
   act(() => {
     window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/default/pods/worker");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
-  fireEvent.click(screen.getByLabelText("Remove attached resource"));
   fireEvent.focus(screen.getByLabelText("Message"));
   fireEvent.mouseDown(screen.getByLabelText("Message"));
   act(() => window.dispatchEvent(new PopStateEvent("popstate")));
@@ -715,14 +725,14 @@ it("keeps selected findings intact and previews the same resource that the next 
     }),
   );
   expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
-  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("Deployment/backend");
   const preview = document.querySelector(".power-ai-context-content pre")!.textContent!;
   expect(JSON.parse(preview).resource).toEqual({ kind: "Deployment", name: "backend", namespace: "sample" });
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect finding" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect((mocks.invoke.mock.calls.at(-1)?.[1] as { context: unknown }).context).toEqual(JSON.parse(preview));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
-  expect(screen.getByLabelText("Attached resource").textContent).toContain("pods/worker");
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("Deployment/backend");
 });
 
 it("clears explicit resources on new conversations and cluster changes without restoring old attachments", () => {
@@ -757,7 +767,7 @@ it("previews the exact attached metadata before sending and persists safe relate
   } as never);
   stop = startAiChat(() => true);
   fireEvent.click(screen.getByLabelText("Open AI assistant"));
-  const preview = document.querySelector(".power-ai-context-preview pre")?.textContent;
+  const preview = document.querySelector(".power-ai-context-inspector pre")?.textContent;
   expect(preview).toContain('"namespace": "default"');
   expect(preview).not.toContain("systemPrompt");
   expect(preview).not.toContain("kube-details");
@@ -856,7 +866,7 @@ it("keeps the launcher right normally and moves it left only while resource deta
 });
 
 it("filters previously persisted related resources against the saved answer without rewriting history", () => {
-  const message = {
+  const message: AiMessage = {
     role: "assistant",
     text: "The first pod is worker",
     references: [
@@ -888,7 +898,7 @@ it("explains chat controls on hover while leaving Send and Stop without tooltips
     if (button.getAttribute("aria-label") === "Send") expect(button.hasAttribute("title")).toBe(false);
     else expect(tooltipText(button)).not.toBe("");
   }
-  expect(tooltipText(document.querySelector(".power-ai-context-preview summary"))).toContain("metadata");
+  expect(tooltipText(document.querySelector(".power-ai-context-inspector summary"))).toContain("metadata");
   expect(tooltipText(screen.getByRole("separator"))).toContain("Drag to resize");
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "/" } });
   for (const option of screen.getAllByRole("option")) expect(tooltipText(option)).toContain("Insert /");
@@ -1014,7 +1024,7 @@ describe("selected diagnostic findings", () => {
     await attach();
     expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("  ");
   });
-  it("sends bounded selected evidence and context while persisting plain conversation only", async () => {
+  it("sends bounded selected evidence and persists attachment receipts", async () => {
     mocks.clusterId = "cluster-a";
     mocks.invoke.mockResolvedValue({ text: "Ready" });
     act(() => {
@@ -1029,11 +1039,17 @@ describe("selected diagnostic findings", () => {
     const payload = mocks.invoke.mock.calls.at(-1)?.[1] as { messages: { text: string }[]; context: unknown };
     expect(payload.messages.at(-1)?.text).toContain(preview);
     expect(payload.context).toMatchObject({ clusterId: "cluster-a", resource: finding().resource });
-    expect(mocks.preferences.conversations["cluster-a"][0]).toEqual({ role: "user", text: "Inspect this pod" });
-    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("evidence ");
+    expect(mocks.preferences.conversations["cluster-a"][0]).toMatchObject({
+      role: "user",
+      text: "Inspect this pod",
+      attachments: [
+        expect.objectContaining({ kind: "resource" }),
+        expect.objectContaining({ kind: "evidence", text: preview }),
+      ],
+    });
     expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
   });
-  it("removing the preview excludes evidence and resource from the next request", async () => {
+  it("removing evidence keeps the separately attached resource in the next request", async () => {
     mocks.clusterId = "cluster-a";
     act(() => {
       stop = startAiChat(() => true);
@@ -1048,7 +1064,7 @@ describe("selected diagnostic findings", () => {
       context: { resource?: unknown };
     };
     expect(payload.messages.at(-1)?.text).toBe("General question");
-    expect(payload.context.resource).toBeUndefined();
+    expect(payload.context.resource).toEqual(finding().resource);
   });
   it("ignores findings for another cluster and clears an attachment on cluster navigation", async () => {
     mocks.clusterId = "cluster-a";
@@ -1155,4 +1171,279 @@ it("sends a large bounded relationship map within the question budget", async ()
   const payload = mocks.invoke.mock.calls.at(-1)?.[1] as { messages: { text: string }[] };
   expect(payload.messages.at(-1)!.text).toContain("Relationships · example");
   expect(payload.messages.at(-1)!.text.length).toBeLessThan(20_000);
+});
+
+it("explicitly replaces a finding resource while passive navigation retains the attached resource", async () => {
+  window.history.replaceState({}, "", "/overview");
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  act(() => {
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      title: "Resource A",
+      summary: "Evidence A",
+      resource: { kind: "Pod", name: "first", namespace: "sample" },
+    });
+  });
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("Pod/first");
+  act(() => {
+    window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/sample/pods/second");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("Pod/first");
+  expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
+  act(() => window.dispatchEvent(new Event("power-ai-open-only")));
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("pods/second");
+  expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect second" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
+  const payload = mocks.invoke.mock.calls.at(-1)?.[1] as {
+    messages: { text: string }[];
+    context: { resource: unknown };
+  };
+  expect(payload.context.resource).toEqual({ kind: "pods", name: "second", namespace: "sample" });
+  expect(payload.messages.at(-1)?.text).toBe("Inspect second");
+});
+
+it("accepts automatic evidence only with empty slots and respects dismissal after reopening", async () => {
+  window.history.replaceState({}, "", "/overview");
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  const automatic = () =>
+    act(() => {
+      explainDiagnosticFinding({
+        clusterId: "cluster-a",
+        automatic: true,
+        title: "Automatic evidence",
+        summary: "Current snapshot",
+        resource: { kind: "Pod", name: "auto", namespace: "sample" },
+      });
+    });
+  automatic();
+  expect(screen.getByLabelText("Selected diagnostic finding").textContent).toContain("Automatic evidence");
+  fireEvent.click(screen.getByLabelText("Remove diagnostic finding"));
+  automatic();
+  expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  expect(screen.getByLabelText("Attached resource")).toBeTruthy();
+  fireEvent.click(screen.getByLabelText("Remove attached resource"));
+  fireEvent.click(screen.getByLabelText("Close AI assistant"));
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  automatic();
+  expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+});
+
+it("ignores automatic evidence while a terminal attachment is present", async () => {
+  window.history.replaceState({}, "", "/overview");
+  document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  fireEvent.click(screen.getByLabelText("Attach terminal output"));
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  act(() => {
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      automatic: true,
+      title: "Automatic evidence",
+      summary: "Snapshot",
+    });
+  });
+  expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
+});
+
+it("retains attachments and restores the draft on failure, then stores receipts on successful retry", async () => {
+  window.history.replaceState({}, "", "/overview");
+  document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+  mocks.invoke.mockRejectedValueOnce(new Error("FREELENS_AI_CLI_FAILURE"));
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  act(() => {
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      title: "Evidence A",
+      summary: "Snapshot A",
+      resource: { kind: "Pod", name: "first", namespace: "sample" },
+    });
+  });
+  fireEvent.click(screen.getByLabelText("Attach terminal output"));
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect attachments" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+  expect(mocks.preferences.conversations["cluster-a"]).toEqual([]);
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Inspect attachments");
+  expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
+  expect(screen.getByLabelText("Attached resource")).toBeTruthy();
+  expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+  expect(mocks.preferences.conversations["cluster-a"][0].attachments?.map((item) => item.kind)).toEqual([
+    "resource",
+    "evidence",
+    "terminal",
+  ]);
+  expect(screen.queryByLabelText("Selected diagnostic finding")).toBeNull();
+  expect(screen.getByLabelText("Attached resource")).toBeTruthy();
+  expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
+});
+
+it("consumes only the sent snapshot when new evidence is attached during a response", async () => {
+  window.history.replaceState({}, "", "/overview");
+  let finish!: (response: { text: string }) => void;
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  const attach = (name: string) =>
+    act(() => {
+      explainDiagnosticFinding({
+        clusterId: "cluster-a",
+        title: `Evidence ${name}`,
+        summary: `Snapshot ${name}`,
+        resource: { kind: "Pod", name, namespace: "sample" },
+      });
+    });
+  attach("first");
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect first" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  attach("second");
+  await act(async () => finish({ text: "Ready" }));
+  expect(screen.getByLabelText("Selected diagnostic finding").textContent).toContain("Evidence second");
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("Pod/second");
+  expect(
+    mocks.preferences.conversations["cluster-a"][0].attachments?.find((item) => item.kind === "evidence")?.text,
+  ).toBe("Snapshot first");
+});
+
+it("restores a canceled draft and keeps its resource, evidence and terminal attachments", async () => {
+  window.history.replaceState({}, "", "/overview");
+  document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+  let finish!: (response: { text: string }) => void;
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  act(() => {
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      title: "Selected evidence",
+      summary: "Snapshot",
+      resource: { kind: "Pod", name: "first", namespace: "sample" },
+    });
+  });
+  fireEvent.click(screen.getByLabelText("Attach terminal output"));
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect attachments" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
+  await act(async () => finish({ text: "Late reply" }));
+  expect(mocks.preferences.conversations["cluster-a"]).toEqual([]);
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Inspect attachments");
+  expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
+  expect(screen.getByLabelText("Attached resource")).toBeTruthy();
+  expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByText("Late reply")).toBeNull();
+});
+
+it("rolls back pending attachment receipts on shutdown and ignores the late response", async () => {
+  window.history.replaceState({}, "", "/overview");
+  const original: AiMessage[] = [{ role: "assistant", text: "Previous investigation" }];
+  mocks.preferences.conversations["cluster-a"] = original;
+  let finish!: (response: { text: string }) => void;
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  act(() => {
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      title: "Pending evidence",
+      summary: "Snapshot not sent successfully",
+      resource: { kind: "Pod", name: "worker", namespace: "sample" },
+    });
+  });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect pending evidence" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  const request = mocks.invoke.mock.calls.at(-1)?.[1] as { requestId: string };
+  expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2);
+  expect(mocks.preferences.conversations["cluster-a"][1].attachments?.map((item) => item.kind)).toEqual([
+    "resource",
+    "evidence",
+  ]);
+  act(() => {
+    stop?.();
+    stop = undefined;
+  });
+  expect(mocks.preferences.conversations["cluster-a"]).toEqual(original);
+  expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:ai-cancel", request.requestId);
+  await act(async () => finish({ text: "Late response after shutdown" }));
+  expect(mocks.preferences.conversations["cluster-a"]).toEqual(original);
+  expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("Pending evidence");
+});
+
+it("allows automatic context on reopening after terminal invalidation in another cluster", async () => {
+  window.history.replaceState({}, "", "/relationships");
+  document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
+  act(() => {
+    stop = startAiChat(() => true);
+  });
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  fireEvent.click(screen.getByLabelText("Attach terminal output"));
+  expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
+  try {
+    await act(async () => {
+      mocks.clusterId = "cluster-b";
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByLabelText("Close AI assistant"));
+    const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+    const request = vi.fn(() => {
+      explainDiagnosticFinding({
+        clusterId: "cluster-b",
+        automatic: true,
+        source: "relationships",
+        title: "Relationships in the new cluster",
+        summary: '{"nodes":[]}',
+      });
+    });
+    window.addEventListener("power-ai-request-screen-context", request);
+    try {
+      fireEvent.click(screen.getByLabelText("Open AI assistant"));
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText("Selected diagnostic finding").textContent).toContain(
+        "Relationships in the new cluster",
+      );
+    } finally {
+      window.removeEventListener("power-ai-request-screen-context", request);
+    }
+  } finally {
+    mocks.clusterId = "cluster-a";
+  }
 });

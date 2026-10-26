@@ -1,4 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
+import { formatAiAttachmentText } from "../common/ai-attachments";
 import { redactAiTerminalText } from "../common/ai-terminal-context";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 
@@ -6,6 +7,7 @@ export const AI_DIAGNOSTIC_EVENT = "power-ai-diagnostic";
 
 export interface DiagnosticFinding {
   clusterId: string;
+  automatic?: boolean;
   source?: "logs" | "relationships" | "diagnostics";
   title: string;
   summary: string;
@@ -28,9 +30,10 @@ export function sanitizeDiagnosticFinding(value: unknown): DiagnosticFinding | u
   )
     return;
   const title = redactAiTerminalText(input.title).slice(0, 160);
-  const summary = redactAiTerminalText(input.summary).slice(
-    0,
-    input.source === "relationships" || input.source === "diagnostics" ? 60_000 : 6000,
+  const summary = formatAiAttachmentText(
+    input.summary,
+    input.source === "relationships" || input.source === "diagnostics" ? 8000 : 6000,
+    true,
   );
   let resource: DiagnosticFinding["resource"];
   if (input.resource && typeof input.resource === "object") {
@@ -44,6 +47,7 @@ export function sanitizeDiagnosticFinding(value: unknown): DiagnosticFinding | u
   }
   return {
     clusterId: input.clusterId,
+    ...(input.automatic === true ? { automatic: true } : {}),
     title,
     summary,
     ...(input.source === "logs" || input.source === "relationships" || input.source === "diagnostics"

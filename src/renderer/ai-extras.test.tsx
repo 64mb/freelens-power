@@ -39,7 +39,7 @@ vi.mock("./ai-icon", () => ({
   ),
 }));
 
-import { AiContextPreview, AiResourceReferences, openAiResourceReference } from "./ai-extras";
+import { AiAttachmentReceipts, AiContextPreview, AiResourceReferences, openAiResourceReference } from "./ai-extras";
 
 const reference = { apiVersion: "v1", kind: "Pod", name: "worker", namespace: "default" };
 beforeEach(() => {
@@ -73,7 +73,7 @@ describe("AI context preview and resource navigation", () => {
     );
     const evidence = screen.getByLabelText("Selected diagnostic finding").querySelector("pre")!;
     const metadata = view.container.querySelector(".power-ai-context-content pre")!;
-    expect(evidence.textContent).toBe(summary);
+    expect(evidence.textContent).toBe(JSON.stringify(JSON.parse(summary), null, 2));
     expect(metadata.textContent).toBe(JSON.stringify(context, null, 2));
     expect(evidence.querySelector('[data-token="key"]')?.textContent).toBe('"message"');
     expect(evidence.querySelector('[data-token="string"]')?.textContent).toContain("<img");
@@ -146,7 +146,7 @@ it("renders compact navigable chips with complete identities available on hover"
   view.unmount();
 });
 
-it("keeps selected evidence in one removable row within Attached context", () => {
+it("keeps selected evidence in one removable row within the composer", () => {
   const remove = vi.fn();
   const view = render(
     <AiContextPreview
@@ -159,7 +159,7 @@ it("keeps selected evidence in one removable row within Attached context", () =>
   expect(row.closest(".power-ai-context-preview")).toBeTruthy();
   expect(row.querySelector("section")).toBeNull();
   expect(
-    [...view.container.querySelectorAll("summary")].filter((element) => element.textContent === "Attached context"),
+    [...view.container.querySelectorAll("summary")].filter((element) => element.textContent === "What will be sent"),
   ).toHaveLength(1);
   expect(row.querySelector("pre")?.textContent).toBe("Readiness probe failed");
   expect(row.querySelector("details")?.open).toBe(false);
@@ -186,11 +186,11 @@ it("uses the common tooltip for removing context without a duplicate native titl
   const finding = { clusterId: "cluster-a", title: "Selected evidence", summary: "Read-only evidence" };
   const view = render(<AiContextPreview context={{}} finding={finding} onRemoveFinding={remove} />);
   const button = within(view.container).getByRole("button", { name: "Remove diagnostic finding" });
-  const tooltip = within(view.container).getByText("Remove attached finding");
+  const tooltip = within(view.container).getByText("Remove diagnostic finding");
   expect(button.hasAttribute("title")).toBe(false);
   expect(button.id).not.toBe("");
   expect(tooltip.getAttribute("data-target-id")).toBe(button.id);
-  expect(tooltip.textContent).toBe("Remove attached finding");
+  expect(tooltip.textContent).toBe("Remove diagnostic finding");
   const targetId = button.id;
   view.rerender(
     <AiContextPreview
@@ -202,5 +202,49 @@ it("uses the common tooltip for removing context without a duplicate native titl
   expect(within(view.container).getByRole("button", { name: "Remove diagnostic finding" }).id).toBe(targetId);
   fireEvent.click(button);
   expect(remove).toHaveBeenCalledTimes(1);
+  view.unmount();
+});
+
+it("uses the same removable cards for resource and evidence, and read-only cards in history", () => {
+  const remove = vi.fn();
+  const resource = { kind: "Pod", name: "worker", namespace: "sample" };
+  const view = render(
+    <AiContextPreview
+      context={{ resource }}
+      resource={resource}
+      onRemoveResource={remove}
+      finding={{ clusterId: "cluster-a", title: "Evidence", summary: '{"count":9007199254740993}' }}
+    />,
+  );
+  const cards = [...view.container.querySelectorAll(".power-ai-attachment-card")];
+  expect(cards).toHaveLength(2);
+  expect(cards[0].getAttribute("aria-label")).toBe("Attached resource");
+  expect(cards[1].querySelector("pre")?.textContent).toBe('{\n  "count": 9007199254740993\n}');
+  fireEvent.click(screen.getByLabelText("Remove attached resource"));
+  expect(remove).toHaveBeenCalledOnce();
+  view.rerender(
+    <AiAttachmentReceipts
+      attachments={[
+        { kind: "resource", title: "Pod/worker", text: JSON.stringify(resource) },
+        { kind: "terminal", title: "Terminal", text: '{"ready":true}\n{"count":2}' },
+      ]}
+    />,
+  );
+  expect(view.container.querySelectorAll(".power-ai-attachment-card")).toHaveLength(2);
+  expect(view.container.querySelectorAll("button")).toHaveLength(0);
+  expect(view.container.querySelectorAll('[data-token="key"]')).toHaveLength(5);
+  view.unmount();
+});
+
+it("preserves ordinary multiline prose and highlights truncated structured output", () => {
+  const prose = "Review {the output}:\n  unchanged indentation\nhttps://example.invalid/path";
+  const view = render(<AiAttachmentReceipts attachments={[{ kind: "evidence", title: "Notes", text: prose }]} />);
+  expect(view.container.querySelector("pre")?.textContent).toBe(prose);
+  expect(view.container.querySelector("[data-token]")).toBeNull();
+  view.rerender(
+    <AiAttachmentReceipts attachments={[{ kind: "terminal", title: "Terminal", text: '{"count": 42,' }]} />,
+  );
+  expect(view.container.querySelector("pre")?.textContent).toBe('{"count": 42,');
+  expect(view.container.querySelector('[data-token="number"]')?.textContent).toBe("42");
   view.unmount();
 });

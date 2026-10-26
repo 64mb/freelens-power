@@ -1,11 +1,13 @@
 import { Common } from "@freelensapp/extensions";
 import { action, makeObservable, observable } from "mobx";
+import { type AiAttachmentReceipt, normalizeAiAttachmentReceipts } from "../ai-attachments";
 import { type AiResourceReference, normalizeAiReferences } from "../ai-extras";
 import { DEFAULT_AI_CLUSTER_PROMPT, DEFAULT_AI_SYSTEM_PROMPT } from "../ai-prompts";
 
 import type { AiProvider } from "../ai";
 
 export interface AiMessage {
+  attachments?: AiAttachmentReceipt[];
   references?: AiResourceReference[];
   role: "user" | "assistant";
   text: string;
@@ -117,9 +119,12 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
   setMessages(key: string, messages: AiMessage[]): void {
     this.conversations = {
       ...this.conversations,
-      [key]: messages.map(({ role, text, provider, references }) => ({
+      [key]: messages.map(({ role, text, provider, references, attachments }) => ({
         role,
         text,
+        ...(role === "user" && normalizeAiAttachmentReceipts(attachments).length
+          ? { attachments: normalizeAiAttachmentReceipts(attachments) }
+          : {}),
         ...(provider === "claude" ? { provider } : {}),
         ...(role === "assistant" && normalizeAiReferences(references).length
           ? { references: normalizeAiReferences(references) }

@@ -84,3 +84,16 @@ it("retains only the bounded log source tag and leaves existing diagnostic findi
     expect(sanitizeDiagnosticFinding({ ...finding(), source })).toEqual(finding());
   }
 });
+
+it("bounds structured summaries while keeping valid JSON and the automatic snapshot marker", () => {
+  const safe = sanitizeDiagnosticFinding({
+    ...finding(),
+    automatic: true,
+    source: "diagnostics",
+    summary: JSON.stringify({ message: "x".repeat(20000), password: "sample-sensitive" }),
+  })!;
+  expect(safe.automatic).toBe(true);
+  expect(safe.summary.length).toBeLessThanOrEqual(8000);
+  expect(() => JSON.parse(safe.summary)).not.toThrow();
+  expect(safe.summary).not.toContain("sample-sensitive");
+});

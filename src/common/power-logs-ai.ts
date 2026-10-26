@@ -1,3 +1,4 @@
+import { boundedAiJson } from "./ai-attachments";
 import { redactAiTerminalText } from "./ai-terminal-context";
 
 import type { LogCapture, LogQueryResult, LogRecord, LogTarget } from "./power-logs";
@@ -31,15 +32,14 @@ function project(value: unknown, depth = 0): unknown {
 
 export function powerLogLineEvidence(target: LogTarget | undefined, record: LogRecord): string {
   const { timestamp, pod, podUid, container, level, message, fieldsJson, previous } = record;
-  return JSON.stringify(
+  return boundedAiJson(
     project({
       observedAt: new Date().toISOString(),
       target,
       line: { timestamp, pod, podUid, container, level, message, fieldsJson, previous },
     }),
-    null,
-    2,
-  ).slice(0, 6000);
+    6000,
+  );
 }
 
 export function powerLogQueryEvidence(capture: LogCapture, sql: string, result: LogQueryResult): string {
@@ -49,7 +49,7 @@ export function powerLogQueryEvidence(capture: LogCapture, sql: string, result: 
       value: sensitive(result.columns[index]) ? "[REDACTED]" : value,
     })),
   );
-  return JSON.stringify(
+  return boundedAiJson(
     project({
       observedAt: new Date().toISOString(),
       capture: { target: capture.target, createdAt: capture.createdAt, state: capture.state, notes: capture.notes },
@@ -58,7 +58,6 @@ export function powerLogQueryEvidence(capture: LogCapture, sql: string, result: 
       rows,
       truncated: result.truncated || result.rows.length > 30,
     }),
-    null,
-    2,
-  ).slice(0, 6000);
+    6000,
+  );
 }
