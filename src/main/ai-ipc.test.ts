@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => {
       enabled: true,
       provider: "codex",
       claudeModel: "sonnet",
+      claudeReasoningEffort: "max",
+      claudeSpeed: "fast",
       model: "example-model",
       speed: "default",
       reasoningEffort: "low",
@@ -259,25 +261,32 @@ describe("AI IPC native logs compatibility", () => {
 it("uses the persisted provider and its settings instead of forged renderer settings", async () => {
   mocks.handle.mockClear();
   mocks.runAiChat.mockReset().mockResolvedValue({ text: "Ready" });
-  mocks.preferences.provider = "claude";
-  mocks.preferences.speed = "fast";
   const stop = startAiIpc();
   try {
     const handler = mocks.handle.mock.calls[0][1];
-    await handler(
-      { sender: Object.assign(new EventEmitter(), { id: 10 }), senderFrame: { url: "https://renderer.freelens.app/" } },
-      { provider: "codex", model: "forged", reasoningEffort: "xhigh", speed: "default", messages: [], context: {} },
-    );
+    const send = (id: number, forged: { provider: string; speed: string }) =>
+      handler(
+        { sender: Object.assign(new EventEmitter(), { id }), senderFrame: { url: "https://renderer.freelens.app/" } },
+        { ...forged, model: "forged", reasoningEffort: "xhigh", messages: [], context: {} },
+      );
+    await send(10, { provider: "claude", speed: "fast" });
+    mocks.preferences.provider = "claude";
+    await send(11, { provider: "codex", speed: "default" });
     expect(mocks.runAiChat.mock.calls[0][0]).toMatchObject({
+      provider: "codex",
+      model: "example-model",
+      reasoningEffort: "low",
+      speed: "default",
+    });
+    expect(mocks.runAiChat.mock.calls[1][0]).toMatchObject({
       provider: "claude",
       model: "sonnet",
-      reasoningEffort: "",
+      reasoningEffort: "max",
       speed: "fast",
     });
   } finally {
     stop();
     mocks.preferences.provider = "codex";
-    mocks.preferences.speed = "default";
   }
 });
 

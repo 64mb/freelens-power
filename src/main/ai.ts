@@ -17,6 +17,7 @@ import {
   normalizeAiReferences,
   referencedAiResources,
 } from "../common/ai-extras";
+import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../common/ai-models";
 import { sanitizeAiTerminalSnapshot } from "../common/ai-terminal-context";
 import { createAiAnswerStream } from "./ai-answer-stream";
 import { verifyClaudeManagedPolicy } from "./ai-claude-policy";
@@ -33,7 +34,8 @@ import {
 
 export type AiClusterResolver = (clusterId: string) => AiClusterConnection | Promise<AiClusterConnection>;
 
-const reasoningEfforts = new Set(["", "none", "minimal", "low", "medium", "high", "xhigh"]);
+const reasoningEfforts = new Set(["", ...CODEX_REASONING_EFFORTS]);
+const claudeReasoningEfforts = new Set(["", ...CLAUDE_REASONING_EFFORTS]);
 
 export function aiFailureCode(error: unknown): AiFailureCode {
   if (!(error instanceof Error)) return "UNAVAILABLE";
@@ -127,8 +129,14 @@ export function codexAiArguments(
   return args;
 }
 
-export function claudeAiArguments(model: string, speed: "default" | "fast" = "default", finalAnswer = false): string[] {
+export function claudeAiArguments(
+  model: string,
+  speed: "default" | "fast" = "default",
+  reasoningEffort = "",
+  finalAnswer = false,
+): string[] {
   if (!["", "sonnet", "opus", "haiku", "fable"].includes(model)) throw new Error("Invalid AI request");
+  if (!claudeReasoningEfforts.has(reasoningEffort)) throw new Error("Invalid AI request");
   const args = [
     "--print",
     "--output-format",
@@ -160,6 +168,7 @@ export function claudeAiArguments(model: string, speed: "default" | "fast" = "de
     `You are a read-only assistant. No built-in tools are available. Return only one JSON object matching this schema, without markdown fences or any other text: ${JSON.stringify(finalAnswer ? finalAnswerSchema : schema)}`,
   ];
   if (model) args.push("--model", model);
+  if (reasoningEffort) args.push("--effort", reasoningEffort);
   return args;
 }
 
@@ -502,7 +511,8 @@ export async function runAiChat(
     !["default", "fast"].includes(request.speed) ||
     typeof request.model !== "string" ||
     (request.reasoningEffort !== undefined &&
-      (typeof request.reasoningEffort !== "string" || !reasoningEfforts.has(request.reasoningEffort))) ||
+      (typeof request.reasoningEffort !== "string" ||
+        !(request.provider === "claude" ? claudeReasoningEfforts : reasoningEfforts).has(request.reasoningEffort))) ||
     (request.systemPrompt !== undefined &&
       (typeof request.systemPrompt !== "string" || request.systemPrompt.length > 20000))
   )
@@ -558,7 +568,7 @@ export async function runAiChat(
       const output = await execute(
         provider,
         provider === "claude"
-          ? claudeAiArguments(request.model, request.speed, finalAnswer)
+          ? claudeAiArguments(request.model, request.speed, request.reasoningEffort, finalAnswer)
           : codexAiArguments(request.model, request.speed, directory, request.reasoningEffort),
         prompt,
         directory,

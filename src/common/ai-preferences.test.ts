@@ -15,18 +15,41 @@ describe("AI provider preferences", () => {
     });
     expect(store.provider).toBe("codex");
     expect(store.model).toBe("example-model");
+    expect(store.claudeReasoningEffort).toBe("");
+    expect(store.claudeSpeed).toBe("default");
     store.provider = "claude";
     store.claudeModel = "sonnet";
+    store.claudeReasoningEffort = "max";
+    store.claudeSpeed = "fast";
     store.setMessages("cluster-b", [{ role: "assistant", text: "New reply", provider: "claude" }]);
     const restored = new AiPreferencesStore();
     restored.fromStore(store.toJSON());
     expect(restored.provider).toBe("claude");
     expect(restored.claudeModel).toBe("sonnet");
+    expect(restored.claudeReasoningEffort).toBe("max");
+    expect(restored.claudeSpeed).toBe("fast");
     expect(restored.model).toBe("example-model");
     expect(restored.reasoningEffort).toBe("high");
     expect(restored.speed).toBe("fast");
     expect(restored.conversations["cluster-a"]).toEqual([{ role: "assistant", text: "Existing reply" }]);
     expect(restored.conversations["cluster-b"][0].provider).toBe("claude");
+  });
+
+  it("drops unsupported efforts and speeds per provider instead of failing every request", () => {
+    const store = new AiPreferencesStore();
+    store.fromStore({ reasoningEffort: "ultra", claudeReasoningEffort: "xhigh" });
+    expect(store.reasoningEffort).toBe("ultra");
+    expect(store.claudeReasoningEffort).toBe("xhigh");
+    store.fromStore({
+      reasoningEffort: "unknown",
+      claudeReasoningEffort: "ultra",
+      speed: "bogus",
+      claudeSpeed: "bogus",
+    } as unknown as Parameters<AiPreferencesStore["fromStore"]>[0]);
+    expect(store.reasoningEffort).toBe("");
+    expect(store.claudeReasoningEffort).toBe("");
+    expect(store.speed).toBe("default");
+    expect(store.claudeSpeed).toBe("default");
   });
 });
 

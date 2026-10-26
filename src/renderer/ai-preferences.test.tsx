@@ -56,6 +56,8 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     reasoningEffort: "high",
     speed: "fast",
     claudeModel: "",
+    claudeReasoningEffort: "",
+    claudeSpeed: "default",
     chatFontSize: 14,
     systemPrompt: "",
     clusterPrompt: "",
@@ -66,20 +68,50 @@ it("keeps provider controls separate and ignores late model catalogs after switc
       ? new Promise((resolve) => {
           finishCodex = resolve;
         })
-      : Promise.resolve([{ id: "sonnet", label: "Sonnet", reasoningEfforts: [] }]),
+      : Promise.resolve([
+          { id: "sonnet", label: "Sonnet", reasoningEfforts: ["low", "max"] },
+          { id: "haiku", label: "Haiku", reasoningEfforts: ["low"] },
+        ]),
   );
   const view = render(<AiPreferences />);
   try {
-    expect(screen.getByLabelText("Speed")).toBeTruthy();
+    expect(screen.getByText("Local Codex model catalog.").title).toBe("Local Codex model catalog.");
+    expect(screen.getByText("Fast mode depends on model and account.").title).toBe(
+      "Fast mode depends on model and account.",
+    );
+    const savedEffort = screen.getByLabelText("Effort") as HTMLSelectElement;
+    expect(savedEffort.selectedOptions[0].text).toBe("High");
+    expect(savedEffort.value).toBe("high");
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "example-model" } });
+    expect(mocks.preferences.reasoningEffort).toBe("high");
     fireEvent.change(screen.getByLabelText("CLI"), { target: { value: "claude" } });
-    await waitFor(() => expect(screen.getByText("Sonnet · Default")).toBeTruthy());
-    expect(screen.getByLabelText("Speed")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Sonnet")).toBeTruthy());
+    expect(screen.getByText("Claude CLI model aliases.").title).toBe("Claude CLI model aliases.");
+    expect(screen.getByText("Fast mode for Opus; account access required.").title).toBe(
+      "Fast mode for Opus; account access required.",
+    );
+    expect(screen.queryByText("Fast mode depends on model and account.")).toBeNull();
+    expect((screen.getByLabelText("Speed") as HTMLSelectElement).value).toBe("default");
+    fireEvent.change(screen.getByLabelText("Speed"), { target: { value: "fast" } });
+    expect(mocks.preferences.claudeSpeed).toBe("fast");
     await act(async () => finishCodex([{ id: "stale-model", label: "Stale", reasoningEfforts: ["xhigh"] }]));
-    expect(screen.queryByText("Stale · xhigh")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Model"), { target: { value: JSON.stringify(["sonnet", ""]) } });
+    expect(screen.queryByText("Stale")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "sonnet" } });
+    const effortOptions = Array.from((screen.getByLabelText("Effort") as HTMLSelectElement).options);
+    expect(effortOptions.map(({ value, text }) => ({ value, text }))).toEqual([
+      { value: "", text: "Default" },
+      { value: "low", text: "Low" },
+      { value: "max", text: "Max" },
+    ]);
+    fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "max" } });
     expect(mocks.preferences.claudeModel).toBe("sonnet");
+    expect(mocks.preferences.claudeReasoningEffort).toBe("max");
     expect(mocks.preferences.model).toBe("example-model");
     expect(mocks.preferences.reasoningEffort).toBe("high");
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "haiku" } });
+    expect(mocks.preferences.claudeReasoningEffort).toBe("");
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "" } });
+    expect((screen.getByLabelText("Effort") as HTMLSelectElement).options).toHaveLength(1);
     act(() =>
       runInAction(() => {
         mocks.preferences.enabled = false;

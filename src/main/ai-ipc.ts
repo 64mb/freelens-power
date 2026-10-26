@@ -66,8 +66,9 @@ export function startAiIpc(): () => void {
           ...request,
           provider: preferences.provider ?? "codex",
           model: preferences.provider === "claude" ? preferences.claudeModel : preferences.model,
-          speed: preferences.speed,
-          reasoningEffort: preferences.provider === "claude" ? "" : preferences.reasoningEffort,
+          speed: preferences.provider === "claude" ? preferences.claudeSpeed : preferences.speed,
+          reasoningEffort:
+            preferences.provider === "claude" ? preferences.claudeReasoningEffort : preferences.reasoningEffort,
           systemPrompt: [preferences.systemPrompt, request?.context?.clusterId ? preferences.clusterPrompt : ""]
             .filter(Boolean)
             .join("\n\n"),

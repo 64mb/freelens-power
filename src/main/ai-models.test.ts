@@ -28,6 +28,7 @@ describe("local AI model catalog", () => {
               ...model.supported_reasoning_levels,
               { effort: "--unsafe" },
               { effort: "high" },
+              { effort: "ultra" },
             ],
           },
         ],
@@ -37,7 +38,7 @@ describe("local AI model catalog", () => {
         id: "example-model",
         label: "Example model",
         defaultReasoningEffort: "medium",
-        reasoningEfforts: ["low", "medium", "high"],
+        reasoningEfforts: ["low", "medium", "high", "ultra"],
       },
     ]);
   });

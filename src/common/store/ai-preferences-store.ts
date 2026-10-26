@@ -2,6 +2,7 @@ import { Common } from "@freelensapp/extensions";
 import { action, makeObservable, observable } from "mobx";
 import { type AiAttachmentReceipt, normalizeAiAttachmentReceipts } from "../ai-attachments";
 import { type AiResourceReference, normalizeAiReferences } from "../ai-extras";
+import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../ai-models";
 import { DEFAULT_AI_CLUSTER_PROMPT, DEFAULT_AI_SYSTEM_PROMPT, upgradeBundledAiPrompt } from "../ai-prompts";
 
 import type { AiProvider } from "../ai";
@@ -17,6 +18,8 @@ export interface AiPreferencesModel {
   enabled: boolean;
   provider: AiProvider;
   claudeModel: string;
+  claudeReasoningEffort: string;
+  claudeSpeed: "default" | "fast";
   systemPrompt: string;
   clusterPrompt: string;
   model: string;
@@ -31,6 +34,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
   enabled = false;
   provider: AiProvider = "codex";
   claudeModel = "";
+  claudeReasoningEffort = "";
+  claudeSpeed: "default" | "fast" = "default";
   systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
   clusterPrompt = DEFAULT_AI_CLUSTER_PROMPT;
   model = "";
@@ -47,6 +52,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
         enabled: false,
         provider: "codex",
         claudeModel: "",
+        claudeReasoningEffort: "",
+        claudeSpeed: "default",
         systemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
         clusterPrompt: DEFAULT_AI_CLUSTER_PROMPT,
         model: "",
@@ -61,6 +68,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
       enabled: observable,
       provider: observable,
       claudeModel: observable,
+      claudeReasoningEffort: observable,
+      claudeSpeed: observable,
       systemPrompt: observable,
       clusterPrompt: observable,
       model: observable,
@@ -79,12 +88,16 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     this.enabled = data?.enabled === true;
     this.provider = data?.provider === "claude" ? "claude" : "codex";
     this.claudeModel = typeof data?.claudeModel === "string" ? data.claudeModel : "";
+    const claudeReasoningEffort = data?.claudeReasoningEffort ?? "";
+    this.claudeReasoningEffort = CLAUDE_REASONING_EFFORTS.includes(claudeReasoningEffort) ? claudeReasoningEffort : "";
+    this.claudeSpeed = data?.claudeSpeed === "fast" ? "fast" : "default";
     if (typeof data?.systemPrompt === "string")
       this.systemPrompt = upgradeBundledAiPrompt(data.systemPrompt, "systemPrompt");
     if (typeof data?.clusterPrompt === "string")
       this.clusterPrompt = upgradeBundledAiPrompt(data.clusterPrompt, "clusterPrompt");
     this.model = typeof data?.model === "string" ? data.model : "";
-    this.reasoningEffort = typeof data?.reasoningEffort === "string" ? data.reasoningEffort : "";
+    const reasoningEffort = data?.reasoningEffort ?? "";
+    this.reasoningEffort = CODEX_REASONING_EFFORTS.includes(reasoningEffort) ? reasoningEffort : "";
     this.speed = data?.speed === "fast" ? "fast" : "default";
     this.chatFontSize =
       typeof data?.chatFontSize === "number" &&
@@ -140,6 +153,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
       enabled: this.enabled,
       provider: this.provider,
       claudeModel: this.claudeModel,
+      claudeReasoningEffort: this.claudeReasoningEffort,
+      claudeSpeed: this.claudeSpeed,
       systemPrompt: this.systemPrompt,
       clusterPrompt: this.clusterPrompt,
       model: this.model,
