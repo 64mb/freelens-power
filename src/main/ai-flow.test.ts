@@ -102,7 +102,7 @@ describe("AI native log flow", () => {
         path: "/api/v1/namespaces/default/pods/example-pod/log",
         query: { tailLines: 100, limitBytes: 65536, follow: false, timestamps: false },
       },
-      controller.signal,
+      expect.any(AbortSignal),
     );
     expect(prompts).toHaveLength(2);
     const summary = JSON.parse(prompts[1].split("\nTool result: ")[1].split("\n")[0]);
@@ -126,7 +126,10 @@ describe("AI native log flow", () => {
     const read = vi.fn().mockRejectedValue(new Error("example-sensitive"));
     const response = await runAiChat(request, () => ({ read }));
     expect(response).toEqual({ text: "The read succeeded", reads: [{ method: "pods", status: "unavailable" }] });
-    expect(read).toHaveBeenCalledExactlyOnceWith({ apiVersion: "v1", kind: "Pod", namespace: "default" }, undefined);
+    expect(read).toHaveBeenCalledExactlyOnceWith(
+      { apiVersion: "v1", kind: "Pod", resource: "pods", namespace: "default" },
+      expect.any(AbortSignal),
+    );
     expect(JSON.stringify(response.reads)).not.toContain("example-sensitive");
     expect(prompts[1]).not.toContain("example-sensitive");
     expect(prompts[0]).toContain("Follow the latest user question");
@@ -184,7 +187,7 @@ describe("AI native log flow", () => {
         path: "/api/v1/namespaces/example-private-namespace/pods/example-private-pod/log",
         query: { tailLines: 100, limitBytes: 65536, follow: false, timestamps: false },
       },
-      undefined,
+      expect.any(AbortSignal),
     );
     expect(prompts[1]).toContain('"ref":"pod-1"');
     for (const privateValue of ["example-private-pod", "example-private-namespace", "example-sensitive"]) {
@@ -271,7 +274,7 @@ describe("AI native log flow", () => {
     expect(discover).toHaveBeenCalledOnce();
     expect(read).toHaveBeenCalledExactlyOnceWith(
       { apiVersion: "example.com/v1", kind: "Example", resource: "examples", namespace: "default" },
-      undefined,
+      expect.any(AbortSignal),
     );
     expect(response.reads).toEqual([
       { method: "resources", status: "ok" },
@@ -478,7 +481,7 @@ describe("bounded AI answer synthesis", () => {
     expect(prompts[3]).toContain("without a new read");
   });
 
-  it("retries failed reads and confines successful cached evidence to one request", async () => {
+  it("caches failed reads and confines cached evidence to one request", async () => {
     mockTurns([
       { text: "", tool: logTool },
       { text: "", tool: logTool },
@@ -489,12 +492,9 @@ describe("bounded AI answer synthesis", () => {
     const readLogs = vi.fn().mockRejectedValueOnce(new Error("unavailable")).mockResolvedValue("error");
     const resolve = () => ({ read: vi.fn(), readLogs });
     const first = await runAiChat(request, resolve);
-    expect(first.reads).toEqual([
-      { method: "logs", status: "unavailable" },
-      { method: "logs", status: "ok" },
-    ]);
+    expect(first.reads).toEqual([{ method: "logs", status: "unavailable" }]);
     await runAiChat(request, resolve);
-    expect(readLogs).toHaveBeenCalledTimes(3);
+    expect(readLogs).toHaveBeenCalledTimes(2);
   });
 
   it("propagates final provider failures rather than fabricating an answer", async () => {
@@ -516,4 +516,99 @@ describe("bounded AI answer synthesis", () => {
     expect(spawnMock).toHaveBeenCalledTimes(6);
     expect(read).toHaveBeenCalledTimes(6);
   });
+});
+
+describe("parallel AI reads", () => {
+  it("starts independent reads together and shares an in-flight normalized query", async () => {
+    mockTurns([
+      { text: "", tool: [{ method: "pods" }, { method: "nodes" }, { method: "resources", resource: "pods" }] },
+      { text: "Done", tool: null },
+    ]);
+    const pending: (() => void)[] = [];
+    const read = vi.fn(() => new Promise((resolve) => pending.push(() => resolve({ items: [] }))));
+    const result = runAiChat(request, () => ({ read }));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    for (const resolve of pending) resolve();
+    expect((await result).reads).toHaveLength(2);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("enforces six actual attempts across batches and preserves final synthesis", async () => {
+    const batch = (offset: number) => ({
+      text: "",
+      tool: Array.from({ length: 4 }, (_, index) => ({ method: "nodes", name: `worker-${offset + index}` })),
+    });
+    const { prompts } = mockTurns([batch(0), batch(4), { text: "Six reads available", tool: null }]);
+    const read = vi.fn().mockResolvedValue({ items: [] });
+    const result = await runAiChat(request, () => ({ read }));
+    expect(result.text).toBe("Six reads available");
+    expect(read).toHaveBeenCalledTimes(6);
+    expect(prompts[2]).toContain("bounded read budget is exhausted");
+    expect(prompts[2]).toContain("READ_LIMIT");
+  });
+
+  it("aborts underlying reads at the read deadline before final synthesis", async () => {
+    mockTurns([
+      { text: "", tool: { method: "pods" } },
+      { text: "Unavailable", tool: null },
+    ]);
+    let deadline: (() => void) | undefined;
+    const original = globalThis.setTimeout;
+    const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay: number) => {
+      if (delay === 20_000) deadline = callback;
+      return original(callback, delay);
+    }) as typeof setTimeout);
+    let underlyingSignal: AbortSignal | undefined;
+    const read = vi.fn((_query, signal?: AbortSignal) => {
+      underlyingSignal = signal;
+      return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    });
+    try {
+      const result = runAiChat(request, () => ({ read }));
+      await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+      expect(underlyingSignal?.aborted).toBe(false);
+      deadline?.();
+      await expect(result).resolves.toMatchObject({ text: "Unavailable" });
+      expect(underlyingSignal?.aborted).toBe(true);
+    } finally {
+      timer.mockRestore();
+    }
+  });
+});
+
+it("measures one read latency for a batch versus four latencies for sequential requests", async () => {
+  const tools = Array.from({ length: 4 }, (_, index) => ({ method: "nodes", name: `worker-${index}` }));
+  let clock = 0;
+  const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+  const measure = async (batched: boolean) => {
+    const { prompts } = mockTurns([
+      ...(batched ? [{ text: "", tool: tools }] : tools.map((tool) => ({ text: "", tool }))),
+      { text: "Done", tool: null },
+    ]);
+    const pending: (() => void)[] = [];
+    const read = vi.fn(() => new Promise((resolve) => pending.push(() => resolve({ items: [] }))));
+    let elapsedMs = 0;
+    const result = runAiChat(
+      request,
+      () => ({ read }),
+      undefined,
+      undefined,
+      (event) => {
+        elapsedMs = event.elapsedMs;
+      },
+    );
+    for (let index = 0; index < (batched ? 1 : 4); index++) {
+      await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(batched ? 4 : index + 1));
+      clock += 100;
+      for (const resolve of pending.splice(0)) resolve();
+    }
+    await result;
+    return { elapsedMs, modelTurns: prompts.length };
+  };
+  try {
+    expect(await measure(true)).toEqual({ elapsedMs: 100, modelTurns: 2 });
+    expect(await measure(false)).toEqual({ elapsedMs: 400, modelTurns: 5 });
+  } finally {
+    now.mockRestore();
+  }
 });

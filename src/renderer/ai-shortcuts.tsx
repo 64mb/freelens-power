@@ -13,7 +13,14 @@ export const AiStarterPrompts = observer(
             <button
               type="button"
               className="Button"
-              style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "6px 10px", minHeight: 32 }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                justifyContent: "flex-start",
+                padding: "6px 10px",
+                minHeight: 32,
+              }}
               disabled={disabled}
               onClick={() => onSelect(shortcut.prompt)}
             >

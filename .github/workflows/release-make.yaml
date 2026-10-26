@@ -53,9 +53,9 @@ jobs:
           git commit -m "release: up version to ${version}"
           git push origin "${branch}"
           cat > "${RUNNER_TEMP}/release-pr.md" <<'EOF'
-          - Обновляем версию пакета для следующего релиза
-          - Проверили линтер, типы, модульные тесты и сборку в Make Release
-          - После слияния публикуем GitHub Release с пакетом расширения
+          - Bump the package version for the next release
+          - Verify lint, types, unit tests and packaging in Make Release
+          - Publish the extension package and GitHub Release after merging
           EOF
           gh pr create --base main --head "${branch}" \
             --title "chore(release): ${version}" \

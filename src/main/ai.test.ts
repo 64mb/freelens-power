@@ -19,15 +19,18 @@ describe("AI read boundary", () => {
     expect(aiReadQuery({ method: "pods", namespace: "default" })).toEqual({
       apiVersion: "v1",
       kind: "Pod",
+      resource: "pods",
       namespace: "default",
     });
     expect(aiReadQuery({ method: "resources", resource: "deployments" })).toEqual({
       apiVersion: "apps/v1",
       kind: "Deployment",
+      resource: "deployments",
     });
     expect(aiReadQuery({ method: "nodes", name: "example-node" })).toEqual({
       apiVersion: "v1",
       kind: "Node",
+      resource: "nodes",
       name: "example-node",
     });
     expect(() => aiReadQuery({ method: "resources", resource: "pods/exec" })).toThrow();
@@ -184,6 +187,7 @@ describe("AI read boundary", () => {
     expect(aiReadQuery({ method: "resources", resource: "certificates.cert-manager.io" })).toEqual({
       apiVersion: "cert-manager.io/v1",
       kind: "Certificate",
+      resource: "certificates",
     });
     const catalog = [
       {

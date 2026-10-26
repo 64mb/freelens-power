@@ -95,7 +95,7 @@ export function useMonitoringHistory(identity: HistoryIdentity | undefined, live
         .then((value) => {
           if (current) {
             setPoints(value);
-            setStatus(value.length ? "" : "No local history for this range. Collection starts when enabled.");
+            setStatus("");
           }
         })
         .catch(() => {

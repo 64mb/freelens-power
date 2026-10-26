@@ -96,7 +96,12 @@ export function aiReadQuery(request: AiReadRequest, catalog: AiDiscoveredResourc
   if ("verbs" in definition && !(definition.verbs as string[]).includes(request.name ? "get" : "list"))
     throw new AiUnsupportedResourceError();
   const query: AiReadQuery = { apiVersion: definition.apiVersion, kind: definition.kind };
-  if ("resource" in definition) query.resource = definition.resource as string;
+  query.resource =
+    "resource" in definition
+      ? (definition.resource as string)
+      : Object.entries(resources)
+          .find(([, item]) => item === definition)?.[0]
+          .split(".")[0];
   if (request.name) query.name = identifier(request.name);
   if (request.namespace) {
     if (!definition.namespaced) throw new Error("This resource does not have a namespace");
