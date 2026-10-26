@@ -1,4 +1,4 @@
-import { redactAiTerminalText } from "../common/ai-terminal-context";
+import { redactSearchIndexText } from "../common/search-index-redaction";
 
 export interface SearchField {
   label: string;
@@ -18,7 +18,7 @@ export function projectSearchFields(kind: string, value: unknown): SearchField[]
   const add = (label: string, value: unknown, redact = false) => {
     if (typeof value !== "string" || !remaining || fields.length >= 32) return;
     const bounded = value.slice(0, 4096);
-    const text = (redact ? redactAiTerminalText(bounded) : bounded).slice(0, Math.min(512, remaining));
+    const text = (redact ? redactSearchIndexText(bounded) : bounded).slice(0, Math.min(512, remaining));
     if (text) {
       fields.push({ label, text });
       remaining -= text.length;

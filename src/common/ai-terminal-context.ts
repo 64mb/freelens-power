@@ -1,3 +1,5 @@
+import { redactKubernetesJsonText, redactKubernetesYamlText } from "./ai-resource-payload";
+
 export const AI_TERMINAL_MAX_ROWS = 300;
 export const AI_TERMINAL_MAX_BYTES = 32 * 1024;
 const MAX_SOURCE_CHARACTERS = 1_000_000;
@@ -9,51 +11,59 @@ export interface AiTerminalSnapshot {
 }
 
 export function redactAiTerminalText(text: string): string {
-  // collapse shell continuations before matching assignments so their values stay together
-  text = text.replace(/\\\n/g, "");
-  const lines = text.split("\n");
-  let blockIndent: number | undefined;
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-    const indent = line.match(/^\s*/)?.[0].length ?? 0;
-    if (blockIndent !== undefined) {
-      if (!line.trim() || indent > blockIndent) {
-        lines[index] = "";
-        continue;
-      }
-      blockIndent = undefined;
-    }
-    const field = line.match(
-      /^(\s*(?:-\s*)?)(client-key-data|client-certificate-data|token|password|passwd|secret|api[_-]?key|value)\s*:\s*(.*)$/i,
-    );
-    if (!field) continue;
-    lines[index] = `${field[1]}${field[2]}: [REDACTED]`;
-    if (!field[3].trim() || /^[|>]/.test(field[3])) blockIndent = indent;
-  }
-  return lines
-    .join("\n")
+  const clean = text
     .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, "")
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "")
-    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, "[REDACTED]")
-    .replace(/^[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED]")
-    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)=("(?:\\[\s\S]|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\n]*)/g, "$1=[REDACTED]")
-    .replace(
-      /(["'](?:password|passwd|token|secret|api[_-]?key|authorization)["']\s*:\s*)("(?:\\[\s\S]|[^"\\])*(?:"|$)|'[^']*(?:'|$))/gi,
-      '$1"[REDACTED]"',
-    )
-    .replace(
-      /(--(?:password|passwd|token|secret|api[_-]?key)(?:\s+|=))(?:("[^"\n]*"|'[^'\n]*')|[^\s]+)/gi,
-      "$1[REDACTED]",
-    )
-    .replace(/\b(Bearer|Basic)\s+[^\s"']+/gi, "$1 [REDACTED]")
-    .replace(/\b((?:password|passwd|token|secret|api[_-]?key|authorization)\s*[:=]\s*)[^\n]+/gi, "$1[REDACTED]")
-    .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED]")
-    .replace(
-      /\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g,
-      "[REDACTED]",
-    )
-    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[REDACTED]@");
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
+  try {
+    return redactKubernetesJsonText(clean);
+  } catch {
+    /* terminal prose may contain YAML documents */
+  }
+  let allJsonLines = true;
+  const independent = clean.split("\n").map((line) => {
+    if (!line.trim()) return line;
+    try {
+      return redactKubernetesJsonText(line);
+    } catch {
+      allJsonLines = false;
+      return line;
+    }
+  });
+  if (allJsonLines) return independent.join("\n");
+  const yamlSafe = redactKubernetesYamlText(clean);
+  if (yamlSafe !== clean) return yamlSafe;
+  let marker: string | undefined;
+  const getMarker = () => {
+    if (marker !== undefined) return marker;
+    const used = new Set(Array.from(clean.matchAll(/# __ai_json_line_(\d+)_/g), (match) => match[1]));
+    let index = 0;
+    while (used.has(String(index))) index++;
+    marker = `# __ai_json_line_${index}_`;
+    return marker;
+  };
+  const jsonLines: string[] = [];
+  const yaml = clean
+    .split("\n")
+    .map((line) => {
+      if (!/^[\[{]/.test(line)) return line;
+      try {
+        const safe = redactKubernetesJsonText(line);
+        const index = jsonLines.push(safe) - 1;
+        return getMarker() + index;
+      } catch {
+        return line;
+      }
+    })
+    .join("\n");
+  if (jsonLines.length)
+    return redactKubernetesYamlText(yaml)
+      .split("\n")
+      .map((line) =>
+        marker !== undefined && line.startsWith(marker) ? (jsonLines[Number(line.slice(marker.length))] ?? line) : line,
+      )
+      .join("\n");
+  return redactKubernetesYamlText(clean);
 }
 
 export function sanitizeAiTerminalSnapshot(value: unknown): AiTerminalSnapshot | undefined {
@@ -67,7 +77,7 @@ export function sanitizeAiTerminalSnapshot(value: unknown): AiTerminalSnapshot |
     !Number.isFinite(Date.parse(input.capturedAt))
   )
     return;
-  // redact the complete input before truncation to preserve multiline assignment boundaries
+  // redact resource payloads before selecting the terminal tail
   const safe = redactAiTerminalText(input.text.replace(/\r\n?/g, "\n"));
   const lines = safe.split("\n");
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();

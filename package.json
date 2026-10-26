@@ -1,6 +1,6 @@
 {
   "name": "@64mb/freelens-power",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Power tools for Freelens Kubernetes IDE",
   "main": "out/main/index.js",
   "renderer": "out/renderer/index.js",
@@ -76,7 +76,8 @@
   "packageManager": "pnpm@10.34.4+sha512.8768be55200ae3f2226b6527fcca2687e14bc4e5f12d7721a0f25da3df47915177058648db4177baf348120fa0ba2752d8d8d93f6beaf1fe64ae18da8de961af",
   "dependencies": {
     "markdown-it": "15.0.2",
-    "react-select": "5.10.2"
+    "react-select": "5.10.2",
+    "yaml": "2.9.1"
   },
   "repository": {
     "type": "git",

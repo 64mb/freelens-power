@@ -3,11 +3,6 @@ import { redactAiTerminalText } from "./ai-terminal-context";
 
 import type { LogCapture, LogQueryResult, LogRecord, LogTarget } from "./power-logs";
 
-const sensitive = (key: string) =>
-  /(?:password|passwd|token|secret|authorization|credential|apikey|privatekey|clientkeydata|clientcertificatedata)/i.test(
-    key.replace(/[^a-z0-9]/gi, ""),
-  );
-
 function project(value: unknown, depth = 0): unknown {
   if (depth > 8) return "[nested content omitted]";
   if (typeof value === "string") {
@@ -25,7 +20,7 @@ function project(value: unknown, depth = 0): unknown {
     return Object.fromEntries(
       Object.entries(value)
         .slice(0, 100)
-        .map(([key, item]) => [key, sensitive(key) ? "[REDACTED]" : project(item, depth + 1)]),
+        .map(([key, item]) => [key, project(item, depth + 1)]),
     );
   return value;
 }
@@ -46,7 +41,7 @@ export function powerLogQueryEvidence(capture: LogCapture, sql: string, result: 
   const rows = result.rows.slice(0, 30).map((row) =>
     row.map((value, index) => ({
       column: result.columns[index],
-      value: sensitive(result.columns[index]) ? "[REDACTED]" : value,
+      value: value,
     })),
   );
   return boundedAiJson(

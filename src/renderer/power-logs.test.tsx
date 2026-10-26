@@ -450,7 +450,7 @@ it("shows SQL errors below the editor and includes the executed failure in AI co
   expect(finding.summary).not.toContain("changed_draft");
 });
 
-it("reviews executed SQL and its capture identity with redacted values after editing SQL", async () => {
+it("reviews executed SQL and its capture identity with ordinary values after editing SQL", async () => {
   const pending = deferred<any>();
   await mount();
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
@@ -485,8 +485,7 @@ it("reviews executed SQL and its capture identity with redacted values after edi
   expect(preview).not.toContain("SELECT edited FROM logs");
   expect(preview).toContain("captured-application");
   expect(preview).not.toContain("other-current-resource");
-  expect(preview).not.toContain("private-test-value");
-  expect(preview).toContain("[REDACTED]");
+  expect(preview).toContain("private-test-value");
   expect(mocks.explain.mock.calls[0][0].resource.name).toBe("captured-application");
 });
 

@@ -12,7 +12,7 @@ describe("AI log summaries", () => {
     expect(() => aiLogQuery({ method: "pods", namespace: "default", name: "example-pod" })).toThrow();
   });
 
-  it("returns only fixed aggregate counters and never environment values or text", () => {
+  it("returns bounded log text and fixed aggregate counters", () => {
     const summary = summarizeAiLogs(
       [
         "ERROR EXAMPLE_KEY=example-sensitive timeout",
@@ -32,11 +32,42 @@ describe("AI log summaries", () => {
       outOfMemoryLines: 1,
       connectionFailureLines: 1,
       permissionFailureLines: 1,
-      rawTextWithheld: true,
+      lines: [
+        "ERROR EXAMPLE_KEY=example-sensitive timeout",
+        "warning connection refused example-sensitive",
+        "fatal out of memory example-sensitive",
+        "permission denied example-sensitive",
+        "ordinary example-sensitive",
+      ],
       boundedSample: true,
     });
-    expect(JSON.stringify(summary)).not.toContain("example-sensitive");
-    expect(JSON.stringify(summary)).not.toContain("EXAMPLE_KEY");
+    expect(JSON.stringify(summary)).toContain("example-sensitive");
+    expect(JSON.stringify(summary)).toContain("EXAMPLE_KEY");
+  });
+
+  it.each(["Secret", "ConfigMap"])("hides recognized %s payload values before byte truncation", (kind) => {
+    const summary = summarizeAiLogs(
+      JSON.stringify({
+        kind,
+        apiVersion: "v1",
+        metadata: { name: "example-config" },
+        data: { TOKEN: "payload-value".repeat(6000) },
+      }),
+    );
+    const text = summary.lines.join("\n");
+    expect(text).toContain("TOKEN");
+    expect(text).toContain("example-config");
+    expect(text).not.toContain("payload-value");
+    expect(text).toContain("[REDACTED]");
+  });
+
+  it("hides recognized YAML payloads while keeping ordinary environment and log text", () => {
+    const summary = summarizeAiLogs(
+      "kind: ConfigMap\napiVersion: v1\ndata:\n  TOKEN: payload-value\n---\nordinary TOKEN=log-value",
+    );
+    expect(summary.lines.join("\n")).not.toContain("payload-value");
+    expect(summary.lines.join("\n")).toContain("TOKEN");
+    expect(summary.lines.join("\n")).toContain("ordinary TOKEN=log-value");
   });
 
   it("bounds samples by lines and bytes", () => {

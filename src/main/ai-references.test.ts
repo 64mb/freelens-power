@@ -20,15 +20,19 @@ describe("AI resource references", () => {
     expect(collectAiReferences(summary, { ...query, kind: "Secret" })).toEqual([]);
   });
 
-  it("never restores names or namespaces hidden as environment values", () => {
+  it("preserves names and namespaces copied into environment values", () => {
     const resource = {
       kind: "Pod",
       metadata: { name: "worker", namespace: "default" },
       spec: { containers: [{ env: [{ name: "VALUE", value: "worker" }] }] },
     };
-    expect(collectAiReferences(summarizeAiResource(resource, query), query)).toEqual([]);
+    expect(collectAiReferences(summarizeAiResource(resource, query), query)).toEqual([
+      { apiVersion: "v1", kind: "Pod", name: "worker", namespace: "default" },
+    ]);
     resource.spec.containers[0].env[0].value = "default";
-    expect(collectAiReferences(summarizeAiResource(resource, query), query)).toEqual([]);
+    expect(collectAiReferences(summarizeAiResource(resource, query), query)).toEqual([
+      { apiVersion: "v1", kind: "Pod", name: "worker", namespace: "default" },
+    ]);
   });
 
   it("rejects raw resources, forged identities and arbitrary paths", () => {
@@ -64,10 +68,7 @@ it.each([
   ]);
 });
 
-it.each([
-  "Widget",
-  "example.com/v1",
-])("never reintroduces an approved identity matching the hidden environment value %s", (hidden) => {
+it.each(["Widget", "example.com/v1"])("preserves an approved identity matching an environment value %s", (hidden) => {
   const query = { apiVersion: "example.com/v1", kind: "Widget", namespace: "default" };
   const summary = summarizeAiResource(
     {
@@ -77,6 +78,8 @@ it.each([
     },
     query,
   );
-  expect(JSON.stringify(summary)).not.toContain(hidden);
-  expect(collectAiReferences(summary, query)).toEqual([]);
+  expect(JSON.stringify(summary)).toContain(hidden);
+  expect(collectAiReferences(summary, query)).toEqual([
+    { apiVersion: "example.com/v1", kind: "Widget", name: "worker", namespace: "default" },
+  ]);
 });

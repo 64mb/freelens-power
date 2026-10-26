@@ -88,7 +88,7 @@ describe("terminal snapshot capture", () => {
   it("only reads the visible connected terminal in the current cluster", () => {
     const element = terminal();
     expect(activeAiTerminal("cluster-a")).toBe("terminal-a");
-    expect(captureAiTerminal("cluster-a")?.text).toBe("ready\nEXAMPLE=[REDACTED]");
+    expect(captureAiTerminal("cluster-a")?.text).toBe("ready\nEXAMPLE=sensitive");
     expect(captureAiTerminal("cluster-a", "other-terminal")).toBeUndefined();
     expect(captureAiTerminal("cluster-b")).toBeUndefined();
     element.hidden = true;
@@ -106,7 +106,7 @@ describe("terminal snapshot capture", () => {
     mocks.clusterId = "cluster-b";
     expect(captureAiTerminal("cluster-a")).toBeUndefined();
   });
-  it("refreshes and redacts the attached preview on terminal output without sending a question", () => {
+  it("refreshes ordinary environment values in the attached preview without sending a question", () => {
     vi.useFakeTimers();
     terminal();
     mocks.useEvents = true;
@@ -119,14 +119,14 @@ describe("terminal snapshot capture", () => {
         disabled={false}
       />,
     );
-    expect(view.container.querySelector("pre")?.textContent).toBe("ready\nEXAMPLE=[REDACTED]");
+    expect(view.container.querySelector("pre")?.textContent).toBe("ready\nEXAMPLE=sensitive");
     mocks.lines = ["fresh output", "EXAMPLE=new-sensitive"];
     act(() => {
       mocks.listener?.();
       vi.advanceTimersByTime(250);
     });
-    expect(view.container.querySelector("pre")?.textContent).toBe("fresh output\nEXAMPLE=[REDACTED]");
-    expect(screen.queryByText(/new-sensitive/)).toBeNull();
+    expect(view.container.querySelector("pre")?.textContent).toBe("fresh output\nEXAMPLE=new-sensitive");
+    expect(screen.getByText(/EXAMPLE=new-sensitive/)).toBeTruthy();
     expect(onChange).not.toHaveBeenCalled();
     expect(mocks.sendCommand).not.toHaveBeenCalled();
     mocks.lines = [""];
@@ -175,7 +175,7 @@ describe("terminal snapshot capture", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(view.container.querySelector("pre")?.textContent).toBe("polled output\nTOKEN=[REDACTED]");
+    expect(view.container.querySelector("pre")?.textContent).toBe("polled output\nTOKEN=private");
     element.remove();
     act(() => {
       vi.advanceTimersByTime(1000);

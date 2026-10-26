@@ -196,14 +196,14 @@ describe("AI chat", () => {
     expect(mocks.invoke).toHaveBeenLastCalledWith(
       "freelens-power:ai-chat",
       expect.objectContaining({
-        terminalSnapshot: expect.objectContaining({ text: "current output\nEXAMPLE=[REDACTED]" }),
+        terminalSnapshot: expect.objectContaining({ text: "current output\nEXAMPLE=sensitive" }),
       }),
     );
     expect(mocks.preferences.conversations["cluster-a"][0].attachments).toEqual([
-      expect.objectContaining({ kind: "terminal", text: "current output\nEXAMPLE=[REDACTED]" }),
+      expect.objectContaining({ kind: "terminal", text: "current output\nEXAMPLE=sensitive" }),
     ]);
     expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("preview output");
-    expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("sensitive");
+    expect(JSON.stringify(mocks.preferences.conversations)).toContain("EXAMPLE=sensitive");
     expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("false");
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Continue" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
