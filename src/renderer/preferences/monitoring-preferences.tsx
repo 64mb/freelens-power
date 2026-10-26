@@ -133,7 +133,6 @@ export const MonitoringPreferences = observer(() => {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 6,
             height: 30,
             padding: "0 10px",
             fontSize: 12,
@@ -158,8 +157,10 @@ export const MonitoringPreferences = observer(() => {
               );
           }}
         >
-          <Renderer.Component.Icon material="delete_outline" size={14} />
-          <span>Clear</span>
+          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Renderer.Component.Icon material="delete_outline" size={14} aria-hidden="true" />
+            <span>Clear</span>
+          </span>
         </Renderer.Component.Button>
       </div>
     </div>

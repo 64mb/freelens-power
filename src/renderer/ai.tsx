@@ -18,7 +18,7 @@ import {
   sanitizeDiagnosticFinding,
 } from "./ai-diagnostic-handoff";
 import { AiContextPreview, AiResourceReferences } from "./ai-extras";
-import { AiIcon } from "./ai-icon";
+import { AiIcon, AiPinIcon } from "./ai-icon";
 import { isPowerLogsWorkspace, POWER_LOGS_SQL_DRAFT_PROMPT } from "./ai-logs-sql";
 import { AiMessageContent } from "./ai-message";
 import { AiProviderIcon } from "./ai-provider-icon";
@@ -173,6 +173,7 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 :root .power-ai-panel form button[type="submit"]:disabled { background-color: var(--contentColor); border-color: var(--borderFaintColor); color: var(--textColorSecondary); }
 .power-ai-message-user { border-color: color-mix(in srgb, var(--primary) 28%, var(--borderFaintColor)); background: color-mix(in srgb, var(--primary) 7%, var(--mainBackground)); }
 .power-ai-context { padding: 10px 20px; line-height: 1.5; border-bottom: 1px solid var(--borderFaintColor); font-size: 12px; color: var(--textColorSecondary); overflow-wrap: anywhere; }
+.power-ai-attached-resource { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .power-ai-title, .power-ai-panel button { display: inline-flex; align-items: center; gap: 6px; }
 .power-ai-title { margin-right: auto; white-space: nowrap; color: var(--textColorAccent); }
 .power-ai-brand { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); }
@@ -181,6 +182,15 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 .power-ai-panel header > button { flex-shrink: 0; }
 .power-ai-panel form { position: relative; flex-shrink: 0; margin: 0 16px 16px; border: 1px solid var(--borderFaintColor); border-radius: 12px; background: var(--mainBackground); transition: border-color 160ms ease; }
 .power-ai-panel form > .power-ai-context-preview { padding: 8px 48px 4px 16px !important; min-height: 34px; margin: 0; box-sizing: border-box; }
+.power-ai-context-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+.power-ai-finding-content pre { max-height: 140px; }
+.power-ai-context-content pre { max-height: 160px; }
+.power-ai-context-preview .power-log-json { --json-key:#9cdcfe; --json-string:#ce9178; --json-number:#b5cea8; --json-literal:#c586c0; }
+.theme-light .power-ai-context-preview .power-log-json { --json-key:#005a9e; --json-string:#9e2b1a; --json-number:#17642d; --json-literal:#7a288c; }
+.power-ai-context-preview .power-log-json [data-token=key] { color:var(--json-key); }
+.power-ai-context-preview .power-log-json [data-token=string] { color:var(--json-string); }
+.power-ai-context-preview .power-log-json [data-token=number] { color:var(--json-number); }
+.power-ai-context-preview .power-log-json [data-token=literal] { color:var(--json-literal); }
 .power-ai-context-finding { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; min-width: 0; }
 .power-ai-context-finding > .Icon { flex-shrink: 0; margin-top: 7px; }
 .power-ai-context-finding > details { flex: 1; min-width: 0; }
@@ -239,6 +249,27 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const [launcherHidden, setLauncherHidden] = useState(false);
   const [draft, setDraft] = useState("");
   const [finding, setFinding] = useState<DiagnosticFinding>();
+  const [resourceAttachment, setResourceAttachment] = useState<AiScreenContext>();
+  const dismissedResource = useRef<string>();
+  const panelOpen = useRef(open);
+  panelOpen.current = open;
+  const captureScreenResource = (current = readAiContext()) => {
+    if (
+      current.clusterId &&
+      current.resource &&
+      dismissedResource.current !== JSON.stringify({ clusterId: current.clusterId, resource: current.resource })
+    )
+      setResourceAttachment(current);
+  };
+  const attachScreenResource = () => {
+    dismissedResource.current = undefined;
+    captureScreenResource();
+  };
+  const removeResource = () => {
+    const current = resourceAttachment ?? readAiContext();
+    dismissedResource.current = JSON.stringify({ clusterId: current.clusterId, resource: current.resource });
+    setResourceAttachment(undefined);
+  };
   const [terminalAttachment, setTerminalAttachment] = useState<AiTerminalAttachment>();
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [dismissedDraft, setDismissedDraft] = useState<string>();
@@ -308,6 +339,8 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       updateDock();
       const nextContext = readAiContext();
       setContext(nextContext);
+      if (panelOpen.current) captureScreenResource(nextContext);
+      setResourceAttachment((current) => (current?.clusterId === nextContext.clusterId ? current : undefined));
       setFinding((current) => (current && current.clusterId !== nextContext.clusterId ? undefined : current));
       setResourceDetailsOpen(hasAiResourceDetails());
       setCoveredByOverlay(hasAiOverlay());
@@ -372,6 +405,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     const closePanel = () => setOpen(false);
     window.addEventListener("power-ai-close", closePanel);
     function openOnly() {
+      attachScreenResource();
       update();
       setOpen(true);
     }
@@ -439,6 +473,17 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   }, [open, pinned]);
   const availablePanelWidth = Math.max(1, viewportWidth - Math.max(0, launcherLeft - 16));
   const panelWidth = clampAiPanelWidth(preferences.chatPanelWidth ?? DEFAULT_AI_PANEL_WIDTH, availablePanelWidth);
+  const attachedResource =
+    resourceAttachment && resourceAttachment.clusterId === context.clusterId ? resourceAttachment.resource : undefined;
+  const previewContext = attachedAiContext({
+    clusterId: context.clusterId,
+    screen: context.screen,
+    ...(finding && finding.clusterId === context.clusterId && finding.resource
+      ? { resource: finding.resource }
+      : attachedResource
+        ? { resource: attachedResource }
+        : {}),
+  });
   const key = context.clusterId ?? "global";
   const messages = preferences.conversations[key] ?? [];
   const busy = pending.includes(key);
@@ -489,9 +534,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       setError("Message and attached finding are too long. Shorten the message or remove the finding.");
       return;
     }
+    const currentContext = readAiContext();
+    const requestResource =
+      activeFinding?.resource ??
+      (resourceAttachment && resourceAttachment.clusterId === currentContext.clusterId
+        ? resourceAttachment.resource
+        : undefined);
     const requestContext = attachedAiContext({
-      ...readAiContext(),
-      ...(activeFinding?.resource ? { resource: activeFinding.resource } : {}),
+      clusterId: currentContext.clusterId,
+      screen: currentContext.screen,
+      ...(requestResource ? { resource: requestResource } : {}),
     });
     if ((requestContext.clusterId ?? "global") !== key) {
       setContext(requestContext);
@@ -619,7 +671,12 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
               left: resourceDetailsOpen ? launcherLeft : "auto",
               right: resourceDetailsOpen ? "auto" : 16,
             }}
-            onClick={() => setOpen(true)}
+            onPointerDown={attachScreenResource}
+            onMouseDown={attachScreenResource}
+            onClick={() => {
+              attachScreenResource();
+              setOpen(true);
+            }}
             aria-label="Open AI assistant"
           >
             <span aria-hidden="true">
@@ -633,6 +690,9 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
         <aside
           className="power-ai-panel"
           aria-label="AI assistant"
+          onPointerDownCapture={() => captureScreenResource()}
+          onMouseDownCapture={() => captureScreenResource()}
+          onFocusCapture={() => captureScreenResource()}
           style={{ "--power-ai-font-size": `${preferences.chatFontSize ?? 14}px`, width: panelWidth } as CSSProperties}
         >
           <AiResizeHandle
@@ -657,6 +717,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 onClick={() => {
                   setTerminalAttachment(undefined);
                   setFinding(undefined);
+                  removeResource();
                   preferences.setMessages(key, []);
                   setStopped((keys) => keys.filter((entry) => entry !== key));
                   setActivity({ key, reads: [] });
@@ -674,7 +735,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                 aria-pressed={pinned}
                 onClick={() => setPinned((value) => !value)}
               >
-                <AiIcon material="push_pin" size={18} />
+                <AiPinIcon pinned={pinned} size={18} />
               </button>
             </NativeTooltip>
             <NativeTooltip title="Close AI assistant">
@@ -697,7 +758,24 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
           </header>
           <div className="power-ai-context">
             {context.clusterId ? "Cluster conversation" : "General conversation"} · {context.screen}
-            {context.resource && ` · ${context.resource.kind}/${context.resource.name}`}
+            {attachedResource && !(finding?.clusterId === context.clusterId && finding?.resource) && (
+              <div className="power-ai-attached-resource" aria-label="Attached resource">
+                <span>
+                  {attachedResource.kind}/{attachedResource.name}
+                  {attachedResource.namespace ? ` · ${attachedResource.namespace}` : ""}
+                </span>
+                <NativeTooltip title="Remove resource from attached context">
+                  <button
+                    type="button"
+                    className="power-ai-remove-context"
+                    aria-label="Remove attached resource"
+                    onClick={removeResource}
+                  >
+                    <AiIcon material="close" size={14} />
+                  </button>
+                </NativeTooltip>
+              </div>
+            )}
             <br />
             Only screen and resource metadata are attached automatically.
           </div>
@@ -835,12 +913,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
             <AiContextPreview
               finding={finding?.clusterId === context.clusterId ? finding : undefined}
               onRemoveFinding={() => setFinding(undefined)}
-              context={attachedAiContext({
-                ...context,
-                ...(finding && finding.clusterId === context.clusterId && finding.resource
-                  ? { resource: finding.resource }
-                  : {}),
-              })}
+              context={previewContext}
             />
             <AiTerminalContext
               clusterId={context.clusterId}

@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   showDetails: vi.fn(),
   getApi: vi.fn(),
 }));
+vi.mock("electron", () => ({ clipboard: { writeText: vi.fn() } }));
+
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
@@ -60,6 +62,35 @@ describe("AI context preview and resource navigation", () => {
     const preview = screen.getByText((_, element) => element?.tagName === "PRE");
     expect(preview.textContent).toBe(JSON.stringify(context, null, 2));
     expect(preview.textContent).not.toContain("hidden");
+  });
+
+  it("highlights attached JSON without changing redacted evidence or enabling field actions", () => {
+    const summary =
+      '{\n  "message": "<img src=x onerror=alert(1)>",\n  "token": "[REDACTED]",\n  "count": 3, "ready": true, "missing": null\n}';
+    const context = { clusterId: "cluster-a", screen: "/pods", resource: reference };
+    const view = render(
+      <AiContextPreview context={context} finding={{ clusterId: "cluster-a", title: "Log line", summary }} />,
+    );
+    const evidence = screen.getByLabelText("Selected diagnostic finding").querySelector("pre")!;
+    const metadata = view.container.querySelector(".power-ai-context-content pre")!;
+    expect(evidence.textContent).toBe(summary);
+    expect(metadata.textContent).toBe(JSON.stringify(context, null, 2));
+    expect(evidence.querySelector('[data-token="key"]')?.textContent).toBe('"message"');
+    expect(evidence.querySelector('[data-token="string"]')?.textContent).toContain("<img");
+    expect(evidence.querySelector('[data-token="number"]')?.textContent).toBe("3");
+    expect(evidence.querySelector('[data-token="literal"]')?.textContent).toBe("true");
+    expect(metadata.querySelector('[data-token="key"]')?.textContent).toBe('"clusterId"');
+    expect(evidence.querySelector("img")).toBeNull();
+    for (const token of view.container.querySelectorAll<HTMLElement>("[data-token]")) {
+      fireEvent.mouseEnter(token);
+      fireEvent.focus(token);
+      expect(token.hasAttribute("tabindex")).toBe(false);
+    }
+    expect(screen.queryByRole("toolbar", { name: "JSON field actions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy value" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Include value" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Exclude value" })).toBeNull();
+    view.unmount();
   });
 
   it("resolves the exact native API and namespace with a read-only GET", async () => {

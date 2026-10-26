@@ -326,6 +326,45 @@ extensionTest("Settings jumps and stable pointer geometry", async (session, fram
   await restoredSearch.getByRole("button", { name: "Close resource search" }).click();
 });
 
+extensionTest("AI resource attachment survives closing its drawer", async (session, frame, info) => {
+  await session.window.locator(".freelens-power-settings-icon").click();
+  const settings = session.window.locator(".freelens-power-preferences");
+  const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: "Enable AI features" });
+  if (!(await toggle.locator("input").isChecked())) await toggle.click();
+  await session.window.locator('div[class*="close-button-module__closeButton--"][aria-label="Close"]').click();
+  await frame.getByText("Workloads", { exact: true }).first().click();
+  await frame.getByText("Pods", { exact: true }).first().click();
+  const dialog = await openSearch(frame);
+  await (await search(dialog, "ready-workload", "Deployment")).click();
+  const drawer = frame.locator(".Drawer").filter({ hasText: "ready-workload" }).last();
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("button", { name: "Ask AI", exact: true }).click();
+  const chat = frame.getByRole("complementary", { name: "AI assistant" });
+  await expect(chat).toBeVisible();
+  const finding = chat.getByRole("button", { name: "Remove diagnostic finding", exact: true });
+  if (await finding.isVisible()) await finding.click();
+  const resource = chat.getByLabel("Attached resource", { exact: true });
+  await expect(resource).toContainText("ready-workload");
+  const pin = chat.getByRole("button", { name: "Pin AI assistant", exact: true });
+  const originalPin = await pin.locator("svg").getAttribute("viewBox");
+  await pin.click();
+  await expect(pin).toHaveAttribute("aria-pressed", "true");
+  expect(await pin.locator("svg").getAttribute("viewBox")).not.toBe(originalPin);
+  await chat.getByRole("textbox", { name: "Message", exact: true }).click();
+  await expect(drawer).toBeHidden();
+  await expect(resource).toContainText("ready-workload");
+  await chat.getByText("Attached context", { exact: true }).click();
+  const preview = chat.locator(".power-ai-context-preview > details pre");
+  await expect(preview).toContainText("ready-workload");
+  await expect(preview.locator('[data-token="key"]').first()).toBeVisible();
+  await session.screenshot(info, "ai-retained-resource", frame);
+  await chat.getByRole("button", { name: "Remove attached resource", exact: true }).click();
+  await expect(resource).toHaveCount(0);
+  await expect(preview).not.toContainText("ready-workload");
+  await chat.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await expect(resource).toHaveCount(0);
+});
+
 extensionTest("Power Logs workload sources, captures, SQL and reviewed AI context", async (session, frame, info) => {
   test.setTimeout(600_000);
   const samplePodName = applyPowerLogsFixtures();
@@ -584,10 +623,59 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
       delete scope.powerLogsOriginalSaveDialog;
     });
   }
+  const checkSnapshotDialog = async (action: string) => {
+    const dialog = frame.getByTestId("confirmation-dialog");
+    await expect(dialog).toBeVisible();
+    const message = dialog.locator(".power-logs-confirmation");
+    const layout = await message.evaluate((element) => {
+      const box = element.closest(".box")!;
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--contentColor)";
+      document.body.append(probe);
+      const result = {
+        width: element.getBoundingClientRect().width,
+        height: element.getBoundingClientRect().height,
+        background: getComputedStyle(box).backgroundColor,
+        expectedBackground: getComputedStyle(probe).backgroundColor,
+      };
+      probe.remove();
+      return result;
+    });
+    expect(layout.width).toBeGreaterThan(200);
+    expect(layout.height).toBeLessThan(160);
+    expect(layout.background).toBe(layout.expectedBackground);
+    const button = dialog.getByRole("button", { name: action, exact: true });
+    await expect(button.locator(".Icon")).toHaveCount(1);
+    if (action === "Delete snapshot") {
+      const colors = await button.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = "var(--colorError)";
+        document.body.append(probe);
+        const result = [
+          getComputedStyle(element).backgroundColor,
+          getComputedStyle(probe).backgroundColor,
+          getComputedStyle(element).color,
+        ];
+        probe.remove();
+        return result;
+      });
+      expect(colors[0]).toBe(colors[1]);
+      expect(colors[2]).toBe("rgb(255, 255, 255)");
+    }
+    await session.screenshot(info, `snapshot-${action.replaceAll(" ", "-").toLowerCase()}`, frame);
+  };
   const snapshotSelect = page.getByRole("combobox", { name: "Capture snapshot", exact: true });
   await snapshotSelect.click();
   const keepSnapshot = frame.getByRole("button", { name: `Keep snapshot ${logsDeployment}`, exact: true }).first();
+  const snapshotRow = keepSnapshot.locator("..");
+  const textBox = await snapshotRow.locator(".power-logs-option-text").boundingBox();
+  const keepBox = await keepSnapshot.boundingBox();
+  const deleteBox = await snapshotRow.locator("[data-capture-delete]").boundingBox();
+  expect(keepBox!.x).toBeGreaterThanOrEqual(textBox!.x + textBox!.width);
+  expect(deleteBox!.x - keepBox!.x - keepBox!.width).toBeLessThanOrEqual(16);
+  const originalPin = await keepSnapshot.locator(".Icon").innerHTML();
   await keepSnapshot.click();
+  await checkSnapshotDialog("Keep snapshot");
   await frame.getByRole("button", { name: "Cancel", exact: true }).click();
   await snapshotSelect.click();
   await keepSnapshot.click();
@@ -597,7 +685,15 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .getByRole("button", { name: `Allow expiration for snapshot ${logsDeployment}`, exact: true })
     .first();
   await expect(allowExpiration).toHaveAttribute("aria-pressed", "true");
+  expect(await allowExpiration.locator(".Icon").innerHTML()).not.toBe(originalPin);
+  await allowExpiration.hover();
+  const hoverColors = await allowExpiration.evaluate((element) => [
+    getComputedStyle(element).color,
+    getComputedStyle(element).backgroundColor,
+  ]);
+  expect(hoverColors[0]).not.toBe(hoverColors[1]);
   await allowExpiration.click();
+  await checkSnapshotDialog("Allow expiration");
   await frame.getByRole("button", { name: "Allow expiration", exact: true }).click();
   await snapshotSelect.click();
   await snapshotSelect.fill(logsDeployment);
@@ -609,6 +705,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.getByLabel("SQL query")).toBeEditable();
   await snapshotSelect.fill("");
   await snapshotSelect.press("Alt+Delete");
+  await checkSnapshotDialog("Delete snapshot");
   await frame.getByRole("button", { name: "Delete snapshot", exact: true }).click();
   await expect(page.locator(".power-logs-results table")).toHaveCount(0);
   await page.getByRole("button", { name: "Capture logs", exact: true }).click();
@@ -651,8 +748,18 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   const visibleOrigins = await page.locator(".power-log-row .power-log-origin").allTextContents();
   expect(visibleOrigins.length).toBeGreaterThan(0);
   expect(visibleOrigins.every((origin) => origin === samplePodName)).toBe(true);
-  await page.locator(".power-log-origin").first().hover();
-  await expect(frame.getByRole("tooltip").filter({ hasText: `${samplePodName} / sidecar` })).toBeVisible();
+  const origin = page.locator(".power-log-origin").first();
+  if (await origin.isVisible()) {
+    await origin.hover();
+    await expect(frame.getByRole("tooltip").filter({ hasText: `${samplePodName} / sidecar` })).toBeVisible();
+  } else {
+    const width = await page.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return element.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+    });
+    expect(width).toBeLessThanOrEqual(760);
+    await expect(origin).toHaveCSS("display", "none");
+  }
   await session.screenshot(info, "power-logs-pod-container");
   await page.getByRole("button", { name: "Native logs", exact: true }).click();
   const nativeDock = frame.locator(".Dock.isOpen");
