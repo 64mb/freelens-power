@@ -29,18 +29,18 @@ export function startAppearanceOverride(): () => void {
         color === "default"
           ? ""
           : `
-        :root { --freelens-power-accent-foreground: ${accentForeground(color)}; --select-option-focused-color: var(--textColorPrimary) !important; --primary: ${color} !important; --buttonPrimaryBackground: ${color} !important; --menuSelectedOptionBgc: ${color} !important; --select-option-focused-bgc: color-mix(in srgb, ${color} 24%, var(--contentColor)) !important; --icon-focus-color: ${color} !important; }
+        :root { --freelens-power-accent-foreground: ${accentForeground(color)}; --select-option-focused-color: var(--textColorAccent) !important; --primary: ${color} !important; --buttonPrimaryBackground: ${color} !important; --menuSelectedOptionBgc: ${color} !important; --select-option-focused-bgc: color-mix(in srgb, ${color} 24%, var(--contentColor)) !important; --icon-focus-color: ${color} !important; }
         :root .Checkbox, :root .Drawer .drawer-title, :root .DrawerParamToggler .param-link, :root .Drawer .ResizingAnchor { --blue: var(--primary); }
         :root [role="treeitem"][class*="catalog-tree-module__selected--"] { --blue: var(--primary); }
         :root [class*="main-layout-module__sidebar--"] > .ResizingAnchor { --blue: var(--primary); }
         :root .MenuItem:is(.create-terminal-tab, .create-resource-tab) { --bgc-active: var(--primary); }
         :root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled) { border-color: ${color} !important; box-shadow: 0 0 0 1px ${color} !important; }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
-        :root .Select__option--is-focused:not(.Select__option--is-selected) { color: var(--textColorPrimary) !important; }
+        :root .Select__option--is-focused:not(.Select__option--is-selected) { color: var(--textColorAccent) !important; }
         :root .Button.primary:not(.plain):not(.outlined):not(.light) { color: var(--freelens-power-accent-foreground); }
         :root [data-testid="cluster-sidebar"] { --sidebarActiveColor: var(--freelens-power-accent-foreground); --sidebarSubmenuActiveColor: var(--primary); }
         :root .NamespaceSelectMenu .Select__option { margin-block: 2px; }
-        :root .NamespaceSelectMenu .Select__option--is-selected { background: color-mix(in srgb, var(--primary) 10%, var(--contentColor)) !important; color: var(--textColorPrimary) !important; }
+        :root .NamespaceSelectMenu .Select__option--is-selected { background: color-mix(in srgb, var(--primary) 10%, var(--contentColor)) !important; color: var(--textColorAccent) !important; }
         :root .NamespaceSelectMenu .Select__option--is-selected.Select__option--is-focused { background: color-mix(in srgb, var(--primary) 24%, var(--contentColor)) !important; }
         :root .NamespaceSelectMenu .Select__option--is-selected .Icon { color: var(--primary); }
         :root .Select__option:not(.Select__option--is-disabled):active { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }

@@ -326,6 +326,45 @@ extensionTest("Settings jumps and stable pointer geometry", async (session, fram
   await restoredSearch.getByRole("button", { name: "Close resource search" }).click();
 });
 
+extensionTest("AI resource attachment survives closing its drawer", async (session, frame, info) => {
+  await session.window.locator(".freelens-power-settings-icon").click();
+  const settings = session.window.locator(".freelens-power-preferences");
+  const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: "Enable AI features" });
+  if (!(await toggle.locator("input").isChecked())) await toggle.click();
+  await session.window.locator('div[class*="close-button-module__closeButton--"][aria-label="Close"]').click();
+  await frame.getByText("Workloads", { exact: true }).first().click();
+  await frame.getByText("Pods", { exact: true }).first().click();
+  const dialog = await openSearch(frame);
+  await (await search(dialog, "ready-workload", "Deployment")).click();
+  const drawer = frame.locator(".Drawer").filter({ hasText: "ready-workload" }).last();
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("button", { name: "Ask AI", exact: true }).click();
+  const chat = frame.getByRole("complementary", { name: "AI assistant" });
+  await expect(chat).toBeVisible();
+  const finding = chat.getByRole("button", { name: "Remove diagnostic finding", exact: true });
+  if (await finding.isVisible()) await finding.click();
+  const resource = chat.getByLabel("Attached resource", { exact: true });
+  await expect(resource).toContainText("ready-workload");
+  const pin = chat.getByRole("button", { name: "Pin AI assistant", exact: true });
+  const originalPin = await pin.locator("svg").getAttribute("viewBox");
+  await pin.click();
+  await expect(pin).toHaveAttribute("aria-pressed", "true");
+  expect(await pin.locator("svg").getAttribute("viewBox")).not.toBe(originalPin);
+  await chat.getByRole("textbox", { name: "Message", exact: true }).click();
+  await expect(drawer).toBeHidden();
+  await expect(resource).toContainText("ready-workload");
+  await chat.getByText("Attached context", { exact: true }).click();
+  const preview = chat.locator(".power-ai-context-preview > details pre");
+  await expect(preview).toContainText("ready-workload");
+  await expect(preview.locator('[data-token="key"]').first()).toBeVisible();
+  await session.screenshot(info, "ai-retained-resource", frame);
+  await chat.getByRole("button", { name: "Remove attached resource", exact: true }).click();
+  await expect(resource).toHaveCount(0);
+  await expect(preview).not.toContainText("ready-workload");
+  await chat.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await expect(resource).toHaveCount(0);
+});
+
 extensionTest("Power Logs workload sources, captures, SQL and reviewed AI context", async (session, frame, info) => {
   test.setTimeout(600_000);
   const samplePodName = applyPowerLogsFixtures();
@@ -709,8 +748,18 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   const visibleOrigins = await page.locator(".power-log-row .power-log-origin").allTextContents();
   expect(visibleOrigins.length).toBeGreaterThan(0);
   expect(visibleOrigins.every((origin) => origin === samplePodName)).toBe(true);
-  await page.locator(".power-log-origin").first().hover();
-  await expect(frame.getByRole("tooltip").filter({ hasText: `${samplePodName} / sidecar` })).toBeVisible();
+  const origin = page.locator(".power-log-origin").first();
+  if (await origin.isVisible()) {
+    await origin.hover();
+    await expect(frame.getByRole("tooltip").filter({ hasText: `${samplePodName} / sidecar` })).toBeVisible();
+  } else {
+    const width = await page.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return element.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+    });
+    expect(width).toBeLessThanOrEqual(760);
+    await expect(origin).toHaveCSS("display", "none");
+  }
   await session.screenshot(info, "power-logs-pod-container");
   await page.getByRole("button", { name: "Native logs", exact: true }).click();
   const nativeDock = frame.locator(".Dock.isOpen");

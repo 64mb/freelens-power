@@ -71,7 +71,7 @@ describe("application accent override", () => {
     expect(accentRule()?.style.getPropertyValue("--freelens-power-accent-foreground")).toBe("#ffffff");
     const selectedRule = rules().find((rule) => rule.selectorText === ":root .Select__option--is-selected");
     expect(selectedRule?.style.getPropertyValue("color")).toBe("var(--freelens-power-accent-foreground)");
-    expect(accentRule()?.style.getPropertyValue("--select-option-focused-color")).toBe("var(--textColorPrimary)");
+    expect(accentRule()?.style.getPropertyValue("--select-option-focused-color")).toBe("var(--textColorAccent)");
     const sidebarRule = () => rules().find((rule) => rule.selectorText === ':root [data-testid="cluster-sidebar"]');
     expect(sidebarRule()?.style.getPropertyValue("--sidebarSubmenuActiveColor")).toBe("var(--primary)");
     expect(sidebarRule()?.style.getPropertyValue("--sidebarActiveColor")).toBe(
