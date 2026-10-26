@@ -4,6 +4,7 @@ export const logsNamespace = "power-logs-test";
 export const logsDeployment = "power-logs-application";
 export const logsDaemonSet = "power-logs-agent";
 export const logsSecretSentinel = "synthetic-power-logs-credential";
+export const logsConfigMapSentinel = "synthetic-configmap-payload";
 const image =
   "docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e";
 
@@ -26,7 +27,7 @@ export function applyPowerLogsFixtures() {
     command: [
       "sh",
       "-c",
-      `i=0; while true; do printf '{"level":"info","message":"fixture ready","sequence":%s,"source":"${name}"}\\n' "$i"; printf '{"level":"error","message":"fixture failure","credentials":{"token":"${logsSecretSentinel}"},"sequence":%s}\\n' "$i"; printf 'WARN fixture warning sequence=%s\\n' "$i"; i=$((i+1)); sleep 2; done`,
+      `i=0; while true; do printf '{"level":"info","message":"fixture ready","sequence":%s,"source":"${name}"}\\n' "$i"; printf '{"level":"error","message":"fixture failure","credentials":{"token":"${logsSecretSentinel}"},"resource":{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"log-settings"},"data":{"SETTING":"${logsConfigMapSentinel}"}},"sequence":%s}\\n' "$i"; printf 'WARN fixture warning sequence=%s\\n' "$i"; i=$((i+1)); sleep 2; done`,
     ],
     resources: { requests: { cpu: "5m", memory: "8Mi" }, limits: { cpu: "50m", memory: "32Mi" } },
     securityContext: {

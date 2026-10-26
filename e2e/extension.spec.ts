@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { expect, type Frame, type Locator, type TestInfo, test } from "@playwright/test";
 import { FreelensSession } from "./app";
 import { applyFixtures, mutateConfigMap, secretSentinel } from "./fixtures";
-import { applyPowerLogsFixtures, logsDaemonSet, logsDeployment, logsSecretSentinel } from "./power-logs-fixtures";
+import {
+  applyPowerLogsFixtures,
+  logsConfigMapSentinel,
+  logsDaemonSet,
+  logsDeployment,
+  logsSecretSentinel,
+} from "./power-logs-fixtures";
 
 test.beforeAll(() => applyFixtures());
 
@@ -500,7 +506,9 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await finding.locator("summary").click();
   await expect(finding.locator("pre")).toContainText(logsDeployment);
   await expect(finding.locator("pre")).toContainText("[REDACTED]");
-  await expect(finding.locator("pre")).not.toContainText(logsSecretSentinel);
+  await expect(finding.locator("pre")).toContainText(logsSecretSentinel);
+  await expect(finding.locator("pre")).toContainText("SETTING");
+  await expect(finding.locator("pre")).not.toContainText(logsConfigMapSentinel);
   await assistant.getByText("What will be sent", { exact: true }).click();
   await expect(assistant.locator(".power-ai-context-inspector pre")).toContainText(logsDeployment);
   await expect(assistant.locator(".power-ai-message-user")).toHaveCount(0);
