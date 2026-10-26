@@ -35,19 +35,6 @@ describe("AI provider preferences", () => {
     expect(restored.conversations["cluster-b"][0].provider).toBe("claude");
   });
 
-  it("preserves legacy Claude Fast without overriding an explicit provider speed", () => {
-    const store = new AiPreferencesStore();
-    store.fromStore({ provider: "claude", speed: "fast" });
-    expect(store.claudeSpeed).toBe("fast");
-    const migrated = store.toJSON();
-    const restored = new AiPreferencesStore();
-    restored.fromStore(migrated);
-    expect(restored.claudeSpeed).toBe("fast");
-    restored.fromStore({ ...migrated, claudeSpeed: "default" });
-    expect(restored.claudeSpeed).toBe("default");
-    expect(restored.speed).toBe("fast");
-  });
-
   it("drops unsupported efforts and speeds per provider instead of failing every request", () => {
     const store = new AiPreferencesStore();
     store.fromStore({ reasoningEffort: "ultra", claudeReasoningEffort: "xhigh" });

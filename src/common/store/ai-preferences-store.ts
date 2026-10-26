@@ -53,6 +53,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
         provider: "codex",
         claudeModel: "",
         claudeReasoningEffort: "",
+        claudeSpeed: "default",
         systemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
         clusterPrompt: DEFAULT_AI_CLUSTER_PROMPT,
         model: "",
@@ -89,9 +90,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     this.claudeModel = typeof data?.claudeModel === "string" ? data.claudeModel : "";
     const claudeReasoningEffort = data?.claudeReasoningEffort ?? "";
     this.claudeReasoningEffort = CLAUDE_REASONING_EFFORTS.includes(claudeReasoningEffort) ? claudeReasoningEffort : "";
-    const claudeSpeed =
-      data?.claudeSpeed === undefined && this.provider === "claude" ? data?.speed : data?.claudeSpeed;
-    this.claudeSpeed = claudeSpeed === "fast" ? "fast" : "default";
+    this.claudeSpeed = data?.claudeSpeed === "fast" ? "fast" : "default";
     if (typeof data?.systemPrompt === "string")
       this.systemPrompt = upgradeBundledAiPrompt(data.systemPrompt, "systemPrompt");
     if (typeof data?.clusterPrompt === "string")
