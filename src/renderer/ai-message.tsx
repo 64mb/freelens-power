@@ -6,6 +6,7 @@ import { createElement, Fragment, type ReactNode, useEffect, useMemo, useState }
 import { AiIcon } from "./ai-icon";
 import { isPowerLogsWorkspace, usePowerLogsWorkspace } from "./ai-logs-sql";
 import { NativeTooltip } from "./native-tooltip";
+import { tokenizeSql } from "./power-log-sql-editor";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
 const markdownTags = new Set([
@@ -182,7 +183,9 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
   const shell = ["", "bash", "sh", "shell", "zsh", "console", "terminal"].includes(language.toLowerCase());
   const command = terminalInsertText(text);
   const logsWorkspace = usePowerLogsWorkspace();
-  const sqlDraft = ["sql", "sqlite"].includes(language.toLowerCase()) && logsWorkspace;
+  const sql = ["sql", "sqlite"].includes(language.toLowerCase());
+  const sqlTokens = useMemo(() => (sql ? tokenizeSql(text) : undefined), [sql, text]);
+  const sqlDraft = sql && logsWorkspace;
   const insert = async () => {
     const activeTerminal = visibleTerminalId();
     if (!shell || !command || !activeTerminal || inserting) return;
@@ -256,7 +259,15 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
         </div>
       </div>
       <pre>
-        <code>{text}</code>
+        <code>
+          {sqlTokens
+            ? sqlTokens.map((token, index) => (
+                <span key={index} data-sql-token={token.kind}>
+                  {token.text}
+                </span>
+              ))
+            : text}
+        </code>
       </pre>
       {shell && !command && (
         <div className="power-ai-code-hint">Terminal insertion requires a single line without control characters.</div>

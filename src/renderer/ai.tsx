@@ -224,12 +224,19 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 .power-ai-markdown a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
 .power-ai-markdown hr { margin: 20px 0; border: 0; border-top: 1px solid var(--borderFaintColor); }
 .power-ai-markdown code { font-family: var(--font-monospace, monospace); font-size: max(10px, calc(var(--power-ai-font-size, 14px) - 1px)); background: color-mix(in srgb, var(--textColorAccent) 8%, transparent); padding: 1px 4px; border-radius: 4px; }
-.power-ai-code { margin: 12px 0; border: 1px solid var(--borderFaintColor); border-radius: 8px; overflow: hidden; background: var(--mainBackground); }
+.power-ai-code { --sql-string:#e6a28c; --sql-number:#98c78e; --sql-function:#81b9e6; --sql-identifier:var(--textColorPrimary); margin: 12px 0; border: 1px solid var(--borderFaintColor); border-radius: 8px; overflow: hidden; background: var(--mainBackground); }
 .power-ai-code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--borderFaintColor); color: var(--textColorSecondary); font-size: 11px; }
 .power-ai-code-toolbar > div { display: flex; gap: 4px; }
 .power-ai-code-toolbar button { padding: 4px 6px; font-size: 11px; }
-.power-ai-code pre { margin: 0; padding: 12px; overflow-x: auto; white-space: pre; }
-.power-ai-code pre code { padding: 0; background: transparent; }
+.power-ai-code pre { color:var(--textColorPrimary); margin: 0; padding: 12px; overflow-x: auto; white-space: pre; }
+.power-ai-code pre code { padding: 0; background: transparent; color:inherit; }
+.theme-light .power-ai-code { --sql-string:#9e2b1a; --sql-number:#17642d; --sql-function:#005a9e; --sql-identifier:#684c9b; }
+.power-ai-code [data-sql-token=keyword] { color:var(--primary); }
+.power-ai-code [data-sql-token=function] { color:var(--sql-function); }
+.power-ai-code [data-sql-token=string] { color:var(--sql-string); }
+.power-ai-code [data-sql-token=identifier] { color:var(--sql-identifier); }
+.power-ai-code [data-sql-token=number] { color:var(--sql-number); }
+.power-ai-code [data-sql-token=comment] { color:var(--textColorSecondary); }
 .power-ai-code-hint, .power-ai-code-feedback:not(:empty) { padding: 0 12px 10px; color: var(--textColorSecondary); font-size: 11px; }
 .power-ai-autocomplete { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; max-height: 240px; overflow-y: auto; padding: 6px; border: 1px solid var(--borderColor); border-radius: 10px; background: var(--contentColor); box-shadow: 0 4px 16px #0003; }
 .power-ai-autocomplete button { display: flex; width: 100%; justify-content: space-between; gap: 12px; border: 0; text-align: left; }
