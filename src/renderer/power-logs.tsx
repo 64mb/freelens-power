@@ -1084,11 +1084,19 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     if (!capture) return;
     Renderer.Component.ConfirmDialog.open({
       message: (
-        <>
+        <div className="power-logs-confirmation">
           Delete snapshot <strong>{capture.target.name}</strong>? This cannot be undone.
-        </>
+        </div>
       ),
-      labelOk: "Delete snapshot",
+      labelOk: (
+        <span className="power-logs-confirm-label">
+          <span aria-hidden="true">
+            <Renderer.Component.Icon material="delete_outline" size={16} />
+          </span>
+          Delete snapshot
+        </span>
+      ),
+      okButtonProps: { className: "ok power-logs-confirm-delete" },
       ok: () => deleteCapture(id),
     });
   };
@@ -1096,16 +1104,23 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     const persistent = !capture.persistent;
     Renderer.Component.ConfirmDialog.open({
       message: persistent ? (
-        <>
+        <div className="power-logs-confirmation">
           Keep snapshot <strong>{capture.target.name}</strong> until you delete it? It will survive restarts and will
           not expire automatically.
-        </>
+        </div>
       ) : (
-        <>
+        <div className="power-logs-confirmation">
           Allow snapshot <strong>{capture.target.name}</strong> to expire? Its retention period will start again now.
-        </>
+        </div>
       ),
-      labelOk: persistent ? "Keep snapshot" : "Allow expiration",
+      labelOk: (
+        <span className="power-logs-confirm-label">
+          <span aria-hidden="true">
+            <Renderer.Component.Icon svg={persistent ? "push_pin" : "push_off"} size={16} />
+          </span>
+          {persistent ? "Keep snapshot" : "Allow expiration"}
+        </span>
+      ),
       ok: async () => {
         if (!alive.current || deleting.current.has(capture.id) || queryRef.current || captureController.current) return;
         deleting.current.add(capture.id);
@@ -1133,8 +1148,20 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   };
   const clearSavedSnapshots = () =>
     Renderer.Component.ConfirmDialog.open({
-      message: "Delete all saved snapshots from all clusters? Temporary snapshots will be kept. This cannot be undone.",
-      labelOk: "Clear saved snapshots",
+      message: (
+        <div className="power-logs-confirmation">
+          Delete all saved snapshots from all clusters? Temporary snapshots will be kept. This cannot be undone.
+        </div>
+      ),
+      labelOk: (
+        <span className="power-logs-confirm-label">
+          <span aria-hidden="true">
+            <Renderer.Component.Icon material="delete_outline" size={16} />
+          </span>
+          Clear saved snapshots
+        </span>
+      ),
+      okButtonProps: { className: "ok power-logs-confirm-delete" },
       ok: async () => {
         if (queryRef.current || captureController.current || deleting.current.size) return;
         deleting.current.add("clear-saved");
@@ -1179,6 +1206,16 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       Renderer.Component.logTabStore.createPodTab({ selectedPod: pod, selectedContainer: container });
     else setError("Open the Pod in the native resource view to use its Logs action");
   };
+  const errorNotice = error && (
+    <div role="alert" className="power-logs-notice power-logs-error">
+      {error}
+      {savedPoolFull && (
+        <button type="button" disabled={deletingCount > 0 || !!queryId || capturePending} onClick={clearSavedSnapshots}>
+          Clear saved snapshots
+        </button>
+      )}
+    </div>
+  );
   return (
     <div
       className="power-logs"
@@ -1328,20 +1365,6 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       ) : (
         <SourcePicker />
       )}
-      {error && (
-        <div role="alert" className="power-logs-notice power-logs-error">
-          {error}
-          {savedPoolFull && (
-            <button
-              type="button"
-              disabled={deletingCount > 0 || !!queryId || capturePending}
-              onClick={clearSavedSnapshots}
-            >
-              Clear saved snapshots
-            </button>
-          )}
-        </div>
-      )}
       {tab === "live" ? (
         <>
           <div className="power-logs-filters">
@@ -1419,6 +1442,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </button>
             )}
           </div>
+          {errorNotice}
           <FieldFilters
             filters={fieldFilters}
             onRemove={(index) => setFieldFilters(fieldFilters.filter((_, item) => item !== index))}
@@ -1503,7 +1527,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                           confirmPersistentCapture(item);
                         }}
                       >
-                        <Renderer.Component.Icon material="push_pin" size={16} />
+                        <Renderer.Component.Icon svg={item.persistent ? "push_off" : "push_pin"} size={16} />
                       </button>
                     </NativeTooltip>
                     <NativeTooltip title="Delete snapshot (Alt+Delete)">
@@ -1625,6 +1649,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             onRemove={(index) => applySqlFilters((activeSqlFilters?.filters ?? []).filter((_, item) => item !== index))}
           />
           <SqlEditor id="power-logs-sql" value={sql} onChange={setSql} fitVersion={sqlFitVersion} />
+          {errorNotice}
           {sqlError && (
             <div role="alert" className="power-logs-notice power-logs-error power-logs-query-error">
               {sqlError}

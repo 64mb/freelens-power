@@ -49,11 +49,9 @@ vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
       Tooltip: (props: any) => <MockTooltip {...props} />,
-      Icon: ({ material }: { material: string }) => (
-        <span className="Icon material">
-          <span className="icon">{material}</span>
-        </span>
-      ),
+      Icon: () => {
+        throw new Error("Native injected Icon requires the host React DI context");
+      },
       terminalStore: {
         isConnected: () => true,
         getTerminalApi: () => ({ isReady: true, isConnected: () => true }),
@@ -564,11 +562,21 @@ describe("AI chat", () => {
     expect(hostClick.mock.calls[0][0].defaultPrevented).toBe(false);
     expect(screen.queryByLabelText("AI assistant")).toBeNull();
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
-    fireEvent.click(screen.getByRole("button", { name: "Pin AI assistant" }));
-    expect(screen.getByRole("button", { name: "Pin AI assistant" }).getAttribute("aria-pressed")).toBe("true");
+    const pinButton = screen.getByRole("button", { name: "Pin AI assistant" });
+    const pinPath = pinButton.querySelector("path")?.getAttribute("d");
+    expect(pinPath).toBeTruthy();
+    expect(pinButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 193.826 193.826");
+    expect(pinButton.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(pinButton);
+    expect(pinButton.getAttribute("aria-pressed")).toBe("true");
+    expect(pinButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(pinButton.querySelector("path")?.getAttribute("d")).not.toBe(pinPath);
     fireEvent.click(hostButton);
     expect(screen.getByLabelText("AI assistant")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Pin AI assistant" }));
+    fireEvent.click(pinButton);
+    expect(pinButton.querySelector("path")?.getAttribute("d")).toBe(pinPath);
+    expect(pinButton.getAttribute("aria-pressed")).toBe("false");
+    expect(pinButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 193.826 193.826");
     fireEvent.click(hostButton);
     expect(screen.queryByLabelText("AI assistant")).toBeNull();
     expect(hostClick).toHaveBeenCalledTimes(3);
@@ -634,6 +642,111 @@ it("stops the originating request, ignores late progress and replies, and clears
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(3));
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("keeps the explicitly attached resource after the host drawer closes until it is removed", async () => {
+  window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/default/pods/worker");
+  stop = startAiChat(() => true);
+  const launcher = screen.getByLabelText("Open AI assistant");
+  fireEvent.pointerDown(launcher);
+  act(() => {
+    window.history.replaceState({}, "", "/pods");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  fireEvent.click(launcher);
+  fireEvent.click(screen.getByRole("button", { name: "Pin AI assistant" }));
+  fireEvent.focus(screen.getByLabelText("Message"));
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("pods/worker");
+  const expected = { kind: "pods", name: "worker", namespace: "default" };
+  expect(JSON.parse(document.querySelector(".power-ai-context-content pre")!.textContent!).resource).toEqual(expected);
+  for (const question of ["Inspect the attached pod", "Check it again"]) {
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: question } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
+    expect(mocks.invoke.mock.calls.at(-1)?.[1]).toMatchObject({ context: { resource: expected } });
+  }
+  fireEvent.click(screen.getByLabelText("Remove attached resource"));
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+  expect(JSON.parse(document.querySelector(".power-ai-context-content pre")!.textContent!).resource).toBeUndefined();
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Review the cluster" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect((mocks.invoke.mock.calls.at(-1)?.[1] as { context: { resource?: unknown } }).context.resource).toBeUndefined();
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
+});
+
+it("captures a newly opened drawer in pinned chat on keyboard focus and respects explicit dismissal", async () => {
+  window.history.replaceState({}, "", "/pods");
+  stop = startAiChat(() => true);
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  fireEvent.click(screen.getByRole("button", { name: "Pin AI assistant" }));
+  window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/default/pods/worker");
+  fireEvent.focus(screen.getByLabelText("Message"));
+  act(() => {
+    window.history.replaceState({}, "", "/pods");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("pods/worker");
+  act(() => {
+    window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/default/pods/worker");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  fireEvent.click(screen.getByLabelText("Remove attached resource"));
+  fireEvent.focus(screen.getByLabelText("Message"));
+  fireEvent.mouseDown(screen.getByLabelText("Message"));
+  act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Review cluster" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect((mocks.invoke.mock.calls.at(-1)?.[1] as { context: { resource?: unknown } }).context.resource).toBeUndefined();
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
+});
+
+it("keeps selected findings intact and previews the same resource that the next message sends", async () => {
+  window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/default/pods/worker");
+  stop = startAiChat(() => true);
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  const { explainDiagnosticFinding } = await import("./ai-diagnostic-handoff");
+  act(() =>
+    explainDiagnosticFinding({
+      clusterId: "cluster-a",
+      title: "Selected deployment",
+      summary: "Readiness failed",
+      resource: { kind: "Deployment", name: "backend", namespace: "sample" },
+    }),
+  );
+  expect(screen.getByLabelText("Selected diagnostic finding")).toBeTruthy();
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+  const preview = document.querySelector(".power-ai-context-content pre")!.textContent!;
+  expect(JSON.parse(preview).resource).toEqual({ kind: "Deployment", name: "backend", namespace: "sample" });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect finding" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect((mocks.invoke.mock.calls.at(-1)?.[1] as { context: unknown }).context).toEqual(JSON.parse(preview));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
+  expect(screen.getByLabelText("Attached resource").textContent).toContain("pods/worker");
+});
+
+it("clears explicit resources on new conversations and cluster changes without restoring old attachments", () => {
+  window.history.replaceState({}, "", "/pods?kube-details=/api/v1/namespaces/default/pods/worker");
+  stop = startAiChat(() => true);
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  expect(screen.getByLabelText("Attached resource")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+  expect(JSON.parse(document.querySelector(".power-ai-context-content pre")!.textContent!).resource).toBeUndefined();
+  fireEvent.click(screen.getByLabelText("Close AI assistant"));
+  fireEvent.click(screen.getByLabelText("Open AI assistant"));
+  expect(screen.getByLabelText("Attached resource")).toBeTruthy();
+  act(() => {
+    mocks.clusterId = "cluster-b";
+    window.history.replaceState({}, "", "/overview");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
+  act(() => {
+    mocks.clusterId = "cluster-a";
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(screen.queryByLabelText("Attached resource")).toBeNull();
 });
 
 it("previews the exact attached metadata before sending and persists safe related resource chips", async () => {

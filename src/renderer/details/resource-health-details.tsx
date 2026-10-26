@@ -47,8 +47,8 @@ export const ResourceHealthDetails = observer(({ object, onOpenDiagnostics }: Re
       <style>{`
         .power-operational-summary > .DrawerTitle.power-operational-title { margin-bottom: 10px; }
         .power-operational-summary .power-resource-action::before { content: none; }
-        .power-operational-summary .power-resource-action { border: 1px solid var(--borderFaintColor); background: var(--buttonDefaultBackground); transition: background-color 140ms, border-color 140ms; }
-        .power-operational-summary .power-resource-action:not(:disabled):hover { background: color-mix(in srgb, var(--buttonDefaultBackground) 85%, var(--textColorPrimary)); border-color: var(--borderColor); }
+        .power-operational-summary .power-resource-action { border: 1px solid var(--borderFaintColor); background: var(--contentColor); color: var(--textColorPrimary); transition: background-color 140ms, border-color 140ms; }
+        .power-operational-summary .power-resource-action:not(:disabled):hover { background: color-mix(in srgb, var(--contentColor) 85%, var(--textColorPrimary)); border-color: var(--borderColor); }
         .power-operational-summary .power-resource-action:active { filter: brightness(1.12); }
         .power-operational-summary .power-resource-action:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       `}</style>

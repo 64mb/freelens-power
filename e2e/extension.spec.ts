@@ -584,10 +584,59 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
       delete scope.powerLogsOriginalSaveDialog;
     });
   }
+  const checkSnapshotDialog = async (action: string) => {
+    const dialog = frame.getByTestId("confirmation-dialog");
+    await expect(dialog).toBeVisible();
+    const message = dialog.locator(".power-logs-confirmation");
+    const layout = await message.evaluate((element) => {
+      const box = element.closest(".box")!;
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--contentColor)";
+      document.body.append(probe);
+      const result = {
+        width: element.getBoundingClientRect().width,
+        height: element.getBoundingClientRect().height,
+        background: getComputedStyle(box).backgroundColor,
+        expectedBackground: getComputedStyle(probe).backgroundColor,
+      };
+      probe.remove();
+      return result;
+    });
+    expect(layout.width).toBeGreaterThan(200);
+    expect(layout.height).toBeLessThan(160);
+    expect(layout.background).toBe(layout.expectedBackground);
+    const button = dialog.getByRole("button", { name: action, exact: true });
+    await expect(button.locator(".Icon")).toHaveCount(1);
+    if (action === "Delete snapshot") {
+      const colors = await button.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = "var(--colorError)";
+        document.body.append(probe);
+        const result = [
+          getComputedStyle(element).backgroundColor,
+          getComputedStyle(probe).backgroundColor,
+          getComputedStyle(element).color,
+        ];
+        probe.remove();
+        return result;
+      });
+      expect(colors[0]).toBe(colors[1]);
+      expect(colors[2]).toBe("rgb(255, 255, 255)");
+    }
+    await session.screenshot(info, `snapshot-${action.replaceAll(" ", "-").toLowerCase()}`, frame);
+  };
   const snapshotSelect = page.getByRole("combobox", { name: "Capture snapshot", exact: true });
   await snapshotSelect.click();
   const keepSnapshot = frame.getByRole("button", { name: `Keep snapshot ${logsDeployment}`, exact: true }).first();
+  const snapshotRow = keepSnapshot.locator("..");
+  const textBox = await snapshotRow.locator(".power-logs-option-text").boundingBox();
+  const keepBox = await keepSnapshot.boundingBox();
+  const deleteBox = await snapshotRow.locator("[data-capture-delete]").boundingBox();
+  expect(keepBox!.x).toBeGreaterThanOrEqual(textBox!.x + textBox!.width);
+  expect(deleteBox!.x - keepBox!.x - keepBox!.width).toBeLessThanOrEqual(16);
+  const originalPin = await keepSnapshot.locator(".Icon").innerHTML();
   await keepSnapshot.click();
+  await checkSnapshotDialog("Keep snapshot");
   await frame.getByRole("button", { name: "Cancel", exact: true }).click();
   await snapshotSelect.click();
   await keepSnapshot.click();
@@ -597,7 +646,15 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .getByRole("button", { name: `Allow expiration for snapshot ${logsDeployment}`, exact: true })
     .first();
   await expect(allowExpiration).toHaveAttribute("aria-pressed", "true");
+  expect(await allowExpiration.locator(".Icon").innerHTML()).not.toBe(originalPin);
+  await allowExpiration.hover();
+  const hoverColors = await allowExpiration.evaluate((element) => [
+    getComputedStyle(element).color,
+    getComputedStyle(element).backgroundColor,
+  ]);
+  expect(hoverColors[0]).not.toBe(hoverColors[1]);
   await allowExpiration.click();
+  await checkSnapshotDialog("Allow expiration");
   await frame.getByRole("button", { name: "Allow expiration", exact: true }).click();
   await snapshotSelect.click();
   await snapshotSelect.fill(logsDeployment);
@@ -609,6 +666,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.getByLabel("SQL query")).toBeEditable();
   await snapshotSelect.fill("");
   await snapshotSelect.press("Alt+Delete");
+  await checkSnapshotDialog("Delete snapshot");
   await frame.getByRole("button", { name: "Delete snapshot", exact: true }).click();
   await expect(page.locator(".power-logs-results table")).toHaveCount(0);
   await page.getByRole("button", { name: "Capture logs", exact: true }).click();

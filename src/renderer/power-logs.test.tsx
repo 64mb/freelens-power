@@ -74,7 +74,7 @@ vi.mock("@freelensapp/extensions", () => {
       ),
       Component: {
         ConfirmDialog: { open: (...args: any[]) => mocks.confirm(...args) },
-        Icon: () => null,
+        Icon: ({ material, svg }: any) => <span aria-hidden="true" data-icon={material ?? svg} />,
         Tooltip: (props: any) => <MockTooltip {...props} />,
         Select: ({ "aria-label": label, value, options, onChange, isDisabled, formatOptionLabel }: any) => {
           const [open, setOpen] = useState(false);
@@ -497,11 +497,29 @@ it("requires confirmation before deleting or making a snapshot persistent", asyn
   fireEvent.click(screen.getByLabelText("Capture snapshot"));
   fireEvent.click(screen.getByRole("button", { name: `Delete snapshot ${snapshot.target.name}` }));
   expect(mocks.delete).not.toHaveBeenCalled();
-  expect(mocks.confirm.mock.calls[0][0].labelOk).toBe("Delete snapshot");
+  const deletion = mocks.confirm.mock.calls[0][0];
+  const deletedLabel = render(deletion.labelOk);
+  expect(deletedLabel.container.textContent).toBe("Delete snapshot");
+  expect(deletedLabel.container.querySelector('[data-icon="delete_outline"]')).toBeTruthy();
+  deletedLabel.unmount();
+  const deletedMessage = render(deletion.message);
+  expect(deletedMessage.container.children).toHaveLength(1);
+  expect(deletedMessage.container.firstElementChild?.textContent).toBe(
+    `Delete snapshot ${snapshot.target.name}? This cannot be undone.`,
+  );
+  deletedMessage.unmount();
+  expect(deletion.okButtonProps.className).toContain("power-logs-confirm-delete");
   fireEvent.click(screen.getByRole("button", { name: `Keep snapshot ${snapshot.target.name}` }));
   expect(mocks.setPersistent).not.toHaveBeenCalled();
   const confirmation = mocks.confirm.mock.calls[1][0];
-  expect(confirmation.labelOk).toBe("Keep snapshot");
+  const keptLabel = render(confirmation.labelOk);
+  expect(keptLabel.container.textContent).toBe("Keep snapshot");
+  expect(keptLabel.container.querySelector('[data-icon="push_pin"]')).toBeTruthy();
+  keptLabel.unmount();
+  const keptMessage = render(confirmation.message);
+  expect(keptMessage.container.children).toHaveLength(1);
+  expect(keptMessage.container.firstElementChild?.textContent).toContain(`Keep snapshot ${snapshot.target.name} until`);
+  keptMessage.unmount();
   await act(async () => confirmation.ok());
   expect(mocks.setPersistent).toHaveBeenCalledWith(snapshot.id, true);
 });
@@ -902,7 +920,9 @@ it("offers confirmed global saved-snapshot cleanup when the saved pool is full",
   fireEvent.click(screen.getByRole("button", { name: "Clear saved snapshots" }));
   expect(mocks.clearPersistent).not.toHaveBeenCalled();
   const confirmation = mocks.confirm.mock.calls.at(-1)![0];
-  expect(confirmation.message).toContain("all clusters");
+  const message = render(confirmation.message);
+  expect(message.container.textContent).toContain("all clusters");
+  message.unmount();
   await act(async () => confirmation.ok());
   expect(mocks.clearPersistent).toHaveBeenCalledOnce();
 });
@@ -935,4 +955,27 @@ it("clears a selected saved snapshot and its results after global saved cleanup"
   fireEvent.click(screen.getByRole("button", { name: "Clear saved snapshots" }));
   await waitFor(() => expect((screen.getByLabelText("Capture snapshot") as HTMLSelectElement).value).toBe(""));
   expect(screen.queryByText("captured log message")).toBeNull();
+});
+
+it("places live loading errors after the filters and SQL errors after the editor", async () => {
+  mocks.history.mockRejectedValue(new Error("unavailable"));
+  const view = await mount();
+  const alert = await screen.findByRole("alert");
+  const filters = view.container.querySelector(".power-logs-filters")!;
+  expect(filters.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  const editor = screen.getByLabelText("SQL query");
+  expect(editor.compareDocumentPosition(screen.getByRole("alert")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it.each([false, true])("uses distinct snapshot pin icons for persistent state %s", async (persistent) => {
+  mocks.list.mockResolvedValue([{ ...snapshot, persistent }]);
+  await mount();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.click(screen.getByLabelText("Capture snapshot"));
+  const button = screen.getByRole("button", {
+    name: `${persistent ? "Allow expiration for" : "Keep"} snapshot ${snapshot.target.name}`,
+  });
+  expect(button.getAttribute("aria-pressed")).toBe(String(persistent));
+  expect(button.querySelector(`[data-icon="${persistent ? "push_off" : "push_pin"}"]`)).toBeTruthy();
 });

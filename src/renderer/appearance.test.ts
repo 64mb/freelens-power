@@ -7,7 +7,7 @@ import {
   AppearancePreferencesStore,
   DEFAULT_ACCENT_COLOR,
 } from "../common/store/appearance-preferences-store";
-import { startAppearanceOverride } from "./appearance";
+import { accentForeground, startAppearanceOverride } from "./appearance";
 
 vi.mock("@freelensapp/extensions", () => ({
   Common: {
@@ -48,6 +48,46 @@ describe("application accent override", () => {
     const style = document.querySelector<HTMLStyleElement>('style[data-freelens-power="accent-color"]');
     return Array.from(style?.sheet?.cssRules ?? []) as CSSStyleRule[];
   }
+
+  it.each(ACCENT_COLOR_OPTIONS)("chooses readable text for the $label accent", ({ color }) => {
+    const linear = [1, 3, 5].map((offset) => {
+      const channel = Number.parseInt(color.slice(offset, offset + 2), 16) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    const foreground = accentForeground(color);
+    const contrast = foreground === "#000000" ? (luminance + 0.05) / 0.05 : 1.05 / (luminance + 0.05);
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+    expect(contrast).toBeGreaterThanOrEqual(
+      foreground === "#ffffff" ? (luminance + 0.05) / 0.05 : 1.05 / (luminance + 0.05),
+    );
+  });
+
+  it("keeps selected and focused options readable and scopes sidebar text and icon inheritance", () => {
+    dispose = startAppearanceOverride();
+    expect(accentForeground("#000000")).toBe("#ffffff");
+    expect(accentForeground("#ffffff")).toBe("#000000");
+    expect(accentForeground(DEFAULT_ACCENT_COLOR)).toBe("#ffffff");
+    expect(accentRule()?.style.getPropertyValue("--freelens-power-accent-foreground")).toBe("#ffffff");
+    const selectedRule = rules().find((rule) => rule.selectorText === ":root .Select__option--is-selected");
+    expect(selectedRule?.style.getPropertyValue("color")).toBe("var(--freelens-power-accent-foreground)");
+    expect(accentRule()?.style.getPropertyValue("--select-option-focused-color")).toBe("var(--textColorPrimary)");
+    const sidebarRule = () => rules().find((rule) => rule.selectorText === ':root [data-testid="cluster-sidebar"]');
+    expect(sidebarRule()?.style.getPropertyValue("--sidebarSubmenuActiveColor")).toBe("var(--primary)");
+    expect(sidebarRule()?.style.getPropertyValue("--sidebarActiveColor")).toBe(
+      "var(--freelens-power-accent-foreground)",
+    );
+    expect(accentRule()?.style.getPropertyValue("--sidebarSubmenuActiveColor")).toBe("");
+    runInAction(() => {
+      preferences.accentColor = "#edc927";
+    });
+    expect(accentRule()?.style.getPropertyValue("--freelens-power-accent-foreground")).toBe("#000000");
+    runInAction(() => {
+      preferences.enabled = false;
+    });
+    expect(sidebarRule()).toBeUndefined();
+    expect(accentRule()).toBeUndefined();
+  });
 
   it("scopes the native log download accent and restores its host color when disabled", () => {
     dispose = startAppearanceOverride();

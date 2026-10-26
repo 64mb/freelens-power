@@ -3,9 +3,19 @@ import { useState } from "react";
 import { type AiResourceReference, referencedAiResources, validAiResourceReference } from "../common/ai-extras";
 import { AiIcon } from "./ai-icon";
 import { NativeTooltip } from "./native-tooltip";
+import { LogJson } from "./power-log-json";
 
 import type { AiChatRequest } from "../common/ai";
 import type { DiagnosticFinding } from "./ai-diagnostic-handoff";
+
+function isJsonContainer(text: string): boolean {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === "object";
+  } catch {
+    return false;
+  }
+}
 
 export function AiContextPreview({
   context,
@@ -31,9 +41,13 @@ export function AiContextPreview({
             <NativeTooltip title="Review the selected evidence attached to your next message">
               <summary>{finding.title}</summary>
             </NativeTooltip>
-            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 140, overflow: "auto" }}>
-              {finding.summary}
-            </pre>
+            <div className="power-ai-finding-content">
+              {isJsonContainer(finding.summary) ? (
+                <LogJson text={finding.summary} fieldsEnabled={false} />
+              ) : (
+                <pre>{finding.summary}</pre>
+              )}
+            </div>
             <p>Selected snapshot · sent with your next message</p>
           </details>
           <button
@@ -52,9 +66,9 @@ export function AiContextPreview({
         <NativeTooltip title="Show the screen and resource metadata attached to your next message">
           <summary>Attached context</summary>
         </NativeTooltip>
-        <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 160, overflowY: "auto" }}>
-          {JSON.stringify(context, null, 2)}
-        </pre>
+        <div className="power-ai-context-content">
+          <LogJson text={JSON.stringify(context, null, 2)} fieldsEnabled={false} />
+        </div>
         <p>Screen and resource metadata only. Resource reads happen after sending.</p>
       </details>
     </div>
