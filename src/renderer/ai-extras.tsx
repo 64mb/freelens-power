@@ -60,7 +60,12 @@ export function AiContextInspector({ context }: { context: AiChatRequest["contex
   return (
     <details className="power-ai-context-inspector">
       <NativeTooltip title="Show the screen and resource metadata attached to your next message">
-        <summary>What will be sent</summary>
+        <summary>
+          <span className="power-ai-context-heading">
+            <AiIcon material="info_outline" size={14} />
+            <span>Context metadata</span>
+          </span>
+        </summary>
       </NativeTooltip>
       <div className="power-ai-context-content">
         <LogJson text={JSON.stringify(context, null, 2)} fieldsEnabled={false} />

@@ -360,7 +360,7 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   await chat.getByRole("textbox", { name: "Message", exact: true }).click();
   await expect(drawer).toBeHidden();
   await expect(resource).toContainText("ready-workload");
-  await chat.getByText("What will be sent", { exact: true }).click();
+  await chat.getByText("Context metadata", { exact: true }).click();
   const preview = chat.locator(".power-ai-context-inspector pre");
   await expect(preview).toContainText("ready-workload");
   await expect(preview.locator('[data-token="key"]').first()).toBeVisible();
@@ -509,7 +509,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(finding.locator("pre")).toContainText(logsSecretSentinel);
   await expect(finding.locator("pre")).toContainText("SETTING");
   await expect(finding.locator("pre")).not.toContainText(logsConfigMapSentinel);
-  await assistant.getByText("What will be sent", { exact: true }).click();
+  await assistant.getByText("Context metadata", { exact: true }).click();
   await expect(assistant.locator(".power-ai-context-inspector pre")).toContainText(logsDeployment);
   await expect(assistant.locator(".power-ai-message-user")).toHaveCount(0);
   await session.screenshot(info, "power-logs-attached-ai-context");
