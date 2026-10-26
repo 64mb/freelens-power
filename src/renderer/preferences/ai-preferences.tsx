@@ -12,8 +12,12 @@ const { Select, Switch } = Renderer.Component;
 type SelectOption = { value: string; label: string };
 
 // keeps a saved value visible while the catalog loads or after the catalog drops it
-function withCurrent(options: SelectOption[], value: string): SelectOption[] {
-  return options.some((option) => option.value === value) ? options : [...options, { value, label: value }];
+function withCurrent(options: SelectOption[], value: string, label = value): SelectOption[] {
+  return options.some((option) => option.value === value) ? options : [...options, { value, label }];
+}
+
+function effortLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function effortsFor(models: AiModel[], id: string): string[] {
@@ -57,15 +61,20 @@ export const AiPreferences = observer(() => {
   const effortOptions = withCurrent(
     [
       { value: "", label: "Default" },
-      ...effortsFor(models, currentModel).map((effort) => ({ value: effort, label: effort })),
+      ...effortsFor(models, currentModel).map((effort) => ({ value: effort, label: effortLabel(effort) })),
     ],
     currentEffort,
+    effortLabel(currentEffort),
   );
+  const modelHint = isClaude ? "Claude CLI model aliases." : "Local Codex model catalog.";
+  const speedHint = isClaude
+    ? "Fast mode for Opus; account access required."
+    : "Fast mode depends on model and account.";
   const controlStyle = { width: 220, maxWidth: "100%", flexShrink: 0 };
   const rowStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <style>{`.power-ai-section-title { color: var(--textColorAccent); } .power-ai-prompt { width: 100%; min-height: 90px; max-height: 260px; field-sizing: content; overflow-y: auto; margin-top: 8px; box-sizing: border-box; padding: 12px; border: 1px solid var(--borderFaintColor, #666); border-radius: 8px; background: var(--mainBackground, #242424); color: var(--textColorPrimary, white); font: inherit; resize: none; } .power-ai-prompt:focus { border-color: var(--primary, #5896ff); outline: 1px solid var(--primary, #5896ff); }`}</style>
+      <style>{`.power-ai-control-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .power-ai-section-title { color: var(--textColorAccent); } .power-ai-prompt { width: 100%; min-height: 90px; max-height: 260px; field-sizing: content; overflow-y: auto; margin-top: 8px; box-sizing: border-box; padding: 12px; border: 1px solid var(--borderFaintColor, #666); border-radius: 8px; background: var(--mainBackground, #242424); color: var(--textColorPrimary, white); font: inherit; resize: none; } .power-ai-prompt:focus { border-color: var(--primary, #5896ff); outline: 1px solid var(--primary, #5896ff); }`}</style>
       <div>
         <Switch
           checked={preferences.enabled}
@@ -106,12 +115,10 @@ export const AiPreferences = observer(() => {
         </div>
       </div>
       <div className="power-settings-row" style={rowStyle}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <label htmlFor="power-ai-model">Model</label>
-          <div className="power-settings-hint">
-            {isClaude
-              ? "Native Claude model aliases. Availability depends on your CLI account."
-              : "Models from the local Codex catalog."}
+          <div className="power-settings-hint power-ai-control-hint" title={modelHint}>
+            {modelHint}
           </div>
         </div>
         <div style={controlStyle}>
@@ -155,13 +162,11 @@ export const AiPreferences = observer(() => {
         </div>
       </div>
       <div className="power-settings-row" style={rowStyle}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <label htmlFor="power-ai-speed">Speed</label>
-          {isClaude && (
-            <div className="power-settings-hint">
-              Fast mode applies to Opus models. Availability depends on your CLI account.
-            </div>
-          )}
+          <div className="power-settings-hint power-ai-control-hint" title={speedHint}>
+            {speedHint}
+          </div>
         </div>
         <div style={controlStyle}>
           <Select
