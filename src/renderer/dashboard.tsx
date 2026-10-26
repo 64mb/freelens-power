@@ -92,6 +92,7 @@ const styles = `
     padding: 40px 24px; border: 1px solid var(--borderFaintColor); border-radius: 12px;
     background: var(--contentColor); text-align: center;
   }
+  .freelens-power-dashboard .power-dashboard-empty > button { display:inline-flex; align-items:center; gap:7px; }
   .freelens-power-dashboard .power-dashboard-empty p { color: var(--textColorSecondary); margin: 12px 0 24px; }
   @media (max-width: 700px) {
     .ClusterManager main.freelens-power-dashboard, .freelens-power-dashboard { display: block; position: relative; z-index: 2; flex: 1; background: var(--mainBackground); padding: 18px; }
@@ -433,7 +434,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
           </button>
           <button type="button" className="power-dashboard-action" onClick={onOpenPreferences}>
             <span aria-hidden="true">
-              <Renderer.Component.Icon material="tune" size={16} />
+              <Renderer.Component.Icon material="dashboard" size={16} />
             </span>{" "}
             Settings
           </button>
@@ -444,6 +445,9 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
           <h2>Build your dashboard</h2>
           <p>Add your favorite tools and pages in Settings.</p>
           <button type="button" onClick={onOpenPreferences}>
+            <span aria-hidden="true">
+              <Renderer.Component.Icon material="add" size={16} />
+            </span>
             Add cards
           </button>
         </section>
