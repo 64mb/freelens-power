@@ -253,7 +253,16 @@ function LogRows({
         }}
       >
         {records.length === 0 ? (
-          <div className="power-logs-empty">{loading ? "Loading logs…" : "No matching log lines"}</div>
+          <div className="power-logs-empty">
+            {loading ? (
+              <span className="power-logs-loading" role="status">
+                <Icon material="autorenew" size={20} />
+                Loading logs…
+              </span>
+            ) : (
+              "No matching log lines"
+            )}
+          </div>
         ) : (
           <div style={{ height: records.length * rowHeight, position: "relative" }}>
             {visible.map((record, i) => (

@@ -17,6 +17,7 @@ export function metadataRelease(value: unknown): HelmReleaseMetadata | undefined
     value as {
       metadata?: {
         uid?: string;
+        resourceVersion?: string;
         name?: string;
         namespace?: string;
         labels?: Record<string, string>;
@@ -58,6 +59,10 @@ export function metadataRelease(value: unknown): HelmReleaseMetadata | undefined
     status: l.status,
     secretName: m.name,
     uid: typeof m.uid === "string" && /^[a-zA-Z0-9-]{1,128}$/.test(m.uid) ? m.uid : undefined,
+    resourceVersion:
+      typeof m.resourceVersion === "string" && /^[a-zA-Z0-9._-]{1,128}$/.test(m.resourceVersion)
+        ? m.resourceVersion
+        : undefined,
     updatedAt,
   };
 }
@@ -198,11 +203,19 @@ export class HelmService {
     this.summaries.clear();
     this.generation++;
   }
-  async list(partition: string, namespace: string, signal: AbortSignal, name?: string, refresh = false) {
+  async list(
+    partition: string,
+    namespace: string,
+    signal: AbortSignal,
+    name?: string,
+    refresh = false,
+    storageOnly = false,
+  ) {
     const generation = this.generation;
     if (signal.aborted) throw new HelmError("cancelled", "Helm request cancelled");
-    const key = `${partition}\0${namespace}\0${name ?? ""}`;
-    const entry = this.cache.get(key) ?? (name ? this.cache.get(`${partition}\0${namespace}\0`) : undefined);
+    const suffix = storageOnly ? "\0helm-storage" : "";
+    const key = `${partition}\0${namespace}\0${name ?? ""}${suffix}`;
+    const entry = this.cache.get(key) ?? (name ? this.cache.get(`${partition}\0${namespace}\0${suffix}`) : undefined);
     if (!refresh && entry && this.now() - entry.at < 30_000)
       return { rows: name ? entry.rows.filter((r) => r.name === name) : entry.rows, fetchedAt: entry.at, cached: true };
     const rows: HelmReleaseMetadata[] = [];
@@ -213,6 +226,7 @@ export class HelmService {
         `/api/v1/${namespace ? `namespaces/${encodeURIComponent(namespace)}/` : ""}secrets`,
         {
           labelSelector: `owner=helm${name ? `,name=${name}` : ""}`,
+          ...(storageOnly ? { fieldSelector: "type=helm.sh/release.v1" } : {}),
           limit: 5000,
           ...(token ? { continue: token } : {}),
         },
@@ -284,6 +298,13 @@ export class HelmService {
     signal: AbortSignal,
     refresh = false,
   ): Promise<HelmDetail> {
+    return releaseDetail(await this.release(partition, row, signal, refresh), section);
+  }
+  async installedChart(partition: string, row: HelmReleaseMetadata, signal: AbortSignal) {
+    const release = await this.release(partition, row, signal, false);
+    return { chart: release.chart, manifest: release.manifest, hooks: release.hooks };
+  }
+  private async release(partition: string, row: HelmReleaseMetadata, signal: AbortSignal, refresh: boolean) {
     const key = `${partition}\0${row.namespace}\0${row.secretName}\0${row.uid ?? ""}`;
     const generation = this.generation;
     let entry = this.details.get(key);
@@ -311,6 +332,6 @@ export class HelmService {
     this.details.delete(key);
     if (this.details.size >= 4) this.details.delete(this.details.keys().next().value!);
     this.details.set(key, entry);
-    return releaseDetail(entry.release, section);
+    return entry.release;
   }
 }

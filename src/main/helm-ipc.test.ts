@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
+import { access, readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { observable, runInAction } from "mobx";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -284,6 +285,246 @@ describe("Helm IPC", () => {
       stop();
     }
   });
+  it.each([
+    "cancel",
+    "did-start-navigation",
+    "destroyed",
+    "shutdown",
+  ])("keeps rollback preflight and logs after %s", async (action) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10);
+    const stop = startPowerHelm();
+    const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
+    Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });
+    const invoke = mocks.handle.mock.calls[0][1];
+    const sender = Object.assign(new EventEmitter(), { id: 1 });
+    const source = event(1, 1, sender);
+    const context = await invoke(source, { ...request, operation: "operations", namespace: "" });
+    let releaseRead!: () => void;
+    let readSignal!: AbortSignal;
+    const response = () => ({
+      ok: true,
+      headers: new Map(),
+      body: Readable.from([
+        JSON.stringify({
+          kind: "PartialObjectMetadataList",
+          apiVersion: "meta.k8s.io/v1",
+          items: [
+            {
+              metadata: {
+                uid: "release-one",
+                name: "sh.helm.release.v1.example.v1",
+                namespace: "default",
+                labels: { owner: "helm", name: "example", version: "1", status: "deployed" },
+              },
+            },
+          ],
+        }),
+      ]),
+    });
+    mocks.response
+      .mockImplementationOnce((_path, _query, init) => {
+        readSignal = init.signal;
+        return new Promise((resolve) => {
+          releaseRead = () => resolve(response());
+        });
+      })
+      .mockImplementation(async () => response());
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    const kill = vi.fn();
+    let finish!: (error: Error | null, stdout?: string, stderr?: string) => void;
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      finish = callback;
+      return { kill, stdout, stderr };
+    });
+    try {
+      const rollback = {
+        ...request,
+        operation: "rollback",
+        requestId: "background-rollback",
+        contextId: context.contextId,
+        name: "example",
+        revision: 1,
+        uid: "release-one",
+        confirmed: true,
+      };
+      const pending = invoke(source, rollback);
+      await vi.waitFor(() => expect(releaseRead).toBeDefined());
+      if (action === "cancel") await invoke(source, { ...request, requestId: rollback.requestId, operation: "cancel" });
+      else if (action !== "shutdown") sender.emit(action);
+      expect(readSignal.aborted).toBe(false);
+      const early = await invoke(event(), { ...request, operation: "operations" });
+      expect(early.operations).toMatchObject([
+        {
+          requestId: rollback.requestId,
+          status: "running",
+          phase: "preparing",
+          stages: { preparing: { startedAt: 10 } },
+        },
+      ]);
+      for (const operation of ["rollback", "uninstall", "upgrade-values"]) {
+        expect(
+          await invoke(event(), {
+            ...rollback,
+            operation,
+            requestId: `conflict-${operation}`,
+            values: "replicas: 1",
+            chart: "stable/example",
+          }),
+        ).toMatchObject({ ok: false, error: { code: "operation-running" } });
+      }
+      releaseRead();
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      expect(mocks.exec.mock.calls[0][1]).toEqual(
+        expect.arrayContaining(["--debug", "--wait", "--timeout", "5m", "--history-max", "0"]),
+      );
+      expect(mocks.exec.mock.calls[0][2].timeout).toBe(330_000);
+      mocks.trusted.mockReturnValue(false);
+      expect(await invoke(event(), { ...request, operation: "operations" })).toMatchObject({ ok: false });
+      clock.mockReturnValue(20);
+      if (action !== "cancel") stderr.emit("data", "[debug] performing rollback with private-value\n");
+      clock.mockReturnValue(30);
+      stderr.emit("data", "[debug] preparing rollback\n");
+      clock.mockReturnValue(40);
+      for (let i = 0; i < 120; i++) {
+        stdout.emit(
+          "data",
+          "[debug] waiting for resources private-value\n[debug] Patch Secret in namespace private-value\n",
+        );
+      }
+      clock.mockReturnValue(50);
+      stderr.emit("data", "[debug] waiting for resources\n");
+      clock.mockReturnValue(60);
+      stderr.emit("data", "[debug] performing rollback\n[debug] preparing rollback\n");
+      stderr.emit("data", "apiVersion: v1\ndata: private-value\nhttps://private.invalid\n");
+      mocks.trusted.mockReturnValue(true);
+      const running = await invoke(event(), { ...request, operation: "operations" });
+      expect(running.operations[0].phase).toBe("waiting");
+      const expectedStages = {
+        preparing: { startedAt: 10, finishedAt: action === "cancel" ? 40 : 20 },
+        ...(action === "cancel" ? {} : { applying: { startedAt: 20, finishedAt: 40 } }),
+        waiting: { startedAt: 40 },
+      };
+      expect(running.operations[0].stages).toEqual(expectedStages);
+      expect(early.operations[0].stages).toEqual({ preparing: { startedAt: 10 } });
+      running.operations[0].stages.waiting.startedAt = 999;
+      expect(
+        (await invoke(event(), { ...request, operation: "operations" })).operations[0].stages.waiting.startedAt,
+      ).toBe(40);
+      clock.mockReturnValue(90);
+      expect(running.operations[0].logs).toHaveLength(100);
+      expect(JSON.stringify(running)).not.toContain("private");
+      if (action === "shutdown") {
+        stop();
+        expect(kill).toHaveBeenCalledWith("SIGKILL");
+        finish(new Error("stopped"));
+        expect(await pending).toMatchObject({
+          ok: false,
+          error: { code: "rollback-unknown" },
+          operations: [{ stages: { ...expectedStages, waiting: { startedAt: 40, finishedAt: 90 } } }],
+        });
+        return;
+      }
+      finish(null);
+      mocks.trusted.mockReturnValue(false);
+      expect(await pending).toMatchObject({
+        ok: true,
+        operations: [{ stages: { ...expectedStages, waiting: { startedAt: 40, finishedAt: 90 } } }],
+      });
+      expect(kill).not.toHaveBeenCalled();
+      mocks.trusted.mockReturnValue(true);
+      clock.mockReturnValue(120);
+      const completed = await invoke(event(), { ...request, operation: "operations" });
+      expect(completed.operations[0]).toMatchObject({
+        status: "succeeded",
+        phase: "completed",
+        finishedAt: 90,
+        stages: { ...expectedStages, waiting: { startedAt: 40, finishedAt: 90 } },
+      });
+      const otherCluster = await invoke(event(), { ...request, clusterId: "other-cluster", operation: "operations" });
+      expect(otherCluster.operations).toEqual([]);
+      mocks.config = "different-context";
+      expect((await invoke(event(), { ...request, operation: "operations" })).operations).toEqual([]);
+    } finally {
+      stop();
+      clock.mockRestore();
+      if (resources) Object.defineProperty(process, "resourcesPath", resources);
+      else Reflect.deleteProperty(process, "resourcesPath");
+    }
+  });
+  it("retains the most recently finished rollback after many newer requests finish first", async () => {
+    const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
+    Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1);
+    const stop = startPowerHelm();
+    const invoke = mocks.handle.mock.calls[0][1];
+    mocks.response.mockImplementation(async () => ({
+      ok: true,
+      headers: new Map(),
+      body: Readable.from([
+        JSON.stringify({
+          kind: "PartialObjectMetadataList",
+          apiVersion: "meta.k8s.io/v1",
+          items: [
+            {
+              metadata: {
+                uid: "release-one",
+                name: "sh.helm.release.v1.example.v1",
+                namespace: "default",
+                labels: { owner: "helm", name: "example", version: "1", status: "deployed" },
+              },
+            },
+          ],
+        }),
+      ]),
+    }));
+    let finish!: (error: Error | null) => void;
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      finish = callback;
+      return { kill: vi.fn() };
+    });
+    try {
+      const context = await invoke(event(), { ...request, operation: "operations" });
+      const rollback = {
+        ...request,
+        contextId: context.contextId,
+        operation: "rollback",
+        name: "example",
+        revision: 1,
+        uid: "release-one",
+        confirmed: true,
+      };
+      const first = invoke(event(), { ...rollback, requestId: "long-running" });
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      for (let i = 0; i < 51; i++) {
+        clock.mockReturnValue(i + 2);
+        expect(await invoke(event(), { ...rollback, name: `missing-${i}`, requestId: `newer-${i}` })).toMatchObject({
+          ok: false,
+          error: { code: "not-found" },
+        });
+      }
+      const running = await invoke(event(), { ...request, operation: "operations" });
+      expect(running.operations).toHaveLength(51);
+      expect(running.operations).toContainEqual(
+        expect.objectContaining({ requestId: "long-running", status: "running" }),
+      );
+      clock.mockReturnValue(1000);
+      finish(null);
+      expect(await first).toMatchObject({ ok: true });
+      const completed = await invoke(event(), { ...request, operation: "operations" });
+      expect(completed.operations).toHaveLength(50);
+      expect(completed.operations).toContainEqual(
+        expect.objectContaining({ requestId: "long-running", status: "succeeded", finishedAt: 1000 }),
+      );
+      expect(completed.operations.some((entry: { requestId: string }) => entry.requestId === "newer-1")).toBe(false);
+      expect(completed.operations).toContainEqual(expect.objectContaining({ requestId: "newer-50" }));
+    } finally {
+      stop();
+      clock.mockRestore();
+      if (resources) Object.defineProperty(process, "resourcesPath", resources);
+      else Reflect.deleteProperty(process, "resourcesPath");
+    }
+  });
   it("blocks confirmed rollback in read-only mode", async () => {
     const stop = startPowerHelm();
     mocks.readOnly.enabled = true;
@@ -361,6 +602,10 @@ describe("Helm IPC", () => {
     try {
       expect(await invoke(event(), { ...rollback, contextId: fresh.contextId })).toMatchObject({ ok: true });
       expect(mocks.exec).toHaveBeenCalledTimes(1);
+      const rollbackArgs = mocks.exec.mock.calls[0][1] as string[];
+      expect(
+        rollbackArgs.slice(rollbackArgs.indexOf("--history-max"), rollbackArgs.indexOf("--history-max") + 2),
+      ).toEqual(["--history-max", "0"]);
       mocks.response.mockImplementation(async () => ({
         ok: true,
         headers: new Map(),
@@ -431,7 +676,10 @@ describe("Helm IPC", () => {
       expect(callbacks).toHaveLength(1);
       callbacks[0](new Error("unknown outcome"));
       expect(await first).toMatchObject({ ok: false, error: { code: "rollback-unknown" } });
-      expect(await queued).toMatchObject({ ok: false, error: { code: "rollback-unknown" } });
+      expect((await invoke(event(), { ...request, operation: "operations" })).operations).toMatchObject([
+        { requestId: "first-rollback", status: "failed", phase: "failed", error: { code: "rollback-unknown" } },
+      ]);
+      expect(await queued).toMatchObject({ ok: false, error: { code: "operation-running" } });
       expect(callbacks).toHaveLength(1);
       await invoke(event(), { ...history, requestId: "cached-history" });
       expect(await invoke(event(), { ...rollback, requestId: "blocked-rollback" })).toMatchObject({
@@ -449,6 +697,233 @@ describe("Helm IPC", () => {
       if (resources) Object.defineProperty(process, "resourcesPath", resources);
       else Reflect.deleteProperty(process, "resourcesPath");
     }
+  });
+  describe("historical revision deletion", () => {
+    const revisionMetadata = (
+      revision: number,
+      status: string,
+      uid = `release-${revision}`,
+      resourceVersion: string | undefined = `rv-${revision}`,
+    ) => ({
+      metadata: {
+        uid,
+        resourceVersion,
+        name: `sh.helm.release.v1.example.v${revision}`,
+        namespace: "default",
+        labels: { owner: "helm", name: "example", version: String(revision), status },
+      },
+    });
+    const response = (items: unknown[]) => ({
+      ok: true,
+      headers: new Map(),
+      body: Readable.from([
+        JSON.stringify({
+          kind: "PartialObjectMetadataList",
+          apiVersion: "meta.k8s.io/v1",
+          items,
+        }),
+      ]),
+    });
+    const deletion = {
+      ...request,
+      operation: "delete-revision",
+      name: "example",
+      revision: 1,
+      uid: "release-1",
+      confirmed: true,
+    };
+    it.each([
+      "superseded",
+      "failed",
+      "uninstalled",
+    ])("deletes only the selected older %s Secret using UID and resource version preconditions", async (status) => {
+      const stop = startPowerHelm();
+      const invoke = mocks.handle.mock.calls[0][1];
+      const items = [revisionMetadata(1, status), revisionMetadata(2, "deployed")];
+      mocks.response.mockImplementation(async (_path, _query, init) =>
+        init.method === "DELETE"
+          ? { ok: true, status: 200, body: Readable.from(["ignored response"]) }
+          : response(items),
+      );
+      try {
+        const history = await invoke(event(), { ...request, operation: "history", name: "example" });
+        expect(await invoke(event(), { ...deletion, contextId: history.contextId })).toMatchObject({ ok: true });
+        const deletes = mocks.response.mock.calls.filter((call) => call[2].method === "DELETE");
+        expect(deletes).toHaveLength(1);
+        expect(
+          mocks.response.mock.calls.some((call) => call[1].query?.fieldSelector === "type=helm.sh/release.v1"),
+        ).toBe(true);
+        expect(deletes[0][0]).toBe("/api/v1/namespaces/default/secrets/sh.helm.release.v1.example.v1");
+        expect(JSON.parse(deletes[0][2].body)).toEqual({
+          apiVersion: "v1",
+          kind: "DeleteOptions",
+          propagationPolicy: "Orphan",
+          preconditions: { uid: "release-1", resourceVersion: "rv-1" },
+        });
+        expect(mocks.exec).not.toHaveBeenCalled();
+        await invoke(event(), { ...request, operation: "history", name: "example" });
+        expect(mocks.response.mock.calls.filter((call) => call[2].method !== "DELETE")).toHaveLength(3);
+      } finally {
+        stop();
+      }
+    });
+    it("refuses a non-Helm Secret with matching name and labels using metadata-only type selection", async () => {
+      const stop = startPowerHelm();
+      const invoke = mocks.handle.mock.calls[0][1];
+      mocks.response.mockImplementation(async (_path, params) =>
+        response(
+          params.query?.fieldSelector === "type=helm.sh/release.v1"
+            ? [revisionMetadata(2, "deployed")]
+            : [revisionMetadata(1, "superseded"), revisionMetadata(2, "deployed")],
+        ),
+      );
+      try {
+        const history = await invoke(event(), { ...request, operation: "history", name: "example" });
+        expect(await invoke(event(), { ...deletion, contextId: history.contextId })).toMatchObject({
+          ok: false,
+          error: { code: "stale-revision" },
+        });
+        expect(mocks.response.mock.calls[1][1].query).toMatchObject({
+          fieldSelector: "type=helm.sh/release.v1",
+          labelSelector: "owner=helm,name=example",
+        });
+        expect(
+          mocks.response.mock.calls.every((call) => call[0].endsWith("/secrets") && call[2].method !== "DELETE"),
+        ).toBe(true);
+      } finally {
+        stop();
+      }
+    });
+    it.each([
+      ["deployed", 1, "release-1", "rv-1", "active-revision"],
+      ["pending-rollback", 1, "release-1", "rv-1", "active-revision"],
+      ["unknown", 1, "release-1", "rv-1", "active-revision"],
+      ["superseded", 2, "release-2", "rv-2", "active-revision"],
+      ["superseded", 1, "replacement", "rv-1", "stale-revision"],
+      ["superseded", 1, "release-1", "", "stale-revision"],
+    ])("rejects unsafe target status=%s revision=%s", async (status, revision, uid, resourceVersion, code) => {
+      const stop = startPowerHelm();
+      const invoke = mocks.handle.mock.calls[0][1];
+      mocks.response.mockImplementation(async () =>
+        response([
+          revisionMetadata(
+            1,
+            revision === 1 ? status! : "superseded",
+            revision === 1 ? uid : "release-1",
+            resourceVersion,
+          ),
+          revisionMetadata(2, revision === 2 ? status! : "deployed"),
+        ]),
+      );
+      try {
+        const context = await invoke(event(), { ...request, operation: "operations" });
+        expect(
+          await invoke(event(), {
+            ...deletion,
+            revision,
+            uid: revision === 2 ? "release-2" : "release-1",
+            contextId: context.contextId,
+          }),
+        ).toMatchObject({ ok: false, error: { code } });
+        expect(mocks.response.mock.calls.some((call) => call[2].method === "DELETE")).toBe(false);
+        expect(mocks.exec).not.toHaveBeenCalled();
+      } finally {
+        stop();
+      }
+    });
+    it.each([
+      "read-only",
+      "context",
+      "confirmation",
+      "pending-latest",
+    ])("rechecks %s before deleting history", async (guard) => {
+      const stop = startPowerHelm();
+      const invoke = mocks.handle.mock.calls[0][1];
+      mocks.response.mockImplementation(async () => {
+        if (guard === "read-only") mocks.readOnly.enabled = true;
+        if (guard === "context") mocks.config = "changed-config";
+        return response([
+          revisionMetadata(1, "superseded"),
+          revisionMetadata(2, guard === "pending-latest" ? "pending-upgrade" : "deployed"),
+        ]);
+      });
+      try {
+        const context = await invoke(event(), { ...request, operation: "operations" });
+        expect(
+          await invoke(event(), { ...deletion, confirmed: guard !== "confirmation", contextId: context.contextId }),
+        ).toMatchObject({ ok: false });
+        expect(mocks.response.mock.calls.some((call) => call[2].method === "DELETE")).toBe(false);
+      } finally {
+        stop();
+      }
+    });
+    it("rejects replacement races using preconditions and reserves the release while deletion is pending", async () => {
+      const stop = startPowerHelm();
+      const invoke = mocks.handle.mock.calls[0][1];
+      let finish!: (response: unknown) => void;
+      mocks.response.mockImplementation(async (_path, _query, init) =>
+        init.method === "DELETE"
+          ? new Promise((resolve) => {
+              finish = resolve;
+            })
+          : response([revisionMetadata(1, "superseded"), revisionMetadata(2, "deployed")]),
+      );
+      try {
+        const context = await invoke(event(), { ...request, operation: "operations" });
+        const target = { ...deletion, contextId: context.contextId };
+        const pending = invoke(event(), { ...target, requestId: "delete-first" });
+        await vi.waitFor(() => expect(finish).toBeDefined());
+        for (const operation of ["rollback", "uninstall", "upgrade-values", "delete-revision"])
+          expect(
+            await invoke(event(), {
+              ...target,
+              operation,
+              requestId: `conflict-${operation}`,
+              values: "replicas: 1",
+              chart: "stable/example",
+            }),
+          ).toMatchObject({ ok: false, error: { code: "operation-running" } });
+        const call = mocks.response.mock.calls.find((entry) => entry[2].method === "DELETE")!;
+        expect(JSON.parse(call[2].body).preconditions).toEqual({ uid: "release-1", resourceVersion: "rv-1" });
+        finish({ ok: false, status: 409 });
+        expect(await pending).toMatchObject({ ok: false, error: { code: "stale-revision" } });
+        mocks.response.mockImplementation(async (_path, _query, init) =>
+          init.method === "DELETE"
+            ? { ok: true, status: 200 }
+            : response([revisionMetadata(1, "superseded"), revisionMetadata(2, "deployed")]),
+        );
+        expect(await invoke(event(), target)).toMatchObject({ ok: true });
+        expect(mocks.exec).not.toHaveBeenCalled();
+      } finally {
+        stop();
+      }
+    });
+    it("sanitizes an uncertain deletion failure and requires refreshed history before retrying", async () => {
+      const stop = startPowerHelm();
+      const invoke = mocks.handle.mock.calls[0][1];
+      mocks.response.mockImplementation(async (_path, _query, init) => {
+        if (init.method === "DELETE") throw new Error("private endpoint and credential");
+        return response([revisionMetadata(1, "superseded"), revisionMetadata(2, "deployed")]);
+      });
+      try {
+        const context = await invoke(event(), { ...request, operation: "operations" });
+        const target = { ...deletion, contextId: context.contextId };
+        const failed = await invoke(event(), target);
+        expect(failed).toMatchObject({ ok: false, error: { code: "delete-revision-unknown" } });
+        expect(JSON.stringify(failed)).not.toContain("private");
+        expect(await invoke(event(), target)).toMatchObject({ ok: false, error: { code: "delete-revision-unknown" } });
+        expect(mocks.response.mock.calls.filter((call) => call[2].method === "DELETE")).toHaveLength(1);
+        await invoke(event(), { ...request, operation: "history", name: "example", refresh: true });
+        mocks.response.mockImplementation(async (_path, _query, init) =>
+          init.method === "DELETE"
+            ? { ok: true, status: 200 }
+            : response([revisionMetadata(1, "superseded"), revisionMetadata(2, "deployed")]),
+        );
+        expect(await invoke(event(), target)).toMatchObject({ ok: true });
+      } finally {
+        stop();
+      }
+    });
   });
   it("uninstalls only a confirmed current release and requires refresh after an unknown outcome", async () => {
     const stop = startPowerHelm();
@@ -488,6 +963,7 @@ describe("Helm IPC", () => {
         revision,
         contextId: listed.contextId,
         confirmed: true,
+        confirmationName: "example",
       };
       for (const patch of [{ uid: undefined }, { revision: 0 }, { namespace: "" }]) {
         expect(await invoke(event(), { ...deletion, ...patch })).toMatchObject({
@@ -501,8 +977,16 @@ describe("Helm IPC", () => {
       });
       expect(await invoke(event(), { ...deletion, confirmed: false })).toMatchObject({
         ok: false,
-        error: { code: "read-only" },
+        error: { code: "confirmation-required" },
       });
+      const readsBeforeConfirmation = mocks.response.mock.calls.length;
+      for (const confirmationName of [undefined, "", "Example", "example ", " example", "other-release"])
+        expect(await invoke(event(), { ...deletion, confirmationName })).toMatchObject({
+          ok: false,
+          error: { code: "confirmation-required" },
+        });
+      expect(mocks.response.mock.calls).toHaveLength(readsBeforeConfirmation);
+      expect(mocks.exec).not.toHaveBeenCalled();
       mocks.readOnly.enabled = true;
       expect(await invoke(event(), deletion)).toMatchObject({ ok: false, error: { code: "read-only" } });
       mocks.readOnly.enabled = false;
@@ -555,6 +1039,109 @@ describe("Helm IPC", () => {
       if (resources) Object.defineProperty(process, "resourcesPath", resources);
       else Reflect.deleteProperty(process, "resourcesPath");
       stop();
+    }
+  });
+  it("uses the complete installed chart without repository access and retains stale UID guards", async () => {
+    const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
+    Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });
+    const stop = startPowerHelm();
+    const invoke = mocks.handle.mock.calls[0][1];
+    let uid = "release-one";
+    let replaceAfterSecret = false;
+    const paths: string[] = [];
+    const metadata = () => ({
+      metadata: {
+        uid,
+        name: "sh.helm.release.v1.example.v1",
+        namespace: "default",
+        labels: { owner: "helm", name: "example", version: "1", status: "deployed" },
+      },
+    });
+    mocks.response.mockImplementation(async (path) => {
+      const release = {
+        name: "example",
+        namespace: "default",
+        version: 1,
+        chart: {
+          metadata: { apiVersion: "v2", name: "example", version: "1.2.3" },
+          values: { replicas: 1 },
+          templates: [
+            {
+              name: "templates/deployment.yaml",
+              data: Buffer.from("replicas: {{ .Values.replicas }}").toString("base64"),
+            },
+          ],
+          schema: Buffer.from('{"type":"object"}').toString("base64"),
+        },
+        config: { replicas: 2 },
+      };
+      const body = path.endsWith("/secrets")
+        ? { kind: "PartialObjectMetadataList", apiVersion: "meta.k8s.io/v1", items: [metadata()] }
+        : {
+            ...metadata(),
+            type: "helm.sh/release.v1",
+            data: {
+              release: Buffer.from(gzipSync(Buffer.from(JSON.stringify(release))).toString("base64")).toString(
+                "base64",
+              ),
+            },
+          };
+      if (!path.endsWith("/secrets") && replaceAfterSecret) uid = "replacement";
+      return { ok: true, headers: new Map(), body: Readable.from([JSON.stringify(body)]) };
+    });
+    mocks.exec.mockImplementation((_binary, args, _options, callback) => {
+      paths.push(args[2]);
+      queueMicrotask(() => callback(null));
+      return { kill: vi.fn() };
+    });
+    try {
+      const history = await invoke(event(), { ...request, operation: "history", name: "example" });
+      const edit = {
+        ...request,
+        contextId: history.contextId,
+        operation: "edit-options",
+        name: "example",
+        revision: 1,
+        uid: "release-one",
+      };
+      expect(await invoke(event(), edit)).toMatchObject({
+        ok: true,
+        chartChoices: [{ ref: "@installed", version: "1.2.3" }],
+      });
+      expect(mocks.exec).not.toHaveBeenCalled();
+      const upgrade = {
+        ...edit,
+        operation: "upgrade-values",
+        values: "replicas: 3",
+        chart: "@installed",
+        confirmed: true,
+      };
+      mocks.exec.mockImplementation((_binary, args, _options, callback) => {
+        paths.push(args[2]);
+        void readFile(args[2])
+          .then((archive) => {
+            const contents = gunzipSync(archive).toString();
+            expect(contents).toContain("replicas: 1\n");
+            expect(contents).toContain('{"type":"object"}');
+            callback(null);
+          })
+          .catch((error) => callback(error));
+        return { kill: vi.fn() };
+      });
+      expect(await invoke(event(), upgrade)).toMatchObject({ ok: true });
+      expect(mocks.exec).toHaveBeenCalledTimes(1);
+      expect(mocks.exec.mock.calls[0][1]).toEqual(
+        expect.arrayContaining(["upgrade", "--version", "1.2.3", "--reset-values", "--history-max", "0"]),
+      );
+      await expect(access(paths[0])).rejects.toThrow();
+      replaceAfterSecret = true;
+      expect(await invoke(event(), upgrade)).toMatchObject({ ok: false, error: { code: "stale-revision" } });
+      expect(mocks.exec).toHaveBeenCalledTimes(1);
+      expect(await invoke(event(), upgrade)).toMatchObject({ ok: false, error: { code: "stale-revision" } });
+    } finally {
+      stop();
+      if (resources) Object.defineProperty(process, "resourcesPath", resources);
+      else Reflect.deleteProperty(process, "resourcesPath");
     }
   });
   it("upgrades only the current chart version and blocks retries after unknown outcomes", async () => {
@@ -653,6 +1240,8 @@ describe("Helm IPC", () => {
         "--values",
         expect.any(String),
         "--reset-values",
+        "--history-max",
+        "0",
         "--namespace",
         "default",
         "--kubeconfig",
@@ -674,7 +1263,7 @@ describe("Helm IPC", () => {
       revision = 2;
       deferred[0](null);
       expect(await olderDraft).toMatchObject({ ok: true });
-      expect(await staleDraft).toMatchObject({ ok: false, error: { code: "stale-revision" } });
+      expect(await staleDraft).toMatchObject({ ok: false, error: { code: "operation-running" } });
       expect(deferred).toHaveLength(1);
       revision = 1;
       deferred.length = 0;
@@ -717,7 +1306,7 @@ describe("Helm IPC", () => {
       const readsBeforeFailure = mocks.response.mock.calls.length;
       deferred[0](new Error("unknown outcome"));
       expect(await first).toMatchObject({ ok: false, error: { code: "upgrade-unknown" } });
-      expect(await queued).toMatchObject({ ok: false, error: { code: "upgrade-unknown" } });
+      expect(await queued).toMatchObject({ ok: false, error: { code: "operation-running" } });
       expect(deferred).toHaveLength(2);
       expect(mocks.response).toHaveBeenCalledTimes(readsBeforeFailure);
       finishOldHistory();
@@ -826,6 +1415,53 @@ describe("Helm IPC", () => {
     await vi.waitFor(() => expect(finish).toBeDefined());
     controller.abort();
     await expect(result).rejects.toMatchObject({ code: "cancelled" });
+  });
+  it.each(["legacy", "structured"])("streams fixed safe stages from chunked %s Helm debug output", async (format) => {
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    let finish!: (error: Error | null) => void;
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      finish = callback;
+      return { kill: vi.fn(), stdout, stderr };
+    });
+    const progress = vi.fn();
+    const pending = executeHelmRollback(
+      "neutral",
+      ["rollback"],
+      new AbortController().signal,
+      "rollback",
+      undefined,
+      undefined,
+      progress,
+    );
+    try {
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      const line = (message: string) =>
+        format === "legacy"
+          ? `rollback.go:120: [debug] ${message} private-value\n`
+          : `time=2026-01-01T00:00:00Z level=DEBUG msg="${message}" release=private-value endpoint=https://private.invalid\n`;
+      const send = (stream: EventEmitter, message: string) => {
+        const output = line(message);
+        for (let offset = 0; offset < output.length; offset += 7) stream.emit("data", output.slice(offset, offset + 7));
+      };
+      send(stderr, "preparing rollback");
+      send(stdout, "performing rollback");
+      send(stderr, "beginning wait for resources");
+      send(stdout, "unknown private chart manifest contents");
+      stdout.emit(
+        "data",
+        'level=INFO msg="performing rollback" private-value\napiVersion: v1\nkind: Secret\ndata: private-value\n',
+      );
+      expect(progress.mock.calls).toEqual([
+        ["preparing", "Helm is preparing the rollback"],
+        ["applying", "Helm is applying release changes"],
+        ["waiting", "Helm is waiting for resources to become ready"],
+      ]);
+      expect(JSON.stringify(progress.mock.calls)).not.toContain("private");
+    } finally {
+      finish(null);
+      await pending;
+    }
   });
   it("shares two process permits across reads and writes and cancels queued commands", async () => {
     const callbacks: Array<(error: Error | null, stdout?: string) => void> = [];

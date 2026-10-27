@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { HELM_CHANNEL } from "../common/helm";
+import { helmOperations } from "./helm-operations";
 import { HelmReleaseActions } from "./helm-release-actions";
 
 const mocks = vi.hoisted(() => ({
@@ -22,7 +23,19 @@ vi.mock("../common/store/power-preferences-store", () => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
-      Icon: ({ material }: any) => <span>{material}</span>,
+      Icon: ({ material }: any) => <span aria-hidden="true">{material}</span>,
+      Dialog: ({ children }: any) => <div>{children}</div>,
+      Input: ({ value, onChange, onSubmit, trim: _trim, ...props }: any) => (
+        <input
+          {...props}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onSubmit?.(value, event);
+          }}
+        />
+      ),
+      Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
       Menu: ({ children, className, close }: any) => (
         <div
           role="menu"
@@ -34,8 +47,8 @@ vi.mock("@freelensapp/extensions", () => ({
           {children}
         </div>
       ),
-      MenuItem: ({ children, disabled, onClick }: any) => (
-        <button role="menuitem" disabled={disabled} onClick={onClick}>
+      MenuItem: ({ children, disabled, onClick, className }: any) => (
+        <button role="menuitem" className={className} disabled={disabled} onClick={onClick}>
           {children}
         </button>
       ),
@@ -66,7 +79,14 @@ const open = () => {
   fireEvent.click(screen.getByRole("menuitem", { name: /Delete release/ }));
   return mocks.confirm.mock.calls.at(-1)?.[0];
 };
+const confirmName = async (dialog: any) => {
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.change(input, { target: { value: release.name } });
+  fireEvent.click(screen.getByRole("button", { name: "Delete release" }));
+};
 beforeEach(() => {
+  helmOperations.operations = [];
   vi.clearAllMocks();
   mocks.readOnly = observable({ enabled: false });
   mocks.power = observable({ enabled: true });
@@ -77,7 +97,10 @@ it("shows only delete and waits for explicit confirmation", () => {
   render(<HelmReleaseActions {...props()} />);
   const dialog = open();
   expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
-  expect(dialog.labelOk).toBe("Delete release");
+  const label = render(dialog.labelOk);
+  expect(label.container.firstElementChild?.textContent).toBe("delete");
+  expect(label.getByText("Delete release")).toBeTruthy();
+  label.unmount();
   const message = render(dialog.message);
   expect(message.getByText("Delete release example?")).toBeTruthy();
   expect(message.getByText("default")).toBeTruthy();
@@ -138,12 +161,15 @@ it("sends one confirmed uninstall and closes and refreshes after success", async
     dialog.ok();
     dialog.ok();
   });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  await confirmName(dialog);
   expect(mocks.invoke).toHaveBeenCalledTimes(1);
   expect(mocks.invoke).toHaveBeenCalledWith(
     HELM_CHANNEL,
     expect.objectContaining({
       operation: "uninstall",
       confirmed: true,
+      confirmationName: "example",
       clusterId: "cluster",
       contextId: "context",
       name: "example",
@@ -167,7 +193,7 @@ it.each([false, true])("reports backend or IPC errors without closing: rejected=
   const initial = props();
   render(<HelmReleaseActions {...initial} />);
   const dialog = open();
-  act(() => dialog.ok());
+  await confirmName(dialog);
   await waitFor(() => expect(initial.onError).toHaveBeenCalledWith(rejected ? "Unavailable" : "Release changed"));
   expect(initial.onDeleted).not.toHaveBeenCalled();
   expect(initial.onChanged).not.toHaveBeenCalled();
@@ -184,7 +210,7 @@ it("cancels the active IPC request on unmount and ignores late completion", asyn
   const initial = props();
   const view = render(<HelmReleaseActions {...initial} />);
   const dialog = open();
-  act(() => dialog.ok());
+  await confirmName(dialog);
   const request = mocks.invoke.mock.calls[0][1];
   view.unmount();
   expect(mocks.invoke).toHaveBeenLastCalledWith(HELM_CHANNEL, { ...request, operation: "cancel" });
@@ -205,7 +231,7 @@ it("ignores a completion belonging to another release", async () => {
   const initial = props();
   const view = render(<HelmReleaseActions {...initial} />);
   const dialog = open();
-  act(() => dialog.ok());
+  await confirmName(dialog);
   view.rerender(<HelmReleaseActions {...initial} release={{ ...release, uid: "replacement" }} />);
   await act(async () => resolve({ ok: true }));
   expect(initial.onDeleted).not.toHaveBeenCalled();
@@ -237,4 +263,176 @@ it("focuses the connected trigger before opening the confirmation dialog", () =>
   expect(mocks.confirm).toHaveBeenCalledOnce();
   expect(screen.queryByRole("menu")).toBeNull();
   expect(document.activeElement).toBe(trigger);
+});
+
+it("blocks deleting the matching active rollback while leaving another release available", () => {
+  const initial = props();
+  const view = render(<HelmReleaseActions {...initial} />);
+  act(() =>
+    helmOperations.merge([
+      {
+        id: "active",
+        requestId: "active",
+        clusterId: initial.clusterId,
+        contextId: initial.contextId,
+        namespace: release.namespace,
+        name: release.name,
+        revision: 1,
+        status: "running",
+        phase: "waiting",
+        startedAt: Date.now(),
+        logs: [],
+      },
+    ]),
+  );
+  fireEvent.click(screen.getByLabelText("Release actions"));
+  expect((screen.getByRole("menuitem") as HTMLButtonElement).disabled).toBe(true);
+  view.rerender(<HelmReleaseActions {...initial} release={{ ...release, name: "another" }} />);
+  expect((screen.getByRole("menuitem") as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("opens the typed confirmation only after the first native dialog closes", async () => {
+  render(<HelmReleaseActions {...props()} />);
+  const dialog = open();
+  act(() => dialog.ok());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  expect(document.activeElement).toBe(input);
+  expect(screen.getByTestId("confirmation-dialog")).toBe(screen.getByRole("dialog"));
+  expect((screen.getByRole("button", { name: "Delete release" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it.each([
+  "Example",
+  " example",
+  "example ",
+  "another",
+])("requires the exact release name, rejecting %j", async (name) => {
+  render(<HelmReleaseActions {...props()} />);
+  const dialog = open();
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.change(input, { target: { value: name } });
+  const submit = screen.getByRole("button", { name: "Delete release" });
+  expect((submit as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(submit);
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("cancels typed confirmation without uninstalling and restores trigger focus", async () => {
+  render(<HelmReleaseActions {...props()} />);
+  const trigger = screen.getByLabelText("Release actions");
+  const dialog = open();
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.change(input, { target: { value: release.name } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it.each([
+  { contextId: "changed-context" },
+  { release: { ...release, uid: "new-uid" } },
+  { allowed: false },
+])("blocks typed confirmation after identity or permission changes: %j", async (patch) => {
+  const initial = props();
+  const view = render(<HelmReleaseActions {...initial} />);
+  const dialog = open();
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.change(input, { target: { value: release.name } });
+  view.rerender(<HelmReleaseActions {...initial} {...patch} />);
+  expect((screen.getByRole("button", { name: "Delete release" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("rechecks a new rollback lock before typed confirmation submits", async () => {
+  const initial = props();
+  render(<HelmReleaseActions {...initial} />);
+  const dialog = open();
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.change(input, { target: { value: release.name } });
+  act(() =>
+    helmOperations.merge([
+      {
+        id: "lock",
+        requestId: "lock",
+        clusterId: initial.clusterId,
+        contextId: initial.contextId,
+        namespace: release.namespace,
+        name: release.name,
+        revision: 1,
+        status: "running",
+        phase: "waiting",
+        startedAt: Date.now(),
+        logs: [],
+      },
+    ]),
+  );
+  expect((screen.getByRole("button", { name: "Delete release" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("closes typed confirmation when read-only mode becomes enabled", async () => {
+  render(<HelmReleaseActions {...props()} />);
+  const dialog = open();
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.change(input, { target: { value: release.name } });
+  act(() =>
+    runInAction(() => {
+      mocks.readOnly.enabled = true;
+    }),
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("traps typed-dialog focus and cancels with Escape without closing its parent", async () => {
+  render(<HelmReleaseActions {...props()} />);
+  const trigger = screen.getByLabelText("Release actions");
+  const dialog = open();
+  act(() => dialog.ok());
+  const input = await screen.findByRole("textbox", { name: "Release name" });
+  fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: release.name } });
+  const submit = screen.getByRole("button", { name: "Delete release" });
+  submit.focus();
+  fireEvent.keyDown(submit, { key: "Tab" });
+  expect(document.activeElement).toBe(input);
+  const underlying = vi.fn();
+  document.addEventListener("keydown", underlying);
+  fireEvent.keyDown(input, { key: "Escape" });
+  document.removeEventListener("keydown", underlying);
+  expect(underlying).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("cleans up the deferred second dialog when its owner unmounts", () => {
+  vi.useFakeTimers();
+  const view = render(<HelmReleaseActions {...props()} />);
+  const dialog = open();
+  act(() => dialog.ok());
+  view.unmount();
+  act(() => {
+    vi.runAllTimers();
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+  vi.useRealTimers();
 });

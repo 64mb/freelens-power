@@ -305,6 +305,16 @@ export function HelmCodeView({
         ...style,
       }}
     >
+      <style>{`
+        .helm-code-view .monaco-scrollable-element > .scrollbar > .slider {
+          box-sizing: border-box;
+          background: var(--scrollBarColor) !important;
+          background-clip: padding-box !important;
+          border: 4px solid transparent;
+          border-right-width: 5px;
+          border-radius: 16px;
+        }
+      `}</style>
       <MonacoEditor
         id={`${identity}-${ready ? "document" : "initial"}`}
         // native size subscriptions start after creation, so the first document arrives through the model handoff
@@ -351,9 +361,13 @@ export function HelmCodeView({
           lineNumbers: (line) => String(startLine + line - 1),
           lineNumbersMinChars: 5,
           lineHeight: 18,
-          scrollbar: expanded
-            ? { vertical: "hidden", ...(horizontal ? { horizontal: "hidden" } : {}), alwaysConsumeMouseWheel: false }
-            : undefined,
+          scrollbar: {
+            verticalScrollbarSize: 16,
+            horizontalScrollbarSize: 15,
+            ...(expanded
+              ? { vertical: "hidden", ...(horizontal ? { horizontal: "hidden" } : {}), alwaysConsumeMouseWheel: false }
+              : {}),
+          },
           wordWrap: "off",
           fontSize: 12,
           padding: expanded ? { top: 0, bottom: 0 } : { top: 12, bottom: 12 },
