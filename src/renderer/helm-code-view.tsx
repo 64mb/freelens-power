@@ -35,6 +35,63 @@ function disposeDetachedModel(model?: Model) {
 let editorSequence = 0;
 const editorSession = Math.random().toString(36).slice(2);
 
+export function createHelmHorizontalScroll() {
+  const viewports = new Set<HTMLElement>();
+  const expected = new Map<HTMLElement, number>();
+  let offset = 0;
+  const apply = (viewport: HTMLElement) => {
+    if (viewport.scrollLeft === offset) return;
+    viewport.scrollLeft = offset;
+    expected.set(viewport, viewport.scrollLeft);
+  };
+  return {
+    register(viewport: HTMLElement) {
+      viewports.add(viewport);
+      apply(viewport);
+      const scroll = () => {
+        const left = viewport.scrollLeft;
+        const pending = expected.get(viewport);
+        expected.delete(viewport);
+        if (left === pending || left === offset) return;
+        offset = left;
+        for (const peer of viewports) if (peer !== viewport) apply(peer);
+      };
+      const wheel = (event: WheelEvent) => {
+        if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
+        const delta = event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX;
+        if (!delta || (!event.shiftKey && Math.abs(event.deltaY) > Math.abs(event.deltaX))) return;
+        const scale = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? viewport.clientWidth : 1;
+        const next = Math.max(
+          0,
+          Math.min(Math.max(0, viewport.scrollWidth - viewport.clientWidth), viewport.scrollLeft + delta * scale),
+        );
+        if (next === viewport.scrollLeft || !Number.isFinite(next)) return;
+        viewport.scrollLeft = next;
+        scroll();
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      viewport.addEventListener("scroll", scroll);
+      viewport.addEventListener("wheel", wheel, { capture: true, passive: false });
+      return () => {
+        viewport.removeEventListener("scroll", scroll);
+        viewport.removeEventListener("wheel", wheel, true);
+        viewports.delete(viewport);
+        expected.delete(viewport);
+      };
+    },
+    refresh() {
+      for (const viewport of viewports) apply(viewport);
+    },
+  };
+}
+
+type HelmHorizontalScroll = {
+  controller: ReturnType<typeof createHelmHorizontalScroll>;
+  width: number;
+  onWidth: (width: number) => void;
+};
+
 type HelmCodeViewProps = {
   value: string;
   language?: "yaml" | "json";
@@ -47,6 +104,7 @@ type HelmCodeViewProps = {
   changeKind?: "added" | "removed";
   startLine?: number;
   expanded?: boolean;
+  horizontal?: HelmHorizontalScroll;
 };
 
 let forwardingFind = false;
@@ -122,6 +180,7 @@ export function HelmCodeView({
   changeKind = "added",
   startLine = 1,
   expanded = false,
+  horizontal,
 }: HelmCodeViewProps) {
   const [identity] = useState(() => `power-helm-${editorSession}-${++editorSequence}`);
   const [ready, setReady] = useState(false);
@@ -132,6 +191,16 @@ export function HelmCodeView({
   }>();
   const modelRef = useRef<Model>();
   const decorations = useRef<string[]>([]);
+  const layoutChrome = useRef<number>();
+  const contentWidth = useRef<number>();
+  const reportWidth = () => {
+    if (layoutChrome.current !== undefined && contentWidth.current !== undefined)
+      horizontal?.onWidth(Math.ceil(layoutChrome.current + contentWidth.current));
+  };
+  useEffect(() => {
+    const root = rootRef.current;
+    return root && horizontal ? horizontal.controller.register(root) : undefined;
+  }, [horizontal?.controller, ready]);
   const applyDecorations = useCallback(
     (model: Model) => {
       decorations.current = model.deltaDecorations(
@@ -198,17 +267,43 @@ export function HelmCodeView({
         minHeight: readOnly ? 140 : 240,
         minWidth: 0,
         overflow: "hidden",
+        ...(horizontal ? ({ overflowX: "auto" } as CSSProperties) : {}),
         ...style,
       }}
     >
       <MonacoEditor
         id={`${identity}-${ready ? "document" : "initial"}`}
-        value={value}
+        // native size subscriptions start after creation, so the first document arrives through the model handoff
+        value={horizontal && !ready ? "" : value}
         language={language}
         readOnly={readOnly}
         onChange={readOnly ? undefined : onChange}
         onModelChange={onModelChange}
-        style={{ height: "100%", width: "100%" }}
+        style={{
+          height: "100%",
+          width:
+            horizontal && !ready
+              ? horizontal.width
+                ? Math.max(1, horizontal.width - 1)
+                : "calc(100% - 1px)"
+              : horizontal?.width || "100%",
+        }}
+        onDidLayoutChange={
+          horizontal
+            ? (layout) => {
+                layoutChrome.current = layout.width - layout.contentWidth;
+                reportWidth();
+              }
+            : undefined
+        }
+        onDidContentSizeChange={
+          horizontal
+            ? (event) => {
+                contentWidth.current = event.contentWidth;
+                reportWidth();
+              }
+            : undefined
+        }
         options={{
           readOnly,
           ariaLabel,
@@ -222,7 +317,9 @@ export function HelmCodeView({
           lineNumbers: (line) => String(startLine + line - 1),
           lineNumbersMinChars: 5,
           lineHeight: 18,
-          scrollbar: expanded ? { vertical: "hidden", alwaysConsumeMouseWheel: false } : undefined,
+          scrollbar: expanded
+            ? { vertical: "hidden", ...(horizontal ? { horizontal: "hidden" } : {}), alwaysConsumeMouseWheel: false }
+            : undefined,
           wordWrap: "off",
           fontSize: 12,
           padding: expanded ? { top: 0, bottom: 0 } : { top: 12, bottom: 12 },
@@ -246,6 +343,28 @@ export function HelmRevisionDiff({
   language?: "yaml" | "json";
 }) {
   const diff = useMemo(() => compareHelmLines(before, after), [before, after]);
+  const horizontalController = useMemo(() => createHelmHorizontalScroll(), [before, after]);
+  const [horizontalMeasurement, setHorizontalMeasurement] = useState({ before, after, width: 0 });
+  const horizontalWidth =
+    horizontalMeasurement.before === before && horizontalMeasurement.after === after ? horizontalMeasurement.width : 0;
+  const onHorizontalWidth = useCallback(
+    (width: number) => {
+      if (!Number.isFinite(width) || width <= 0) return;
+      setHorizontalMeasurement((current) =>
+        current.before !== before || current.after !== after
+          ? { before, after, width }
+          : width > current.width
+            ? { ...current, width }
+            : current,
+      );
+    },
+    [before, after],
+  );
+  const horizontal = useMemo(
+    () => ({ controller: horizontalController, width: horizontalWidth, onWidth: onHorizontalWidth }),
+    [horizontalController, horizontalWidth, onHorizontalWidth],
+  );
+  useEffect(() => horizontalController.refresh(), [horizontalController, horizontalWidth]);
   const [full, setFull] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -361,6 +480,7 @@ export function HelmRevisionDiff({
         language={language}
         ariaLabel={label(source ? beforeLabel : afterLabel, source)}
         startLine={start}
+        horizontal={horizontal}
         expanded
         changeKind={source ? "removed" : "added"}
         changeRanges={changed ? [{ start: 1, end: value.length }] : []}
@@ -543,6 +663,7 @@ export function HelmRevisionDiff({
                   ariaLabel={label(beforeLabel, true)}
                   expanded
                   style={{ height: fallbackHeight, minHeight: 0 }}
+                  horizontal={horizontal}
                 />
               </div>
               <div className="helm-diff-pane">
@@ -552,6 +673,7 @@ export function HelmRevisionDiff({
                   ariaLabel={label(afterLabel, false)}
                   expanded
                   style={{ height: fallbackHeight, minHeight: 0 }}
+                  horizontal={horizontal}
                 />
               </div>
             </div>

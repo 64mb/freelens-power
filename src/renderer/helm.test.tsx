@@ -873,7 +873,7 @@ it("restarts copy feedback for each successful copy", async () => {
     act(() => {
       vi.advanceTimersByTime(1900);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Copy again", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy", exact: true }));
     act(() => {
       vi.advanceTimersByTime(150);
     });
@@ -1021,4 +1021,29 @@ it("keeps current revision comparisons current when returning to the revision", 
   fireEvent.click(screen.getByRole("button", { name: "Show revision" }));
   await screen.findByRole("button", { name: "Edit values" });
   expect(screen.queryByLabelText("Revision comparison")).toBeNull();
+});
+
+it("keeps cached document refresh progress in the toolbar and preserves Copy", async () => {
+  const pending = deferred();
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "details"
+      ? request.refresh
+        ? pending.promise
+        : Promise.resolve({ ok: true, detail: { content: "replicas: 2" } })
+      : Promise.resolve(listing),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "Values" }));
+  await screen.findByText("replicas: 2");
+  const copy = screen.getByRole("button", { name: "Copy", exact: true });
+  const header = copy.closest(".helm-code-header")!;
+  fireEvent.click(screen.getByRole("button", { name: "Refresh values", exact: true }));
+  await waitFor(() => expect(header.querySelector('[aria-busy="true"]')).toBeTruthy());
+  expect(screen.getByRole("button", { name: "Cancel loading" }).closest(".helm-code-header")).toBe(header);
+  expect(screen.getByRole("button", { name: "Copy", exact: true })).toBe(copy);
+  expect(screen.getByText("replicas: 2")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel loading" }));
+  await act(async () => pending.resolve({ ok: true, detail: { content: "ignored late document" } }));
+  expect(screen.queryByText("ignored late document")).toBeNull();
 });

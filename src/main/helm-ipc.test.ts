@@ -383,6 +383,113 @@ describe("Helm IPC", () => {
       stop();
     }
   });
+  it("uninstalls only a confirmed current release and requires refresh after an unknown outcome", async () => {
+    const stop = startPowerHelm();
+    const invoke = mocks.handle.mock.calls[0][1];
+    let uid = "release-one";
+    let revision = 1;
+    mocks.response.mockImplementation(async () => ({
+      ok: true,
+      headers: new Map(),
+      body: Readable.from([
+        JSON.stringify({
+          kind: "PartialObjectMetadataList",
+          apiVersion: "meta.k8s.io/v1",
+          items: [
+            {
+              metadata: {
+                uid,
+                name: `sh.helm.release.v1.example.v${revision}`,
+                namespace: "default",
+                labels: { owner: "helm", name: "example", version: String(revision), status: "deployed" },
+              },
+            },
+          ],
+        }),
+      ]),
+    }));
+    const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
+    Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });
+    try {
+      const listed = await invoke(event(), request);
+      expect(listed).toMatchObject({ ok: true, uninstallAllowed: true });
+      const deletion = {
+        ...request,
+        operation: "uninstall",
+        name: "example",
+        uid,
+        revision,
+        contextId: listed.contextId,
+        confirmed: true,
+      };
+      for (const patch of [{ uid: undefined }, { revision: 0 }, { namespace: "" }]) {
+        expect(await invoke(event(), { ...deletion, ...patch })).toMatchObject({
+          ok: false,
+          error: { code: "invalid-request" },
+        });
+      }
+      expect(await invoke(event(), { ...deletion, contextId: undefined })).toMatchObject({
+        ok: false,
+        error: { code: "context-changed" },
+      });
+      expect(await invoke(event(), { ...deletion, confirmed: false })).toMatchObject({
+        ok: false,
+        error: { code: "read-only" },
+      });
+      mocks.readOnly.enabled = true;
+      expect(await invoke(event(), deletion)).toMatchObject({ ok: false, error: { code: "read-only" } });
+      mocks.readOnly.enabled = false;
+      uid = "replacement";
+      expect(await invoke(event(), deletion)).toMatchObject({ ok: false, error: { code: "stale-revision" } });
+      uid = "release-one";
+      revision = 2;
+      expect(await invoke(event(), deletion)).toMatchObject({ ok: false, error: { code: "stale-revision" } });
+      revision = 1;
+      expect(mocks.exec).not.toHaveBeenCalled();
+      mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+        queueMicrotask(() => callback(null));
+        return { kill: vi.fn() };
+      });
+      expect(await invoke(event(), deletion)).toMatchObject({ ok: true });
+      expect(mocks.exec.mock.calls[0][1]).toEqual([
+        "uninstall",
+        "example",
+        "--namespace",
+        "default",
+        "--kubeconfig",
+        "/neutral/config",
+        "--kube-context",
+        "neutral",
+        "--timeout",
+        "60s",
+      ]);
+      let complete!: (error: Error) => void;
+      const kill = vi.fn(() => queueMicrotask(() => complete(new Error("aborted"))));
+      mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+        complete = callback;
+        return { kill };
+      });
+      const senderEvent = event();
+      const pending = invoke(senderEvent, deletion);
+      await vi.waitFor(() => expect(complete).toBeDefined());
+      await invoke(senderEvent, { ...request, operation: "cancel" });
+      expect(await pending).toMatchObject({ ok: false, error: { code: "uninstall-unknown" } });
+      expect(kill).toHaveBeenCalledOnce();
+      const calls = mocks.exec.mock.calls.length;
+      expect(await invoke(event(), deletion)).toMatchObject({ ok: false, error: { code: "uninstall-unknown" } });
+      expect(mocks.exec).toHaveBeenCalledTimes(calls);
+      await invoke(event(), { ...request, operation: "history", name: "example", refresh: true });
+      mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+        queueMicrotask(() => callback(null));
+        return { kill: vi.fn() };
+      });
+      expect(await invoke(event(), deletion)).toMatchObject({ ok: true });
+    } finally {
+      if (resources) Object.defineProperty(process, "resourcesPath", resources);
+      else Reflect.deleteProperty(process, "resourcesPath");
+      stop();
+    }
+  });
   it("upgrades only the current chart version and blocks retries after unknown outcomes", async () => {
     const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
     Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });

@@ -28,20 +28,30 @@ export function validateHelmRequest(value: unknown): HelmRequest {
     !/^[\w-]{1,128}$/.test(r.requestId) ||
     !nameValid(r.clusterId) ||
     (r.namespace !== "" && !nameValid(r.namespace)) ||
-    !["list", "history", "details", "rollback", "edit-options", "upgrade-values", "app-version", "cancel"].includes(
-      r.operation,
-    )
+    ![
+      "list",
+      "history",
+      "details",
+      "rollback",
+      "edit-options",
+      "upgrade-values",
+      "uninstall",
+      "app-version",
+      "cancel",
+    ].includes(r.operation)
   )
     throw new HelmError("invalid-request", "Invalid Helm request");
   if (r.contextId !== undefined && (typeof r.contextId !== "string" || !/^[a-f0-9]{64}$/.test(r.contextId)))
     throw new HelmError("invalid-request", "Invalid Helm context");
   if (
-    ["history", "details", "rollback", "edit-options", "upgrade-values", "app-version"].includes(r.operation) &&
+    ["history", "details", "rollback", "edit-options", "upgrade-values", "uninstall", "app-version"].includes(
+      r.operation,
+    ) &&
     (!nameValid(r.name) || !r.namespace)
   )
     throw new HelmError("invalid-request", "Select a release namespace and name");
   if (
-    ["details", "rollback", "edit-options", "upgrade-values", "app-version"].includes(r.operation) &&
+    ["details", "rollback", "edit-options", "upgrade-values", "uninstall", "app-version"].includes(r.operation) &&
     (!Number.isSafeInteger(r.revision) || r.revision! < 1)
   )
     throw new HelmError("invalid-request", "Invalid Helm revision");
@@ -49,7 +59,7 @@ export function validateHelmRequest(value: unknown): HelmRequest {
     throw new HelmError("invalid-request", "Invalid Helm section");
   if (r.uid !== undefined && (typeof r.uid !== "string" || !/^[a-zA-Z0-9-]{1,128}$/.test(r.uid)))
     throw new HelmError("invalid-request", "Invalid Helm release identity");
-  if (["rollback", "upgrade-values"].includes(r.operation) && typeof r.uid !== "string")
+  if (["rollback", "upgrade-values", "uninstall"].includes(r.operation) && typeof r.uid !== "string")
     throw new HelmError("invalid-request", "Refresh releases before changing Helm releases");
   if (r.operation === "upgrade-values") {
     if (typeof r.values !== "string" || Buffer.byteLength(r.values) > 1024 * 1024)
@@ -108,7 +118,7 @@ export function executeHelmRollback(
   binary: string,
   args: string[],
   signal: AbortSignal,
-  operation: "rollback" | "upgrade" = "rollback",
+  operation: "rollback" | "upgrade" | "uninstall" = "rollback",
   beforeStart: () => void | Promise<void> = () => {},
   launchGuard: () => void = () => {},
 ): Promise<void> {
@@ -133,7 +143,7 @@ export function executeHelmRollback(
             reject(
               new HelmError(
                 `${operation}-unknown`,
-                `${operation === "upgrade" ? "Upgrade" : "Rollback"} outcome is unknown; refresh release history before retrying`,
+                `${operation === "upgrade" ? "Upgrade" : operation === "uninstall" ? "Uninstall" : "Rollback"} outcome is unknown; refresh release history before retrying`,
               ),
             );
           else resolve();
@@ -219,7 +229,8 @@ export function startPowerHelm(): () => void {
       clusterContexts.set(r.clusterId, context);
       if (
         (r.contextId !== undefined && r.contextId !== context) ||
-        (["rollback", "upgrade-values", "edit-options", "app-version"].includes(r.operation) && r.contextId !== context)
+        (["rollback", "upgrade-values", "uninstall", "edit-options", "app-version"].includes(r.operation) &&
+          r.contextId !== context)
       )
         throw new HelmError("context-changed", "Helm context changed; refresh release history before rollback");
       const cluster = Main.Catalog.getClusterById(r.clusterId)!;
@@ -239,7 +250,7 @@ export function startPowerHelm(): () => void {
       const signal = controller.signal;
       timer = setTimeout(
         () => controller?.abort(),
-        ["rollback", "upgrade-values", "edit-options"].includes(r.operation) ? 90_000 : 30_000,
+        ["rollback", "upgrade-values", "uninstall", "edit-options"].includes(r.operation) ? 90_000 : 30_000,
       );
       let service = services.get(context);
       if (!service) {
@@ -318,6 +329,57 @@ export function startPowerHelm(): () => void {
         if (uncertain.has(releaseKey))
           throw new HelmError("upgrade-unknown", "Refresh release history before retrying the upgrade");
       };
+      if (r.operation === "uninstall") {
+        writeCheck();
+        if (r.confirmed !== true) throw new HelmError("read-only", "Explicitly confirm release deletion");
+        const checkOutcome = () => {
+          if (uncertain.has(releaseKey))
+            throw new HelmError("uninstall-unknown", "Refresh release history before retrying deletion");
+        };
+        const beforeStart = async () => {
+          writeCheck();
+          checkOutcome();
+          const fresh = await service!.list(context, r.namespace, signal, r.name, true);
+          const current = latestReleases(fresh.rows)[0];
+          if (!current || current.revision !== r.revision || current.uid !== r.uid)
+            throw new HelmError("stale-revision", "Release changed; refresh history before deleting");
+          writeCheck();
+          checkOutcome();
+        };
+        await mutate(async () => {
+          try {
+            await executeHelmRollback(
+              binary(),
+              [
+                "uninstall",
+                r.name!,
+                "--namespace",
+                r.namespace,
+                "--kubeconfig",
+                cluster.kubeConfigPath,
+                "--kube-context",
+                cluster.contextName,
+                "--timeout",
+                "60s",
+              ],
+              signal,
+              "uninstall",
+              beforeStart,
+              () => {
+                writeCheck();
+                checkOutcome();
+              },
+            );
+          } catch (error) {
+            if (error instanceof HelmError && error.code === "uninstall-unknown") uncertain.set(releaseKey, Symbol());
+            throw error;
+          } finally {
+            for (const entry of services.values()) entry.clear();
+          }
+        });
+        check();
+        return { ok: true, contextId: context };
+      }
       if (r.operation === "upgrade-values") {
         checkUpgradeOutcome();
         writeCheck();
@@ -429,7 +491,7 @@ export function startPowerHelm(): () => void {
         };
         const detail = await service.detail(context, row, r.section!, signal, r.refresh === true);
         check();
-        return { ok: true, contextId: context, detail, rollbackAllowed };
+        return { ok: true, contextId: context, detail, rollbackAllowed, uninstallAllowed: rollbackAllowed };
       }
       const data = await service.list(
         context,
@@ -450,6 +512,7 @@ export function startPowerHelm(): () => void {
           fetchedAt: data.fetchedAt,
           cached: data.cached,
           rollbackAllowed,
+          uninstallAllowed: rollbackAllowed,
         };
       const row = data.rows.find(
         (row) => row.name === r.name && row.namespace === r.namespace && row.revision === r.revision,

@@ -32,7 +32,16 @@ export interface HelmRequest {
   contextId?: string;
   clusterId: string;
   namespace: string;
-  operation: "list" | "history" | "details" | "rollback" | "edit-options" | "upgrade-values" | "app-version" | "cancel";
+  operation:
+    | "list"
+    | "history"
+    | "details"
+    | "rollback"
+    | "edit-options"
+    | "upgrade-values"
+    | "uninstall"
+    | "app-version"
+    | "cancel";
   name?: string;
   revision?: number;
   uid?: string;
@@ -49,6 +58,7 @@ export type HelmResponse =
       releases?: HelmReleaseMetadata[];
       detail?: HelmDetail;
       rollbackAllowed?: boolean;
+      uninstallAllowed?: boolean;
       upgradeAllowed?: boolean;
       appVersion?: string;
       chartVersion?: string;
