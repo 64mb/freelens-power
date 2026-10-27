@@ -183,22 +183,23 @@ describe("application accent override", () => {
     const selector =
       ":root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled)";
     const focusedRule = () => rules().find((rule) => rule.selectorText === selector);
-    const normalizedColor = document.createElement("div").style;
-    normalizedColor.borderColor = DEFAULT_ACCENT_COLOR;
-    expect(focusedRule()?.style.getPropertyValue("border-color")).toBe(normalizedColor.borderColor);
-    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe(`0 0 0 1px ${DEFAULT_ACCENT_COLOR}`);
-    expect(focusedRule()?.style.getPropertyPriority("box-shadow")).toBe("important");
+    expect(focusedRule()?.style.getPropertyValue("border-color")).toBe("var(--primary)");
+    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe("0 0 0 1px var(--primary)");
+    expect(document.querySelector('style[data-freelens-power="accent-color"]')?.textContent).toContain(
+      "box-shadow: 0 0 0 1px var(--primary) !important",
+    );
     document.body.innerHTML =
       '<div class="Select"><div class="Select__control Select__control--is-focused"></div><div class="Select__control--is-focused Select__control--is-disabled"></div></div><div class="Select Select--is-disabled"><div class="Select__control--is-focused"></div></div>';
     expect(document.querySelectorAll(selector)).toHaveLength(1);
     runInAction(() => {
       preferences.accentColor = "#0273ee";
     });
-    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe("0 0 0 1px #0273ee");
+    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe("0 0 0 1px var(--primary)");
     runInAction(() => {
       preferences.accentColor = "default";
     });
-    expect(focusedRule()).toBeUndefined();
+    expect(focusedRule()?.style.getPropertyValue("border-color")).toBe("var(--primary)");
+    expect(focusedRule()?.style.getPropertyValue("box-shadow")).toBe("0 0 0 1px var(--primary)");
     runInAction(() => {
       preferences.accentColor = DEFAULT_ACCENT_COLOR;
       preferences.enabled = false;
@@ -322,7 +323,7 @@ describe("application accent override", () => {
     expect(accentRule()?.style.getPropertyValue("--primary")).toBe("#0273ee");
   });
 
-  it("uses the latest host theme for default selection while keeping native switches accented", () => {
+  it("uses the latest host theme for default selection and native control focus", () => {
     dispose = startAppearanceOverride();
     document.documentElement.style.setProperty("--primary", "#abcdef");
     runInAction(() => {
@@ -331,10 +332,23 @@ describe("application accent override", () => {
 
     expect(accentRule()).toBeUndefined();
     expect(getComputedStyle(document.documentElement).getPropertyValue("--primary")).toBe("#abcdef");
-    expect(rules()).toHaveLength(1);
-    expect(rules()[0]?.selectorText).toBe('input[role="switch"]');
-    expect(rules()[0]?.style.getPropertyValue("--track-color-active")).toBe("var(--primary)");
-    expect(rules()[0]?.style.getPropertyPriority("--track-color-active")).toBe("important");
+    const switchRule = rules().find((rule) => rule.selectorText === 'input[role="switch"]');
+    expect(switchRule?.style.getPropertyValue("--track-color-active")).toBe("var(--primary)");
+    expect(switchRule?.style.getPropertyPriority("--track-color-active")).toBe("important");
+    const inputRule = rules().find(
+      (rule) => rule.selectorText === ":root .Input:not(.invalid):not(.validating) label:focus-within",
+    );
+    expect(inputRule?.style.getPropertyValue("border-color")).toBe("var(--primary)");
+    expect(document.querySelector('style[data-freelens-power="accent-color"]')?.textContent).toContain(
+      "label:focus-within { border-color: var(--primary) !important; }",
+    );
+    const selectRule = rules().find((rule) => rule.selectorText.includes(".Select__control--is-focused"));
+    expect(selectRule?.style.getPropertyValue("border-color")).toBe("var(--primary)");
+    expect(selectRule?.style.getPropertyValue("box-shadow")).toBe("0 0 0 1px var(--primary)");
+    expect(rules().some((rule) => rule.style.getPropertyValue("--colorInfo"))).toBe(false);
+    expect(rules().some((rule) => rule.style.getPropertyValue("--blue"))).toBe(false);
+    expect(rules().filter((rule) => rule.selectorText.includes(".Select__control--is-focused"))).toHaveLength(1);
+    expect(rules().filter((rule) => rule.selectorText.includes(".Input"))).toHaveLength(1);
 
     runInAction(() => {
       preferences.accentColor = "#0273ee";

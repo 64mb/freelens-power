@@ -34,12 +34,10 @@ export function startAppearanceOverride(): () => void {
         :root [role="treeitem"][class*="catalog-tree-module__selected--"] { --blue: var(--primary); }
         :root [class*="main-layout-module__sidebar--"] > .ResizingAnchor { --blue: var(--primary); }
         :root .MenuItem:is(.create-terminal-tab, .create-resource-tab) { --bgc-active: var(--primary); }
-        :root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled) { border-color: ${color} !important; box-shadow: 0 0 0 1px ${color} !important; }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
         :root .Select__option--is-focused:not(.Select__option--is-selected) { color: var(--textColorAccent) !important; }
         :root .Button.primary:not(.plain):not(.outlined):not(.light) { color: var(--freelens-power-accent-foreground); }
         :root [data-testid="cluster-sidebar"] { --sidebarActiveColor: var(--freelens-power-accent-foreground); --sidebarSubmenuActiveColor: var(--primary); }
-        :root .NamespaceSelectMenu .Select__option { margin-block: 2px; }
         :root .NamespaceSelectMenu .Select__option--is-selected { background: color-mix(in srgb, var(--primary) 10%, var(--contentColor)) !important; color: var(--textColorAccent) !important; }
         :root .NamespaceSelectMenu .Select__option--is-selected.Select__option--is-focused { background: color-mix(in srgb, var(--primary) 24%, var(--contentColor)) !important; }
         :root .NamespaceSelectMenu .Select__option--is-selected .Icon { color: var(--primary); }
@@ -49,7 +47,11 @@ export function startAppearanceOverride(): () => void {
         :root [data-testid="download-logs-dropdown"] { --accent-color: var(--primary); }
         ${recolorAppIcon ? '.Welcome [data-testid="no-welcome-banners-icon"] svg path[fill="#23a49c"] { fill: var(--primary); }' : ""}
       `;
-      style.textContent = `${accent}\ninput[role="switch"] { --track-color-active: var(--primary) !important; }`;
+      style.textContent = `${accent}
+        input[role="switch"] { --track-color-active: var(--primary) !important; }
+        :root .Input:not(.invalid):not(.validating) label:focus-within { border-color: var(--primary) !important; }
+        :root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled) { border-color: var(--primary) !important; box-shadow: 0 0 0 1px var(--primary) !important; }
+      `;
 
       if (!style.isConnected) {
         document.head.append(style);

@@ -3,6 +3,7 @@ import { EXTENSION_ID } from "../../common/extension-info";
 import { AiPreferences } from "./ai-preferences";
 import { AppearancePreferences } from "./appearance-preferences";
 import { DashboardPreferences } from "./dashboard-preferences";
+import { HelmPreferences } from "./helm-preferences";
 import { LogsPreferences } from "./logs-preferences";
 import { MonitoringPreferences } from "./monitoring-preferences";
 import { NodeShellPreferences } from "./node-shell-preferences";
@@ -79,6 +80,7 @@ const sectionLinks = [
   { id: "appearance", title: "Appearance", icon: "palette" },
   { id: "monitoring", title: "Monitoring", icon: "show_chart" },
   { id: "logs", title: "Logs", icon: "subject" },
+  { id: "helm", title: "Helm", icon: "sailing" },
   { id: "shell", title: "Shell", icon: "vpn_key" },
   { id: "ai", title: "AI", icon: "chat_bubble_outline" },
   { id: "dashboard", title: "Dashboard", icon: "dashboard" },
@@ -103,7 +105,7 @@ export const PowerPreferences = () => (
             focusPreferencesSection(id);
           }}
         >
-          <Renderer.Component.Icon material={icon} size={16} /> {title}
+          <Renderer.Component.Icon {...(id === "helm" ? { svg: "helm" } : { material: icon })} size={16} /> {title}
         </Renderer.Component.Button>
       ))}
     </nav>
@@ -139,6 +141,12 @@ export const PowerPreferences = () => (
         <Renderer.Component.Icon material="subject" size={20} /> Power Logs
       </h3>
       <LogsPreferences />
+    </section>
+    <section id="freelens-power-helm-section" tabIndex={-1} aria-labelledby="freelens-power-helm-title">
+      <h3 id="freelens-power-helm-title">
+        <Renderer.Component.Icon svg="helm" size={20} /> Helm
+      </h3>
+      <HelmPreferences />
     </section>
     <section id="freelens-power-shell-section" tabIndex={-1} aria-labelledby="freelens-power-shell-title">
       <h3 id="freelens-power-shell-title">

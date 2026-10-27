@@ -58,15 +58,18 @@ export function AiContextPreview({
 
 export function AiContextInspector({ context }: { context: AiChatRequest["context"] }) {
   return (
-    <details className="power-ai-context-inspector">
-      <NativeTooltip title="Show the screen and resource metadata attached to your next message">
-        <summary>What will be sent</summary>
-      </NativeTooltip>
-      <div className="power-ai-context-content">
-        <LogJson text={JSON.stringify(context, null, 2)} fieldsEnabled={false} />
-      </div>
-      <p>Screen and resource metadata only. Resource reads happen after sending.</p>
-    </details>
+    <div className="power-ai-context-inspector">
+      <AiIcon material="info_outline" size={14} />
+      <details>
+        <NativeTooltip title="Show the screen and resource metadata attached to your next message">
+          <summary>Context metadata</summary>
+        </NativeTooltip>
+        <div className="power-ai-context-content">
+          <LogJson text={JSON.stringify(context, null, 2)} fieldsEnabled={false} />
+        </div>
+        <p>Screen and resource metadata only. Resource reads happen after sending.</p>
+      </details>
+    </div>
   );
 }
 

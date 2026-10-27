@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 import { act, waitFor } from "@testing-library/react";
 import { observable } from "mobx";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  readStore: vi.fn(),
   items: [] as { selfLink: string; getStatus(): string; getStatusMessage(): string }[],
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: "cluster-example" } }) } },
     K8sApi: {
-      podsStore: {
-        get items() {
-          return state.items;
-        },
+      get podsStore() {
+        state.readStore();
+        return { items: state.items };
       },
     },
     Component: {
@@ -27,9 +27,15 @@ vi.mock("@freelensapp/extensions", () => ({
 import { startPodDetailsEnhancements } from "./pod-details-enhancements";
 
 let stop: (() => void) | undefined;
+beforeEach(() => {
+  vi.stubGlobal("process", Object.assign(Object.create(process), { isMainFrame: false }));
+  state.readStore.mockReset();
+});
 afterEach(() => {
   act(() => stop?.());
   document.body.innerHTML = "";
+  stop = undefined;
+  vi.unstubAllGlobals();
 });
 const path = "/api/v1/namespaces/example/pods/example-pod";
 function row(resourcePath = path) {
@@ -93,4 +99,20 @@ it("leaves node drawers and unrelated pod links unchanged", async () => {
   await waitFor(() => expect(document.querySelector(".DeploymentDetails .StatusBrick")).not.toBeNull());
   expect(node.querySelector(".StatusBrick")).toBeNull();
   expect(node.querySelector("[data-power-pod-name-hover]")).toBeNull();
+});
+
+it("never accesses the cluster pod store in the root frame, even with an active cluster", async () => {
+  vi.stubGlobal("process", Object.assign(Object.create(process), { isMainFrame: true }));
+  state.readStore.mockImplementation(() => {
+    throw new Error("podStore is only available in certain environments");
+  });
+  setup();
+  document.body.append(row());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(state.readStore).not.toHaveBeenCalled();
+  expect(document.querySelector(".power-pod-status")).toBeNull();
+  expect(document.head.querySelector('[data-freelens-power="pod-details-enhancements"]')).toBeNull();
+  expect(() => stop?.()).not.toThrow();
 });

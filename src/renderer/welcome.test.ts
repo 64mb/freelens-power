@@ -37,7 +37,9 @@ describe("welcome content override", () => {
     dispose = startWelcomeOverride();
 
     const content = customContent(host);
-    expect(content?.querySelector("h2")?.textContent).toBe("🔋 Freelens Power");
+    const heading = content?.querySelector("h2");
+    expect(heading?.lastChild?.textContent).toBe("Freelens Power");
+    expect(heading?.querySelector('[aria-hidden="true"] .icon')?.textContent).toBe("battery_charging_full");
     expect(content?.querySelector("p")?.textContent).toBe(
       "Make Freelens your own with practical tools for everyday Kubernetes work.",
     );

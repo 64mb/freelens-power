@@ -65,6 +65,16 @@ describe("log IPC validation", () => {
         validateLogRequest({ ...partition, operation: "append", captureId: "capture-example", records }),
       ).toThrow();
   });
+  it("accepts access records without rewriting their level", () => {
+    expect(
+      validateLogRequest({
+        ...partition,
+        operation: "append",
+        captureId: "capture-example",
+        records: [{ ...record, level: "access" }],
+      }),
+    ).toMatchObject({ records: [{ level: "access" }] });
+  });
   it("accepts only bounded main process transport permits", () => {
     expect(validateLogRequest({ ...partition, operation: "permit", lane: "start" })).toEqual({
       ...partition,

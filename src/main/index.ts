@@ -6,6 +6,7 @@ import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
 import { ClusterIconsStore } from "../common/store/cluster-icons-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { HelmPreferencesStore } from "../common/store/helm-preferences-store";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { NodeShellPreferencesStore } from "../common/store/node-shell-preferences-store";
@@ -20,6 +21,7 @@ import { startDashboardPicker } from "./dashboard-picker";
 import { startDashboardViews } from "./dashboard-views";
 import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
+import { startPowerHelm } from "./helm-ipc";
 import { startMonitoringHistory } from "./monitoring-history";
 import { startPowerLogs } from "./power-logs-ipc";
 import { startResourceSearchIndex } from "./resource-search";
@@ -43,6 +45,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
     const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
     power.loadExtension(this);
     LogsPreferencesStore.getInstanceOrCreate().loadExtension(this);
+    HelmPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiShortcutsStore.getInstanceOrCreate().loadExtension(this);
     ReadOnlyPreferencesStore.getInstanceOrCreate().loadExtension(this);
@@ -63,6 +66,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
               startMonitoringHistory(this),
               startResourceSearchIndex(),
               startPowerLogs(),
+              startPowerHelm(),
               startDiagnosticsMenuOrder(),
               startAiIpc(),
               startAiModels(),

@@ -353,14 +353,15 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   await expect(resource).toContainText("ready-workload");
   await expect(chat.locator(".power-ai-context")).not.toContainText("ready-workload");
   const pin = chat.getByRole("button", { name: "Pin AI assistant", exact: true });
-  const originalPin = await pin.locator("svg").getAttribute("viewBox");
+  await expect(pin.locator(".Icon.material .icon")).toHaveText("push_pin");
   await pin.click();
   await expect(pin).toHaveAttribute("aria-pressed", "true");
-  expect(await pin.locator("svg").getAttribute("viewBox")).not.toBe(originalPin);
+  await expect(pin.locator(".Icon.svg svg")).toBeVisible();
+  await expect(pin.locator(".Icon.material")).toHaveCount(0);
   await chat.getByRole("textbox", { name: "Message", exact: true }).click();
   await expect(drawer).toBeHidden();
   await expect(resource).toContainText("ready-workload");
-  await chat.getByText("What will be sent", { exact: true }).click();
+  await chat.getByText("Context metadata", { exact: true }).click();
   const preview = chat.locator(".power-ai-context-inspector pre");
   await expect(preview).toContainText("ready-workload");
   await expect(preview.locator('[data-token="key"]').first()).toBeVisible();
@@ -509,7 +510,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(finding.locator("pre")).toContainText(logsSecretSentinel);
   await expect(finding.locator("pre")).toContainText("SETTING");
   await expect(finding.locator("pre")).not.toContainText(logsConfigMapSentinel);
-  await assistant.getByText("What will be sent", { exact: true }).click();
+  await assistant.getByText("Context metadata", { exact: true }).click();
   await expect(assistant.locator(".power-ai-context-inspector pre")).toContainText(logsDeployment);
   await expect(assistant.locator(".power-ai-message-user")).toHaveCount(0);
   await session.screenshot(info, "power-logs-attached-ai-context");

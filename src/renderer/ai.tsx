@@ -197,8 +197,10 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 .power-ai-attachment-card summary { padding:6px 0; min-height:28px; box-sizing:border-box; cursor:pointer; overflow-wrap:anywhere; }
 .power-ai-attachment-card pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; }
 .power-ai-attachment-caption { color:var(--textColorSecondary); font-size:11px; margin:4px 0; }
-.power-ai-context-inspector { color:var(--textColorSecondary); font-size:11px; }
-.power-ai-context-inspector summary { padding:4px 0; cursor:pointer; }
+.power-ai-context-inspector { display:flex; align-items:flex-start; gap:8px; min-width:0; color:var(--textColorSecondary); font-size:11px; }
+.power-ai-context-inspector > .Icon { flex-shrink:0; margin-top:7px; }
+.power-ai-context-inspector > details { flex:1; min-width:0; }
+.power-ai-context-inspector summary { padding:6px 0; cursor:pointer; }
 .power-ai-attachment-receipts { margin-top:10px; padding-top:6px; border-top:1px solid var(--borderFaintColor); font-size:11px; }
 .power-ai-attachment-receipts .power-ai-attachment-card { margin-bottom:0; }
 .power-ai-context-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }

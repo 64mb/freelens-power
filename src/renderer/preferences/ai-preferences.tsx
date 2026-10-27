@@ -144,7 +144,15 @@ export const AiPreferences = observer(() => {
         </div>
       </div>
       <div className="power-settings-row" style={rowStyle}>
-        <label htmlFor="power-ai-effort">Effort</label>
+        <div style={{ minWidth: 0 }}>
+          <label htmlFor="power-ai-effort">Effort</label>
+          <div
+            className="power-settings-hint power-ai-control-hint"
+            title="Controls reasoning depth; higher may take longer."
+          >
+            Controls reasoning depth; higher may take longer.
+          </div>
+        </div>
         <div style={controlStyle}>
           <Select
             id="power-ai-effort"

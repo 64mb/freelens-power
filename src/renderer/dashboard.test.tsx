@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Tooltip: ({ children, className }: { children: string; className: string }) => (
+        <span title={children} data-tooltip-class={className} />
+      ),
       Icon: ({
         material,
         tooltip,
@@ -483,8 +486,12 @@ describe("DashboardPage", () => {
       channel === "freelens-power:dashboard-views:pin" && payload?.pinned === true ? { pinned: ["site"] } : undefined,
     );
     render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Pin Example" }).querySelector(".Icon.material .icon")?.textContent).toBe(
+      "push_pin",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Pin Example" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Unpin Example" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Unpin Example" }).querySelector("svg path")).toBeTruthy();
     expect(
       screen.getByRole("region", { name: "Example" }).parentElement?.classList.contains("power-dashboard-card-pinned"),
     ).toBe(true);

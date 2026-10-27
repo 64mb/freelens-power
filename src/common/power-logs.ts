@@ -27,7 +27,7 @@ export type PowerLogsLimitKey = keyof typeof POWER_LOGS_DEFAULT_LIMITS;
 export type PowerLogsLimits = { [Key in PowerLogsLimitKey]: number };
 export const POWER_LOGS_LIMITS: PowerLogsLimits = { ...POWER_LOGS_DEFAULT_LIMITS };
 
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "unknown";
+export type LogLevel = "trace" | "debug" | "info" | "access" | "warn" | "error" | "fatal" | "unknown";
 export type LogWorkloadKind = "Pod" | "Deployment" | "DaemonSet" | "StatefulSet" | "ReplicaSet" | "Job" | "CronJob";
 export interface LogTarget {
   kind: LogWorkloadKind;

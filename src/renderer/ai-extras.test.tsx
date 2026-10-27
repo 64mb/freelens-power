@@ -159,7 +159,9 @@ it("keeps selected evidence in one removable row within the composer", () => {
   expect(row.closest(".power-ai-context-preview")).toBeTruthy();
   expect(row.querySelector("section")).toBeNull();
   expect(
-    [...view.container.querySelectorAll("summary")].filter((element) => element.textContent === "What will be sent"),
+    [...view.container.querySelectorAll("summary")].filter((element) =>
+      element.textContent?.endsWith("Context metadata"),
+    ),
   ).toHaveLength(1);
   expect(row.querySelector("pre")?.textContent).toBe("Readiness probe failed");
   expect(row.querySelector("details")?.open).toBe(false);

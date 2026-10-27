@@ -694,24 +694,30 @@ export function DiagnosticsPage() {
       )}
       {tab === "Consumers" && data && (
         <>
-          {resourceScope && (
-            <div className="namespace-scope" role="status">
-              <span className="namespace-scope-label">
-                {resourceScope.kind}: {resourceScope.name}
-              </span>
-              <button type="button" aria-label="Clear resource scope" onClick={() => setResourceScope(undefined)}>
-                <AiIcon material="close" size={13} />
-                Show all resources
-              </button>
-            </div>
-          )}
-          {namespaceScope && (
-            <div className="namespace-scope" role="status">
-              <span className="namespace-scope-label">Namespace: {namespaceScope}</span>
-              <button type="button" aria-label="Clear namespace scope" onClick={() => setNamespaceScope(undefined)}>
-                <AiIcon material="close" size={13} />
-                Show all namespaces
-              </button>
+          {(resourceScope || namespaceScope) && (
+            <div className="diagnostics-active-filters" aria-label="Active consumer filters">
+              {resourceScope && (
+                <div className="namespace-scope" role="status">
+                  <AiIcon material="filter_alt" size={16} />
+                  <span className="namespace-scope-label">
+                    {resourceScope.kind}: {resourceScope.name}
+                  </span>
+                  <button type="button" aria-label="Clear resource scope" onClick={() => setResourceScope(undefined)}>
+                    <AiIcon material="close" size={13} />
+                    Show all resources
+                  </button>
+                </div>
+              )}
+              {namespaceScope && (
+                <div className="namespace-scope" role="status">
+                  <AiIcon material="filter_alt" size={16} />
+                  <span className="namespace-scope-label">Namespace: {namespaceScope}</span>
+                  <button type="button" aria-label="Clear namespace scope" onClick={() => setNamespaceScope(undefined)}>
+                    <AiIcon material="close" size={13} />
+                    Show all namespaces
+                  </button>
+                </div>
+              )}
             </div>
           )}
           <div className="toolbar consumers-toolbar">

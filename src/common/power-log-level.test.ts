@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { parseLogLine } from "./power-log-parser";
+import { sqlCellLevel } from "./power-log-sql-level";
 
 const source = { namespace: "demo", pod: "worker", podUid: "pod-1", container: "app" };
 
@@ -62,4 +63,22 @@ it.each([
   "[worker warning] normal message",
 ])("does not infer severity from ambiguous text %s", (text) => {
   expect(parseLogLine(text, source).level).toBe("unknown");
+});
+
+it.each([
+  "ACCESS",
+  "access",
+  " Access ",
+])("preserves access as a distinct level through parsing and SQL cells: %s", (level) => {
+  const record = parseLogLine(JSON.stringify({ level, message: "GET /health 200" }), source);
+  expect(record.level).toBe("access");
+  expect(JSON.parse(record.fieldsJson!).level).toBe(level);
+  expect(sqlCellLevel("level", record.level)).toBe("access");
+  expect(sqlCellLevel("LEVEL", level)).toBe("access");
+});
+
+it("recognizes explicit access headers without guessing from request messages", () => {
+  expect(parseLogLine("[ACCESS] GET /health 200", source).level).toBe("access");
+  expect(parseLogLine('level=ACCESS msg="GET /health 200"', source).level).toBe("access");
+  expect(parseLogLine("GET /health 200 access granted", source).level).toBe("unknown");
 });
