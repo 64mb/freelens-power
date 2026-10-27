@@ -1,4 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
+import { clipboard } from "electron";
 import {
   type ComponentProps,
   type CSSProperties,
@@ -14,9 +15,13 @@ import {
   compareHelmLines,
   findHelmDocumentMatches,
   type HelmLineRange,
+  helmDocumentPreview,
+  MAX_HELM_PREVIEW_CHARACTERS,
+  MAX_HELM_PREVIEW_LINES,
 } from "../common/helm-diff";
+import { NativeTooltip } from "./native-tooltip";
 
-const { MonacoEditor, Checkbox, Button } = Renderer.Component;
+const { MonacoEditor, Checkbox, Button, Icon } = Renderer.Component;
 type NativeProps = ComponentProps<typeof MonacoEditor>;
 type Model = Parameters<NonNullable<NativeProps["onModelChange"]>>[0];
 function disposeDetachedModel(model?: Model) {
@@ -80,6 +85,29 @@ export function openHelmDocumentFind(container: HTMLElement): boolean {
   } finally {
     forwardingFind = false;
   }
+}
+
+export function bindHelmDiffWheel(viewport: HTMLElement) {
+  const scroll = (event: WheelEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+    )
+      return;
+    const scale = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+    const previous = viewport.scrollTop;
+    const maximum = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const next = Math.max(0, Math.min(maximum, previous + event.deltaY * scale));
+    if (next === previous || !Number.isFinite(next)) return;
+    viewport.scrollTop = next;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  viewport.addEventListener("wheel", scroll, { capture: true, passive: false });
+  return () => viewport.removeEventListener("wheel", scroll, true);
 }
 
 export function HelmCodeView({
@@ -223,6 +251,7 @@ export function HelmRevisionDiff({
   const [query, setQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
   const sectionRef = useRef<HTMLElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const findOverlayEscapes = useRef(new WeakSet<KeyboardEvent>());
   const search = useMemo(() => findHelmDocumentMatches(before, after, query), [before, after, query]);
@@ -292,7 +321,37 @@ export function HelmRevisionDiff({
           : match.line >= block.afterStart && match.line < block.afterStart + block.after.length),
     );
   const unchanged = diff.available && !diff.added && !diff.removed;
-  const fallback = !diff.available || !blocks;
+  const displayLimited = Boolean(
+    blocks &&
+      (blocks.reduce(
+        (sum, block) => sum + (block.kind === "code" ? Math.max(block.before.length, block.after.length) : 0),
+        0,
+      ) > MAX_HELM_PREVIEW_LINES ||
+        blocks.reduce(
+          (sum, block) =>
+            sum + (block.kind === "code" ? block.before.join("\n").length + block.after.join("\n").length : 0),
+          0,
+        ) > MAX_HELM_PREVIEW_CHARACTERS),
+  );
+  const fallback = !diff.available || !blocks || displayLimited;
+  const previews = useMemo(
+    () => (fallback ? { before: helmDocumentPreview(before), after: helmDocumentPreview(after) } : undefined),
+    [before, after, fallback],
+  );
+  const [copyStatus, setCopyStatus] = useState("");
+  const copyDocument = (source: boolean) => {
+    try {
+      clipboard.writeText(source ? before : after);
+      setCopyStatus("Full document copied");
+    } catch {
+      setCopyStatus("Could not copy the document. Try copying again.");
+    }
+  };
+  const fallbackHeight = previews ? Math.max(previews.before.lines, previews.after.lines) * 18 + 14 : 0;
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    return viewport ? bindHelmDiffWheel(viewport) : undefined;
+  }, [unchanged, full, fallback]);
   const label = (value: ReactNode, source: boolean) =>
     typeof value === "string" ? value : source ? "Comparison source document" : "Comparison target document";
   const renderCode = (value: string[], start: number, source: boolean, changed: boolean, height: number) =>
@@ -338,6 +397,9 @@ export function HelmRevisionDiff({
       .helm-diff-summary .Checkbox { position: relative; }
       .helm-diff-summary .Checkbox input[type=checkbox] { display: block; position: absolute; left: 0; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); opacity: 0; margin: 0; z-index: 1; }
       .helm-diff-summary .Checkbox input:focus-visible ~ .box { outline: 2px solid var(--primary); outline-offset: 3px; }
+      .helm-diff-summary .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+      .helm-diff-summary .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
+      .helm-diff-summary .helm-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       .helm-diff-summary strong { color: var(--textColorPrimary); }
       .helm-diff-added { color: var(--colorOk, var(--primary)); }
       .helm-diff-removed { color: var(--colorError, var(--textColorPrimary)); }
@@ -370,10 +432,40 @@ export function HelmRevisionDiff({
           <span>{diff.reason}</span>
         )}
         {diff.available && !blocks && (
-          <span>Aligned comparison exceeds the display limit. Full documents are shown without alignment.</span>
+          <span>Aligned comparison exceeds the display limit. Documents are shown without alignment.</span>
         )}
-        {!fallback && <Checkbox label="Show full documents" value={full} onChange={setFull} />}
-        {!fallback && (!unchanged || full) && <small>Both panes share vertical scrolling</small>}
+        {displayLimited && <span>Document display exceeds the safe rendering limit.</span>}
+        {previews && (previews.before.limited || previews.after.limited) && (
+          <>
+            <span>
+              Only the first 1000 lines and 262144 characters of each original document are previewed. Copy a full
+              document to read all of it.
+            </span>
+            <NativeTooltip title="Copy full source document">
+              <button
+                type="button"
+                className="helm-icon-button"
+                aria-label="Copy full source document"
+                onClick={() => copyDocument(true)}
+              >
+                <Icon material="content_copy" size={18} />
+              </button>
+            </NativeTooltip>
+            <NativeTooltip title="Copy full target document">
+              <button
+                type="button"
+                className="helm-icon-button"
+                aria-label="Copy full target document"
+                onClick={() => copyDocument(false)}
+              >
+                <Icon material="content_copy" size={18} />
+              </button>
+            </NativeTooltip>
+            {copyStatus && <span>{copyStatus}</span>}
+          </>
+        )}
+        {diff.available && blocks && <Checkbox label="Show full documents" value={full} onChange={setFull} />}
+        {(!unchanged || full || fallback) && <small>Both panes share vertical scrolling</small>}
       </div>
       {findOpen && (
         <div className="helm-diff-find" role="search" aria-label="Find in comparison">
@@ -414,7 +506,7 @@ export function HelmRevisionDiff({
             onClick={() => setMatchIndex((index) => (index + 1) % search.matches.length)}
           />
           <Button label="Close find" onClick={() => setFindOpen(false)} />
-          {match && !matchVisible && (
+          {match && (fallback || !matchVisible) && (
             <div style={{ width: "100%" }}>
               <strong>
                 {match.source === "before" ? "Source" : "Target"} match at original line {match.line}
@@ -433,7 +525,7 @@ export function HelmRevisionDiff({
         </div>
       )}
       {(!unchanged || full || fallback) && (
-        <div className="helm-diff-scroll" tabIndex={0} aria-label="Comparison documents">
+        <div ref={viewportRef} className="helm-diff-scroll" tabIndex={0} aria-label="Comparison documents">
           <div className="helm-diff-panes helm-diff-headers">
             <div className="helm-diff-pane">
               <h4>{beforeLabel}</h4>
@@ -445,10 +537,22 @@ export function HelmRevisionDiff({
           {fallback ? (
             <div className="helm-diff-panes">
               <div className="helm-diff-pane">
-                <HelmCodeView value={before} language={language} ariaLabel={label(beforeLabel, true)} />
+                <HelmCodeView
+                  value={previews!.before.value}
+                  language={language}
+                  ariaLabel={label(beforeLabel, true)}
+                  expanded
+                  style={{ height: fallbackHeight, minHeight: 0 }}
+                />
               </div>
               <div className="helm-diff-pane">
-                <HelmCodeView value={after} language={language} ariaLabel={label(afterLabel, false)} />
+                <HelmCodeView
+                  value={previews!.after.value}
+                  language={language}
+                  ariaLabel={label(afterLabel, false)}
+                  expanded
+                  style={{ height: fallbackHeight, minHeight: 0 }}
+                />
               </div>
             </div>
           ) : (

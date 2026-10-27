@@ -688,7 +688,10 @@ export function DiagnosticsPage() {
         </div>
       )}
       {!data && !error && (
-        <p className="diagnostics-empty" role="status">
+        <p className="diagnostics-empty diagnostics-loading" role="status">
+          <span className="diagnostics-loading-icon" aria-hidden="true">
+            <AiIcon material="autorenew" size={16} />
+          </span>
           Loading resource diagnostics…
         </p>
       )}

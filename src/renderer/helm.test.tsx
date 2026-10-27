@@ -125,6 +125,27 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("centers the first-load status and cancels it without accepting late rows", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+  const pending = deferred();
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "cancel" ? Promise.resolve({ ok: true }) : pending.promise,
+  );
+  try {
+    render(<PowerHelmPage />);
+    const placeholder = screen.getByRole("region", { name: "Helm releases table" });
+    expect(placeholder.className).toContain("helm-initial-loading");
+    expect(screen.getByText("Loading Helm releases and their current status…")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel loading" }));
+    expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "cancel")).toBe(true);
+    await act(async () => pending.resolve(listing));
+    expect(screen.queryByRole("region", { name: "Helm releases table" })).toBeNull();
+    expect(screen.queryByText("sample-release")).toBeNull();
+  } finally {
+    now.mockRestore();
+  }
+});
+
 it("preserves rows on refresh errors and cancels obsolete namespace requests", async () => {
   const pending = deferred();
   render(<PowerHelmPage />);
@@ -200,7 +221,7 @@ it("requires both a checkbox and native confirmation before rollback", async () 
   fireEvent.click(await screen.findByLabelText("Revision 2"));
   const button = screen.getByText("Roll back") as HTMLButtonElement;
   expect(button.disabled).toBe(true);
-  expect(screen.getByRole("checkbox", { name: /to revision 2 App version/ })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: /to Revision 2 App version/ })).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release/ }));
   fireEvent.click(button);
   expect(mocks.confirm).toHaveBeenCalledOnce();
@@ -293,7 +314,7 @@ it("bounds history rows and finds old revisions without discarding selection", a
   fireEvent.click(await screen.findByLabelText("Revision 2"));
   fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "" } });
   expect(screen.getAllByRole("radio")).toHaveLength(50);
-  expect(screen.getByText(/Selected revision 2/)).toBeTruthy();
+  expect(screen.getByText(/Selected Revision 2/)).toBeTruthy();
   fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2" } });
   expect((screen.getByLabelText("Revision 2") as HTMLInputElement).checked).toBe(true);
 });
@@ -750,7 +771,7 @@ it("uses inspection-only history in read-only mode and clears old rollback conse
   fireEvent.click(await screen.findByText("sample-release"));
   fireEvent.click(screen.getByText("History"));
   fireEvent.click(await screen.findByRole("radio", { name: "Revision 1" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: /to revision 1/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /to Revision 1/ }));
   expect((screen.getByText("Roll back") as HTMLButtonElement).disabled).toBe(false);
   act(() =>
     runInAction(() => {
@@ -819,15 +840,15 @@ it("returns to the selected later page after clearing an all-matching version fi
     fireEvent.click(await screen.findByRole("button", { name: release.name }));
     fireEvent.click(screen.getByRole("tab", { name: "History" }));
     await screen.findByLabelText("Revision 250");
-    fireEvent.click(screen.getByText("Next revisions"));
-    fireEvent.click(screen.getByText("Next revisions"));
+    fireEvent.click(screen.getByLabelText("Next revisions"));
+    fireEvent.click(screen.getByLabelText("Next revisions"));
     fireEvent.click(screen.getByRole("radio", { name: "Revision 125" }));
     fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2.7" } });
-    await screen.findByText("Page 1 of 5");
-    fireEvent.click(screen.getByText("Next revisions"));
-    fireEvent.click(screen.getByText("Next revisions"));
+    await screen.findByText("Page 1 / 5");
+    fireEvent.click(screen.getByLabelText("Next revisions"));
+    fireEvent.click(screen.getByLabelText("Next revisions"));
     fireEvent.click(screen.getByRole("button", { name: "Show selected revision" }));
-    await screen.findByText("Page 3 of 5");
+    await screen.findByText("Page 3 / 5");
     const selected = screen.getByRole("radio", { name: "Revision 125" }) as HTMLInputElement;
     expect(selected.checked).toBe(true);
     expect(document.activeElement).toBe(selected);
@@ -931,7 +952,7 @@ it("restores the viewed comparison source through the guarded full-release rollb
   const restore = await screen.findByRole("button", { name: "Restore revision" });
   expect((restore as HTMLButtonElement).disabled).toBe(true);
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history" && request.refresh)).toBe(true);
-  fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to revision 1/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to Revision 1/ }));
   fireEvent.click(restore);
   expect(mocks.confirm).toHaveBeenCalledOnce();
   expect(mocks.confirm.mock.calls[0][0].labelOk).toBe("Restore revision 1");

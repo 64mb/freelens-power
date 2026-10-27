@@ -1508,3 +1508,31 @@ it("allows automatic context on reopening after terminal invalidation in another
     mocks.clusterId = "cluster-a";
   }
 });
+
+it("moves the launcher left for a visible native Helm drawer and restores it when the drawer closes", async () => {
+  window.history.replaceState({}, "", "/helm");
+  document.body.innerHTML = '<div data-testid="cluster-sidebar"></div>';
+  const sidebar = document.querySelector<HTMLElement>('[data-testid="cluster-sidebar"]')!;
+  vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({ right: 220, width: 220, height: 500 } as DOMRect);
+  stop = startAiChat(() => true);
+  const launcher = screen.getByLabelText("Open AI assistant");
+  expect(launcher.style.left).toBe("auto");
+  expect(launcher.style.right).toBe("16px");
+  const drawer = document.createElement("div");
+  drawer.className = "Drawer helm-native-drawer";
+  drawer.style.display = "none";
+  vi.spyOn(drawer, "getBoundingClientRect").mockReturnValue({ width: 500, height: 700 } as DOMRect);
+  document.body.append(drawer);
+  await waitFor(() => expect(launcher.style.right).toBe("16px"));
+  drawer.style.display = "block";
+  await waitFor(() => expect(launcher.style.left).toBe("236px"));
+  expect(launcher.style.right).toBe("auto");
+  drawer.hidden = true;
+  await waitFor(() => expect(launcher.style.right).toBe("16px"));
+  expect(launcher.style.left).toBe("auto");
+  drawer.hidden = false;
+  await waitFor(() => expect(launcher.style.left).toBe("236px"));
+  drawer.remove();
+  await waitFor(() => expect(launcher.style.right).toBe("16px"));
+  expect(launcher.style.left).toBe("auto");
+});

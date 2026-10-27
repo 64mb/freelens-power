@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHelmDiffBlocks, compareHelmLines, findHelmDocumentMatches } from "./helm-diff";
+import { buildHelmDiffBlocks, compareHelmLines, findHelmDocumentMatches, helmDocumentPreview } from "./helm-diff";
 
 describe("Helm line comparison", () => {
   it.each([
@@ -155,4 +155,30 @@ it("bounds find navigation while reporting the full match count and oversized do
   expect(result.count).toBe(1501);
   expect(result.matches).toHaveLength(1000);
   expect(findHelmDocumentMatches("x".repeat(2 * 1024 * 1024 + 1), "", "x").available).toBe(false);
+});
+
+it("keeps sparse edits in a long document within the editor bound without counting gap markers", () => {
+  const before = Array.from({ length: 363 }, (_, index) => `key${index}: unchanged`);
+  const after = [...before];
+  for (const index of [25, 180, 330]) after[index] = `key${index}: changed`;
+  const diff = compareHelmLines(before.join("\n"), after.join("\n"));
+  if (!diff.available) throw new Error("unexpected comparison bound");
+  const result = buildHelmDiffBlocks(diff)!;
+  expect(result).toBeDefined();
+  expect(result.filter((block) => block.kind === "code")).toHaveLength(9);
+  expect(result.filter((block) => block.kind === "gap")).toHaveLength(4);
+  expect(result.filter((block) => block.kind === "code" && block.changed)).toHaveLength(3);
+  expect(result.filter((block) => block.kind === "code").flatMap((block) => block.before)).toHaveLength(21);
+});
+
+it("bounds document previews by lines and characters while preserving the exact original prefix", () => {
+  const lines = Array.from({ length: 20000 }, (_, index) => `key${index}: value`).join("\n");
+  expect(helmDocumentPreview(lines)).toEqual({
+    value: lines.split("\n").slice(0, 1000).join("\n"),
+    lines: 1000,
+    limited: true,
+  });
+  const singleLine = "x".repeat(300000);
+  expect(helmDocumentPreview(singleLine)).toEqual({ value: singleLine.slice(0, 256 * 1024), lines: 1, limited: true });
+  expect(helmDocumentPreview("one\ntwo")).toEqual({ value: "one\ntwo", lines: 2, limited: false });
 });

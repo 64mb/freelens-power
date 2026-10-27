@@ -2,12 +2,14 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { HelmCodeView, HelmRevisionDiff, openHelmDocumentFind } from "./helm-code-view";
+import { bindHelmDiffWheel, HelmCodeView, HelmRevisionDiff, openHelmDocumentFind } from "./helm-code-view";
 
-const mocks = vi.hoisted(() => ({ models: [] as any[], props: [] as any[] }));
+const mocks = vi.hoisted(() => ({ models: [] as any[], props: [] as any[], copy: vi.fn() }));
+vi.mock("electron", () => ({ clipboard: { writeText: mocks.copy } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Icon: () => <span aria-hidden="true">copy</span>,
       Button: (props: any) => (
         <button disabled={props.disabled} onClick={props.onClick}>
           {props.label}
@@ -55,6 +57,7 @@ afterEach(() => {
   cleanup();
   mocks.models.length = 0;
   mocks.props.length = 0;
+  mocks.copy.mockReset();
 });
 
 it("updates native editor content and enforces read-only changes", async () => {
@@ -109,7 +112,8 @@ it("keeps full documents visible when detailed comparison exceeds its bound", ()
   const before = "a".repeat(1024 * 1024 + 1);
   render(<HelmRevisionDiff before={before} after="new" beforeLabel="Selected" afterLabel="Current" />);
   expect(screen.getByText(/Detailed comparison exceeds the size limit/)).toBeTruthy();
-  expect((screen.getByLabelText("Selected") as HTMLTextAreaElement).value).toBe(before);
+  expect((screen.getByLabelText("Selected") as HTMLTextAreaElement).value).toBe(before.slice(0, 256 * 1024));
+  expect(screen.getByText(/Only the first 1000 lines and 262144 characters/)).toBeTruthy();
   expect((screen.getByLabelText("Current") as HTMLTextAreaElement).value).toBe("new");
 });
 
@@ -287,4 +291,142 @@ it("preserves find when an earlier overlay disappears during the same Escape eve
   window.removeEventListener("keydown", dismissMenu, true);
   fireEvent.keyDown(document.body, { key: "Escape" });
   expect(screen.queryByLabelText("Find in both documents")).toBeNull();
+});
+
+it("keeps a three-edit long YAML comparison compact with a single vertical viewport", () => {
+  const before = Array.from({ length: 363 }, (_, index) => `key${index}: unchanged`);
+  const after = [...before];
+  for (const index of [25, 180, 330]) after[index] = `key${index}: changed`;
+  const view = render(
+    <HelmRevisionDiff before={before.join("\n")} after={after.join("\n")} beforeLabel="Source" afterLabel="Target" />,
+  );
+  expect(screen.queryByText(/Aligned comparison exceeds/)).toBeNull();
+  expect(screen.getByText("+ 3 added lines")).toBeTruthy();
+  expect(screen.getByText("− 3 removed lines")).toBeTruthy();
+  expect(screen.getByText("Both panes share vertical scrolling")).toBeTruthy();
+  expect(view.container.querySelectorAll(".helm-diff-scroll")).toHaveLength(1);
+  expect(screen.getAllByRole("textbox")).toHaveLength(18);
+  expect(mocks.props.every((props) => props.options.scrollbar?.vertical === "hidden")).toBe(true);
+});
+
+it("uses the common vertical viewport for bounded-display and size-limit fallbacks", () => {
+  const before = Array.from({ length: 80 }, (_, index) => `key${index}`);
+  const after = before.map((line, index) => (index % 2 ? line : `changed${index}`));
+  const view = render(
+    <HelmRevisionDiff before={before.join("\n")} after={after.join("\n")} beforeLabel="Source" afterLabel="Target" />,
+  );
+  expect(screen.getByText(/Aligned comparison exceeds/)).toBeTruthy();
+  expect(screen.getByText("Both panes share vertical scrolling")).toBeTruthy();
+  expect(view.container.querySelectorAll(".helm-diff-scroll")).toHaveLength(1);
+  expect(screen.getAllByRole("textbox")).toHaveLength(2);
+  for (const props of mocks.props) {
+    expect(props.options.scrollbar).toEqual({ vertical: "hidden", alwaysConsumeMouseWheel: false });
+    expect(props.style.height).toBe("100%");
+  }
+  const editors = view.container.querySelectorAll<HTMLElement>(".helm-code-view");
+  expect(Array.from(editors).map((editor) => editor.style.height)).toEqual(["1454px", "1454px"]);
+  mocks.props.length = 0;
+  view.rerender(
+    <HelmRevisionDiff
+      before={"a".repeat(1024 * 1024 + 1)}
+      after={"one\ntwo\nthree"}
+      beforeLabel="Source"
+      afterLabel="Target"
+    />,
+  );
+  expect(screen.getByText(/Detailed comparison exceeds/)).toBeTruthy();
+  expect(
+    Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view")).map((editor) => editor.style.height),
+  ).toEqual(["68px", "68px"]);
+  expect(mocks.props.every((props) => props.options.scrollbar?.vertical === "hidden")).toBe(true);
+});
+
+it("bounds huge fallback rendering and copies the full original with retry after failure", () => {
+  const before = Array.from({ length: 25000 }, (_, index) => `key${index}: value`).join("\n");
+  const view = render(<HelmRevisionDiff before={before} after="target" beforeLabel="Source" afterLabel="Target" />);
+  expect(screen.getByText(/Only the first 1000 lines and 262144 characters/)).toBeTruthy();
+  const source = screen.getByLabelText("Source") as HTMLTextAreaElement;
+  expect(source.value.split("\n")).toHaveLength(1000);
+  expect(source.value).toBe(before.split("\n").slice(0, 1000).join("\n"));
+  expect(
+    Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view")).map((editor) => editor.style.height),
+  ).toEqual(["18014px", "18014px"]);
+  mocks.copy.mockImplementationOnce(() => {
+    throw Error("clipboard unavailable");
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Copy full source document" }));
+  expect(screen.getByText("Could not copy the document. Try copying again.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Copy full source document" }));
+  expect(mocks.copy).toHaveBeenLastCalledWith(before);
+  expect(screen.getByText("Full document copied")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Copy full target document" }));
+  expect(mocks.copy).toHaveBeenLastCalledWith("target");
+});
+
+it("bounds an explicitly expanded full document instead of rendering every Monaco line", () => {
+  const source = Array.from({ length: 1500 }, (_, index) => `key${index}: value`).join("\n");
+  render(<HelmRevisionDiff before={source} after={source} beforeLabel="Source" afterLabel="Target" />);
+  expect(screen.queryByRole("textbox")).toBeNull();
+  fireEvent.click(screen.getByLabelText("Show full documents"));
+  expect(screen.getByText("Document display exceeds the safe rendering limit.")).toBeTruthy();
+  expect((screen.getByLabelText("Source") as HTMLTextAreaElement).value.split("\n")).toHaveLength(1000);
+  expect((screen.getByLabelText("Show full documents") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText("Show full documents"));
+  expect(screen.queryByRole("textbox")).toBeNull();
+});
+
+it("reveals an original match beyond the bounded full-document preview", () => {
+  const source = Array.from({ length: 1500 }, (_, index) => `key${index}: value`).join("\n");
+  render(<HelmRevisionDiff before={source} after={source} beforeLabel="Source" afterLabel="Target" />);
+  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.keyDown(screen.getByLabelText("Source"), { key: "f", ctrlKey: true });
+  fireEvent.change(screen.getByLabelText("Find in both documents"), { target: { value: "key1400:" } });
+  expect(screen.getByText("2 matches · Source line 1401, column 1")).toBeTruthy();
+  const excerpt = screen.getByLabelText("Matching original document excerpt") as HTMLTextAreaElement;
+  expect(excerpt.value).toContain("key1400: value");
+  expect(excerpt.value.split("\n")).toHaveLength(7);
+  const props = [...mocks.props]
+    .reverse()
+    .find((props) => props.options.ariaLabel === "Matching original document excerpt");
+  expect(props.options.lineNumbers(4)).toBe("1401");
+  fireEvent.click(screen.getByText("Next match"));
+  expect(screen.getByText("2 matches · Target line 1401, column 1")).toBeTruthy();
+  expect((screen.getByLabelText("Matching original document excerpt") as HTMLTextAreaElement).value).toContain(
+    "key1400: value",
+  );
+});
+
+it("routes vertical wheel over Monaco to the owned shared viewport and disposes the bridge", () => {
+  const viewport = document.createElement("div");
+  const editor = document.createElement("textarea");
+  viewport.append(editor);
+  Object.defineProperties(viewport, { clientHeight: { value: 300 }, scrollHeight: { value: 900 } });
+  const native = vi.fn();
+  editor.addEventListener("wheel", native);
+  const dispose = bindHelmDiffWheel(viewport);
+  const wheel = (deltaY: number, deltaMode = 0, extra: WheelEventInit = {}) => {
+    const event = new WheelEvent("wheel", { deltaY, deltaMode, bubbles: true, cancelable: true, ...extra });
+    editor.dispatchEvent(event);
+    return event;
+  };
+  expect(wheel(120).defaultPrevented).toBe(true);
+  expect(viewport.scrollTop).toBe(120);
+  expect(native).not.toHaveBeenCalled();
+  wheel(2, 1);
+  expect(viewport.scrollTop).toBe(156);
+  wheel(1, 2);
+  expect(viewport.scrollTop).toBe(456);
+  wheel(900);
+  expect(viewport.scrollTop).toBe(600);
+  expect(wheel(20).defaultPrevented).toBe(false);
+  wheel(-900);
+  expect(viewport.scrollTop).toBe(0);
+  expect(wheel(-20).defaultPrevented).toBe(false);
+  for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { deltaX: 100 }]) {
+    expect(wheel(50, 0, modifiers).defaultPrevented).toBe(false);
+    expect(viewport.scrollTop).toBe(0);
+  }
+  dispose();
+  expect(wheel(100).defaultPrevented).toBe(false);
+  expect(viewport.scrollTop).toBe(0);
 });
