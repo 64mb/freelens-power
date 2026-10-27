@@ -206,6 +206,7 @@ it.each([false, true])("shows loading until discovery and history finish (has lo
   });
   render(<PowerLogsPage />);
   expect(screen.getByText("Loading logs…")).toBeTruthy();
+  expect(screen.getByText("Loading logs…").querySelector('[data-icon="autorenew"]')).toBeTruthy();
   expect(screen.queryByText("No matching log lines")).toBeNull();
   expect(screen.getByLabelText("Log lines").getAttribute("aria-busy")).toBe("true");
   await act(async () => discovery.resolve({ sources: [source], notes: [], partial: false }));

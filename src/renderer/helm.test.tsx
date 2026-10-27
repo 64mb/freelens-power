@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PowerHelmPage } from "./helm";
+import { helmOperations } from "./helm-operations";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -12,8 +13,31 @@ const mocks = vi.hoisted(() => ({
   readOnly: false,
   readOnlyStore: undefined as { enabled: boolean } | undefined,
   appVersions: {} as Record<string, string>,
+  historyOperation: undefined as any,
   indexState: { completed: 0, total: 0, errors: 0, truncated: false },
 }));
+vi.mock("./helm-operations", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./helm-operations")>();
+  const { observer } = await import("mobx-react");
+  const { useEffect, useRef } = await import("react");
+  return {
+    ...actual,
+    HelmOperationsPanel: observer(({ onChanged, onViewHistory }: any) => {
+      const completed = actual.helmOperations.operations
+        .filter((item) => item.status !== "running")
+        .map((item) => item.requestId)
+        .join("|");
+      const callback = useRef(onChanged);
+      callback.current = onChanged;
+      useEffect(() => {
+        if (completed) callback.current();
+      }, [completed]);
+      return mocks.historyOperation ? (
+        <button onClick={() => onViewHistory(mocks.historyOperation)}>View operation history</button>
+      ) : null;
+    }),
+  };
+});
 vi.mock("./helm-version-index", () => ({
   useHelmVersionIndex: () => ({
     versionFor: (release: any) => ({ appVersion: mocks.appVersions[release.name] }),
@@ -57,7 +81,9 @@ vi.mock("../common/store/power-preferences-store", () => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Catalog: {
-      activeCluster: { get: () => ({ metadata: { uid: "test-cluster" }, spec: { accessibleNamespaces: ["sample"] } }) },
+      activeCluster: {
+        get: () => ({ metadata: { uid: "test-cluster" }, spec: { accessibleNamespaces: ["sample", "other"] } }),
+      },
     },
     Navigation: { navigate: vi.fn() },
     Component: {
@@ -113,6 +139,12 @@ const deferred = () => {
   return { promise, resolve };
 };
 beforeEach(() => {
+  helmOperations.operations = [];
+  helmOperations.selectedId = undefined;
+  helmOperations.dismissed = [];
+  helmOperations.uncertain.clear();
+  helmOperations.localTerminal.clear();
+  mocks.historyOperation = undefined;
   mocks.helmEnabled = true;
   mocks.readOnly = false;
   mocks.readOnlyStore = undefined;
@@ -964,13 +996,22 @@ it("restores the viewed comparison source through the guarded full-release rollb
   fireEvent.click(await screen.findByRole("button", { name: "sample-release" }));
   fireEvent.click(screen.getByRole("tab", { name: "History" }));
   fireEvent.click(await screen.findByRole("button", { name: "Compare revision 1" }));
-  const restore = await screen.findByRole("button", { name: "Restore revision" });
+  const restore = await screen.findByRole("button", { name: "Roll back" });
   expect((restore as HTMLButtonElement).disabled).toBe(true);
+  const card = restore.closest<HTMLElement>(".helm-rollback")!;
+  expect(within(card).getByText("Roll back release")).toBeTruthy();
+  expect(within(card).queryByText("Current")).toBeNull();
+  expect(within(card).queryByText("Revision 2")).toBeNull();
+  expect(within(card).getByText("Revision 1")).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Refresh restore availability" })).toBeTruthy();
+  expect(within(screen.getByLabelText("Revision comparison")).getByText("Latest · Revision 2")).toBeTruthy();
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history" && request.refresh)).toBe(true);
   fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to Revision 1/ }));
   fireEvent.click(restore);
   expect(mocks.confirm).toHaveBeenCalledOnce();
-  expect(mocks.confirm.mock.calls[0][0].labelOk).toBe("Restore revision 1");
+  const confirmationLabel = render(<>{mocks.confirm.mock.calls[0][0].labelOk}</>);
+  expect(within(confirmationLabel.container).getByText("Roll back to revision 1")).toBeTruthy();
+  confirmationLabel.unmount();
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
   await act(async () => mocks.confirm.mock.calls[0][0].ok());
   expect(mocks.invoke.mock.calls.find(([, request]) => request.operation === "rollback")?.[1]).toMatchObject({
@@ -1004,7 +1045,7 @@ it("does not offer comparison restore for read-only mode or a replaced source id
   await screen.findByRole("button", { name: "Compare revision 1" });
   changed = true;
   fireEvent.click(screen.getByRole("button", { name: "Compare revision 1" }));
-  const restore = await screen.findByRole("button", { name: "Restore revision" });
+  const restore = await screen.findByRole("button", { name: "Roll back" });
   expect((restore as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText(/no longer available to restore/)).toBeTruthy();
   expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
@@ -1013,7 +1054,7 @@ it("does not offer comparison restore for read-only mode or a replaced source id
       mocks.readOnlyStore!.enabled = true;
     }),
   );
-  expect(screen.queryByRole("button", { name: "Restore revision" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Roll back" })).toBeNull();
 });
 
 it("keeps current revision comparisons current when returning to the revision", async () => {
@@ -1032,7 +1073,7 @@ it("keeps current revision comparisons current when returning to the revision", 
   fireEvent.click(await screen.findByRole("button", { name: "Compare revision 2" }));
   await screen.findByLabelText("Revision comparison");
   expect(screen.queryByText("Historical revision · Read only")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Restore revision" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Roll back" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Show revision" }));
   await screen.findByRole("button", { name: "Edit values" });
   expect(screen.queryByLabelText("Revision comparison")).toBeNull();
@@ -1141,7 +1182,7 @@ it("shows one comparison loader and cancels both document requests without rende
   expect(loading.querySelectorAll(".helm-spinner")).toHaveLength(1);
   expect(screen.getAllByRole("button", { name: "Cancel loading" })).toHaveLength(1);
   expect(screen.queryByLabelText("Revision comparison")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Restore revision" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Roll back" })).toBeNull();
   const requests = mocks.invoke.mock.calls
     .filter(([, request]) => request.operation === "details" && request.section === "values")
     .map(([, request]) => request);
@@ -1250,7 +1291,7 @@ it("keeps an in-flight restore mounted when the comparison documents refresh", a
   fireEvent.click(await screen.findByRole("button", { name: "sample-release" }));
   fireEvent.click(screen.getByRole("tab", { name: "History" }));
   fireEvent.click(await screen.findByRole("button", { name: "Compare revision 1" }));
-  const restore = await screen.findByRole("button", { name: "Restore revision" });
+  const restore = await screen.findByRole("button", { name: "Roll back" });
   fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to Revision 1/ }));
   fireEvent.click(restore);
   await act(async () => mocks.confirm.mock.calls[0][0].ok());
@@ -1260,7 +1301,7 @@ it("keeps an in-flight restore mounted when the comparison documents refresh", a
     within(document.querySelector<HTMLElement>(".helm-comparison-refresh")!).getByRole("button", { name: "Refresh" }),
   );
   await waitFor(() => expect(pending).toHaveLength(2));
-  expect(screen.queryByRole("button", { name: "Restore revision" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Roll back" })).toBeNull();
   expect(document.querySelector(".helm-comparison-restore")?.hasAttribute("hidden")).toBe(true);
   const canceled = () =>
     mocks.invoke.mock.calls.some(
@@ -1282,9 +1323,113 @@ it("keeps an in-flight restore mounted when the comparison documents refresh", a
     for (const response of pending) response.resolve({ ok: true, detail: { content: "fresh values" } });
   });
   await screen.findByLabelText("Revision comparison");
-  expect((screen.getByRole("button", { name: "Restore revision" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Roll back" }) as HTMLButtonElement).disabled).toBe(true);
   expect(
     (screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to Revision 1/ }) as HTMLInputElement)
       .checked,
   ).toBe(false);
+});
+
+it("selects the exact namespace before opening operation history from another namespace", async () => {
+  const target = { ...release, name: "other-release", namespace: "other" };
+  mocks.historyOperation = {
+    id: "completed",
+    requestId: "completed",
+    clusterId: "test-cluster",
+    contextId: listing.contextId,
+    namespace: target.namespace,
+    name: target.name,
+    revision: 1,
+    status: "succeeded",
+    phase: "completed",
+    startedAt: 1,
+    finishedAt: 2,
+    logs: [],
+  };
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "overview" } }
+        : {
+            ...listing,
+            releases: request.operation === "list" && request.namespace === "sample" ? [release] : [release, target],
+          },
+    ),
+  );
+  render(<PowerHelmPage />);
+  await screen.findByRole("button", { name: "sample-release" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Helm namespace" }), { target: { value: "sample" } });
+  await screen.findByRole("button", { name: "sample-release" });
+  expect(screen.queryByRole("button", { name: "other-release" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "View operation history" }));
+  await waitFor(() =>
+    expect((screen.getByRole("combobox", { name: "Helm namespace" }) as HTMLSelectElement).value).toBe("other"),
+  );
+  await waitFor(() => expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true"));
+  expect(document.querySelector(".Drawer")?.textContent).toContain("other-release");
+  expect(
+    mocks.invoke.mock.calls.some(
+      ([, request]) =>
+        request.operation === "history" && request.name === "other-release" && request.namespace === "other",
+    ),
+  ).toBe(true);
+});
+
+it("opens operation history when a same-namespace list refresh finishes over an existing drawer", async () => {
+  const pending = deferred();
+  mocks.historyOperation = {
+    id: "completed",
+    requestId: "completed",
+    clusterId: "test-cluster",
+    contextId: listing.contextId,
+    namespace: release.namespace,
+    name: release.name,
+    revision: 1,
+    status: "succeeded",
+    phase: "completed",
+    startedAt: 1,
+    finishedAt: 2,
+    logs: [],
+  };
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "list" && request.refresh
+      ? pending.promise
+      : Promise.resolve(
+          request.operation === "details" ? { ok: true, detail: { content: "overview" } } : { ...listing },
+        ),
+  );
+  render(<PowerHelmPage />);
+  await screen.findByRole("button", { name: release.name });
+  fireEvent.change(screen.getByRole("combobox", { name: "Helm namespace" }), {
+    target: { value: release.namespace },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(
+    within(document.querySelector(".helm-list-summary")! as HTMLElement).getByRole("button", { name: "Refresh" }),
+  );
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Cancel loading" }).length).toBeGreaterThan(0));
+  fireEvent.click(screen.getByRole("button", { name: "View operation history" }));
+  await act(async () => pending.resolve({ ...listing }));
+  await waitFor(() => expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true"));
+  expect(screen.getByLabelText(`Release ${release.name}`)).toBeTruthy();
+});
+
+it("labels the embedded chart source without exposing its internal sentinel", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "edit-options"
+        ? { ok: true, upgradeAllowed: true, chartChoices: [{ ref: "@installed", version: "1.0.0" }] }
+        : request.operation === "details"
+          ? { ok: true, detail: { content: "replicas: 1" } }
+          : { ...listing, upgradeAllowed: true },
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "sample-release" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Values" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit values" }));
+  const select = await screen.findByRole("combobox", { name: "Chart source" });
+  expect(select.textContent).toContain("Installed release chart · 1.0.0");
+  expect(select.textContent).not.toContain("@installed");
 });

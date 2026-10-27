@@ -345,3 +345,15 @@ it("does not flash an older owned value when an explicit refresh clears a suppli
   expect(screen.queryByText("1.2.3")).toBeNull();
   expect(screen.getByLabelText("Application version pending")).toBeTruthy();
 });
+
+it("hides the image digest in indexed and fetched application version labels", async () => {
+  const appVersion = `1.2.3@sha256:${"a".repeat(64)}`;
+  const view = render(cell({ knownVersion: { appVersion } }));
+  expect(screen.getByText("1.2.3")).toBeTruthy();
+  expect(view.container.textContent).not.toContain("@sha256:");
+  view.rerender(cell());
+  mocks.invoke.mockResolvedValue({ ok: true, contextId: `context-${context}`, appVersion });
+  act(() => observers.at(-1)!.visible());
+  await waitFor(() => expect(screen.getByText("1.2.3")).toBeTruthy());
+  expect(view.container.textContent).not.toContain("@sha256:");
+});

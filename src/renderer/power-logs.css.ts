@@ -104,6 +104,10 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs dialog { position:fixed; inset:0; margin:auto; background:var(--mainBackground); color:var(--textColorPrimary); border:1px solid var(--borderColor); border-radius:8px; padding:24px; width:min(640px,85vw); max-height:80vh; overflow:auto; }
 .power-logs dialog::backdrop { background:#0007; }
 .power-logs-empty { padding:32px; text-align:center; color:var(--textColorSecondary); }
+.power-logs-loading { display:inline-flex; align-items:center; gap:8px; }
+.power-logs-loading > span { animation:power-logs-loading-spin 1s linear infinite; }
+@keyframes power-logs-loading-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .power-logs-loading > span { animation:none; } }
 
 .power-logs > :not(.power-logs-workspace):not(.power-logs-results) { flex-shrink:0; }
 .power-logs-target, .power-logs-caption { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

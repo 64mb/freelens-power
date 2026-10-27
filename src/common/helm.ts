@@ -1,4 +1,6 @@
+export const HELM_INSTALLED_CHART = "@installed";
 export const HELM_CHANNEL = "freelens-power:helm";
+export const formatHelmAppVersion = (value: string | undefined) => value?.replace(/@sha256:.*$/i, "");
 export type HelmSection = "overview" | "values" | "manifest" | "notes";
 export interface HelmReleaseMetadata {
   name: string;
@@ -7,6 +9,7 @@ export interface HelmReleaseMetadata {
   status: string;
   secretName: string;
   uid?: string;
+  resourceVersion?: string;
   updatedAt?: string;
 }
 export interface HelmOverview {
@@ -27,12 +30,29 @@ export interface HelmDetail {
   content: string;
   language: string;
 }
+export interface HelmOperation {
+  id: string;
+  requestId: string;
+  clusterId: string;
+  contextId: string;
+  namespace: string;
+  name: string;
+  revision: number;
+  status: "running" | "succeeded" | "failed";
+  phase: "preparing" | "applying" | "waiting" | "completed" | "failed";
+  startedAt: number;
+  finishedAt?: number;
+  stages?: Partial<Record<"preparing" | "applying" | "waiting", { startedAt: number; finishedAt?: number }>>;
+  logs: Array<{ at: number; message: string }>;
+  error?: { code: string; message: string };
+}
 export interface HelmRequest {
   requestId: string;
   contextId?: string;
   clusterId: string;
   namespace: string;
   operation:
+    | "operations"
     | "list"
     | "history"
     | "details"
@@ -40,6 +60,7 @@ export interface HelmRequest {
     | "edit-options"
     | "upgrade-values"
     | "uninstall"
+    | "delete-revision"
     | "app-version"
     | "cancel";
   name?: string;
@@ -47,6 +68,7 @@ export interface HelmRequest {
   uid?: string;
   section?: HelmSection;
   confirmed?: boolean;
+  confirmationName?: string;
   values?: string;
   chart?: string;
   refresh?: boolean;
@@ -56,6 +78,7 @@ export type HelmResponse =
       ok: true;
       contextId?: string;
       releases?: HelmReleaseMetadata[];
+      operations?: HelmOperation[];
       detail?: HelmDetail;
       rollbackAllowed?: boolean;
       uninstallAllowed?: boolean;
@@ -66,4 +89,4 @@ export type HelmResponse =
       fetchedAt?: number;
       cached?: boolean;
     }
-  | { ok: false; error: { code: string; message: string } };
+  | { ok: false; error: { code: string; message: string }; operations?: HelmOperation[] };

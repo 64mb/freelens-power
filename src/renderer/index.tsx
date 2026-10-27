@@ -29,6 +29,7 @@ import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details";
 import { DiagnosticsPage } from "./diagnostics";
 import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
+import { startExtensionUpdate } from "./extension-update";
 import { PowerHelmPage } from "./helm";
 import { startPowerHelmEntrypoints } from "./helm-entrypoints";
 import { startHostExtensionsStyles } from "./host-extensions";
@@ -108,6 +109,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startHostLayoutStyles,
             startHostPreferencesStyles,
             startHostExtensionsStyles,
+            startExtensionUpdate,
             startAppearanceOverride,
             startWelcomeOverride,
             startAiChat,

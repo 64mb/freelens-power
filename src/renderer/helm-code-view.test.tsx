@@ -339,6 +339,8 @@ it("uses the common vertical viewport for bounded-display and size-limit fallbac
   expect(screen.getAllByRole("textbox")).toHaveLength(2);
   for (const props of mocks.props) {
     expect(props.options.scrollbar).toEqual({
+      verticalScrollbarSize: 16,
+      horizontalScrollbarSize: 15,
       vertical: "hidden",
       horizontal: "hidden",
       alwaysConsumeMouseWheel: false,
