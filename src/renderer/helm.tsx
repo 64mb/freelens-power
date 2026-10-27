@@ -1999,6 +1999,7 @@ function Releases({
           <span>Status</span>
           <Select
             aria-label="Release status"
+            isSearchable={false}
             value={status}
             formatOptionLabel={(option) =>
               option.value ? (
