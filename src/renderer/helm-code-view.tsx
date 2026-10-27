@@ -431,8 +431,14 @@ export function HelmRevisionDiff({
       const start = Number(block.getAttribute(`data-helm-${match.source}-start`));
       const count = Number(block.getAttribute(`data-helm-${match.source}-count`));
       if (match.line >= start && match.line < start + count) {
+        const headerHeight =
+          sectionRef.current?.querySelector(".helm-diff-headers")?.getBoundingClientRect().height ?? 0;
         viewport.scrollTop +=
-          block.getBoundingClientRect().top - viewport.getBoundingClientRect().top + (match.line - start) * 18 - 48;
+          block.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top +
+          (match.line - start) * 18 -
+          headerHeight -
+          8;
         break;
       }
     }
@@ -566,8 +572,10 @@ export function HelmRevisionDiff({
       .helm-diff-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .helm-diff-pane { min-width: 0; overflow: hidden; }
       .helm-diff-pane + .helm-diff-pane { border-left: 1px solid var(--borderColor); }
-      .helm-diff-pane h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); font-size: 12px; overflow-wrap: anywhere; }
-      .helm-diff-headers { position: sticky; top: 0; z-index: 2; }
+      .helm-diff-headers h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); font-size: 12px; overflow-wrap: anywhere; }
+      .helm-diff-headers { position: sticky; top: 0; z-index: 2; align-items: stretch; background: var(--contentColor); }
+      .helm-diff-headers h4 { min-width: 0; }
+      .helm-diff-headers h4 + h4 { border-left: 1px solid var(--borderColor); }
       .helm-diff-gap { padding: 7px 12px; text-align: center; background: var(--contentColor); color: var(--textColorSecondary); border-block: 1px solid var(--borderColor); }
       .helm-diff-match { outline: 1px solid var(--primary); outline-offset: -1px; }
       .helm-diff-empty { background: var(--contentColor); }
@@ -686,12 +694,8 @@ export function HelmRevisionDiff({
       {(!unchanged || full || fallback) && (
         <div ref={viewportRef} className="helm-diff-scroll" tabIndex={0} aria-label="Comparison documents">
           <div className="helm-diff-panes helm-diff-headers">
-            <div className="helm-diff-pane">
-              <h4>{beforeLabel}</h4>
-            </div>
-            <div className="helm-diff-pane">
-              <h4>{afterLabel}</h4>
-            </div>
+            <h4>{beforeLabel}</h4>
+            <h4>{afterLabel}</h4>
           </div>
           {fallback ? (
             <div className="helm-diff-panes">

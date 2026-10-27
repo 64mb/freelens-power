@@ -607,3 +607,41 @@ it("exposes keyboard footer scrolling only when its content overflows", () => {
   expect(sourceBar.getAttribute("aria-hidden")).toBe("true");
   expect(sourceBar.style.height).toBe("0px");
 });
+
+it("keeps both captions in the same stretching sticky header row when one caption wraps", () => {
+  const view = render(
+    <HelmRevisionDiff
+      before="source"
+      after="target"
+      beforeLabel={<span>Revision 1</span>}
+      afterLabel={
+        <>
+          <span>Latest revision 2</span>
+          <span>Failed</span>
+          <span>App version 1.0</span>
+        </>
+      }
+    />,
+  );
+  const source = screen.getByRole("heading", { name: "Revision 1" });
+  const target = screen.getByRole("heading", { name: /Latest revision 2/ });
+  expect(source.parentElement).toBe(target.parentElement);
+  expect(source.parentElement?.classList.contains("helm-diff-headers")).toBe(true);
+  expect(Array.from(source.parentElement!.children)).toEqual([source, target]);
+  expect(source.parentElement?.nextElementSibling?.querySelectorAll(".helm-code-view")).toHaveLength(2);
+  expect(view.container.querySelectorAll(".helm-diff-headers")).toHaveLength(1);
+});
+
+it("reveals a find match below the measured wrapped sticky header", () => {
+  const view = render(<HelmRevisionDiff before="old" after="find this" beforeLabel="Source" afterLabel="Target" />);
+  const viewport = screen.getByLabelText("Comparison documents");
+  const header = view.container.querySelector<HTMLElement>(".helm-diff-headers")!;
+  const block = view.container.querySelector<HTMLElement>("[data-helm-after-start]")!;
+  vi.spyOn(header, "getBoundingClientRect").mockReturnValue({ height: 74 } as DOMRect);
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect);
+  vi.spyOn(block, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+  fireEvent.keyDown(screen.getByLabelText("Source"), { key: "f", ctrlKey: true });
+  fireEvent.change(screen.getByLabelText("Find in both documents"), { target: { value: "find this" } });
+  expect(viewport.scrollTop).toBe(318);
+  expect(500 - viewport.scrollTop).toBeGreaterThan(100 + 74);
+});
