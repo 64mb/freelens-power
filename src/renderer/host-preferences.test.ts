@@ -89,3 +89,47 @@ it("replaces only the Power preference emoji with a native icon and restores lat
   expect(tab.textContent).toBe("🔋 Freelens Power");
   expect(tab.className).toBe("Tab");
 });
+
+it.each([
+  "h1",
+  'h2 data-preference-page-title-test="true"',
+])("decorates a late mounted Power page heading (%s) and restores its text and marker", async (tag) => {
+  mount();
+  stop = startHostPreferencesStyles();
+  const region = document.createElement("div");
+  region.className = "contentRegion";
+  const closingTag = tag.split(" ")[0];
+  region.innerHTML = `<${tag} data-freelens-power-preferences-heading="original"><span>🔋 Freelens Power preferences</span></${closingTag}><h1>Another extension preferences</h1>`;
+  document.querySelector(".Preferences")!.append(region);
+  const heading = region.firstElementChild!;
+  const text = heading.querySelector("span")!.firstChild;
+  await Promise.resolve();
+  expect(heading.textContent).toBe("Freelens Power preferences");
+  expect(heading.getAttribute("data-freelens-power-preferences-heading")).toBe("");
+  expect(heading.querySelector("span")!.firstChild).toBe(text);
+  expect(region.lastElementChild!.hasAttribute("data-freelens-power-preferences-heading")).toBe(false);
+  stop();
+  expect(heading.textContent).toBe("🔋 Freelens Power preferences");
+  expect(heading.getAttribute("data-freelens-power-preferences-heading")).toBe("original");
+});
+
+it("preserves export controls beside the native Power preferences title", async () => {
+  mount();
+  const region = document.createElement("div");
+  region.className = "contentRegion";
+  region.innerHTML =
+    '<h2 class="power-preferences-heading">🔋 Freelens Power preferences<span><button>file_download</button></span></h2>';
+  document.querySelector(".Preferences")!.append(region);
+  const heading = region.querySelector("h2")!;
+  const action = heading.querySelector("button")!;
+  const click = vi.fn();
+  action.addEventListener("click", click);
+  stop = startHostPreferencesStyles();
+  await Promise.resolve();
+  expect(heading.firstChild?.textContent).toBe("Freelens Power preferences");
+  action.click();
+  expect(click).toHaveBeenCalledOnce();
+  expect(action.textContent).toBe("file_download");
+  stop();
+  expect(heading.firstChild?.textContent).toBe("🔋 Freelens Power preferences");
+});

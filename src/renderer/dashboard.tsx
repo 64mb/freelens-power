@@ -434,7 +434,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
       <header className="power-dashboard-header">
         <div>
           <h1>
-            <Renderer.Component.Icon material="battery_full" size={24} aria-hidden="true" />
+            <Renderer.Component.Icon material="battery_charging_full" size={24} aria-hidden="true" />
             Power Dashboard
           </h1>
         </div>

@@ -28,6 +28,7 @@ import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details";
 import { DiagnosticsPage } from "./diagnostics";
 import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
+import { startHostExtensionsStyles } from "./host-extensions";
 import { startHostLayoutStyles } from "./host-layout";
 import { startHostPreferencesStyles } from "./host-preferences";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
@@ -102,6 +103,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startPowerButtonStyles,
             startHostLayoutStyles,
             startHostPreferencesStyles,
+            startHostExtensionsStyles,
             startAppearanceOverride,
             startWelcomeOverride,
             startAiChat,

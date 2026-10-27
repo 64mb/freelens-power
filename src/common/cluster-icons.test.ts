@@ -20,7 +20,7 @@ describe("cluster icon design", () => {
   it("derives editable Unicode initials without splitting surrogate pairs", () => {
     expect(design.label).toBe("DC");
     expect(defaultClusterIconDesign("example").label).toBe("EXA");
-    expect(defaultClusterIconDesign("тест среда").label).toBe("ТС");
+    expect(defaultClusterIconDesign("δοκιμή περιβάλλον").label).toBe("ΔΠ");
     expect(defaultClusterIconDesign("").label).toBe("K8S");
     expect(normalizeClusterIconDesign({ ...design, label: "e\u0301中" }).label).toBe("é中");
   });

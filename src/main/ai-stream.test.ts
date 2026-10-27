@@ -11,11 +11,11 @@ vi.mock("node:child_process", () => ({
       kill: vi.fn(),
     });
     child.stdin.on("finish", () => {
-      const content = JSON.stringify({ text: "Проверка 🔋", tool: null });
+      const content = JSON.stringify({ text: "確認 🔋", tool: null });
       const data = Buffer.from(
         `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: content } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
       );
-      const position = data.indexOf(Buffer.from("П")) + 1;
+      const position = data.indexOf(Buffer.from("確")) + 1;
       child.stdout.write(data.subarray(0, position));
       child.stdout.end(data.subarray(position));
       child.emit("close", 0);
@@ -34,6 +34,6 @@ describe("Codex output stream", () => {
         throw new Error("No cluster requested");
       },
     );
-    expect(result.text).toBe("Проверка 🔋");
+    expect(result.text).toBe("確認 🔋");
   });
 });

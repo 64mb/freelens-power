@@ -36,12 +36,12 @@ function response(text: string) {
   return destroy;
 }
 it("uses a shared stream lease and byte budgets with exact context and frame host", async () => {
-  const destroy = response("привет 🦆\n");
+  const destroy = response("hello 🦆\n");
   const opened = vi.fn(),
     chunks: Uint8Array[] = [];
   for await (const chunk of createPowerLogsTransport("cluster-a").stream(path, { follow: true }, undefined, opened))
     chunks.push(chunk as Uint8Array);
-  expect(Buffer.concat(chunks).toString()).toBe("привет 🦆\n");
+  expect(Buffer.concat(chunks).toString()).toBe("hello 🦆\n");
   expect(opened).toHaveBeenCalledOnce();
   expect(destroy).toHaveBeenCalledOnce();
   const requests = mocks.invoke.mock.calls.map(([channel, request]) => {
@@ -52,7 +52,7 @@ it("uses a shared stream lease and byte budgets with exact context and frame hos
   });
   expect(requests.map((request) => request.operation)).toEqual(["stream-open", "permit", "permit", "stream-close"]);
   expect(requests[0].follow).toBe(true);
-  expect(requests[2].bytes).toBe(Buffer.byteLength("привет 🦆\n"));
+  expect(requests[2].bytes).toBe(Buffer.byteLength("hello 🦆\n"));
   expect(requests[3].streamId).toBe(requests[0].streamId);
   expect(mocks.getResponse.mock.calls[0][2].headers.Host).toBe("cluster-a.renderer.freelens.app:1234");
 });

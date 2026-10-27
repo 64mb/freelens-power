@@ -16,6 +16,7 @@ function createWelcomeContent(): HTMLDivElement {
   const heading = document.createElement("h2");
   heading.style.display = "flex";
   heading.style.alignItems = "center";
+  heading.style.justifyContent = "center";
   heading.style.gap = "8px";
   const battery = document.createElement("span");
   battery.className = "Icon material";
@@ -23,7 +24,7 @@ function createWelcomeContent(): HTMLDivElement {
   battery.style.setProperty("--size", "24px");
   const glyph = document.createElement("span");
   glyph.className = "icon";
-  glyph.textContent = "battery_full";
+  glyph.textContent = "battery_charging_full";
   battery.append(glyph);
   heading.append(battery, "Freelens Power");
   content.append(heading);
