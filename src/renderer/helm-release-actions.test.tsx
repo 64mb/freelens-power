@@ -109,8 +109,8 @@ it.each(["readOnly", "power"] as const)("reacts to %s changes and rechecks open 
   );
   act(() => dialog.ok());
   expect(mocks.invoke).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByLabelText("Release actions"));
-  expect((screen.getByRole("menuitem") as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByLabelText("Release actions")).toBeNull();
+  expect(screen.queryByRole("menu")).toBeNull();
 });
 it.each([
   { contextId: undefined },

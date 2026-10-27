@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PowerHelmPage } from "./helm";
@@ -350,9 +350,24 @@ it("views historical values independently of rollback selection and compares aga
   expect(screen.getByText("Historical revision · Read only")).toBeTruthy();
   expect(screen.queryByText("Edit values")).toBeNull();
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
+  const assertInlineCompare = () => {
+    const compare = screen.getByRole("button", { name: "Compare with current" });
+    const copy = screen.getByRole("button", { name: "Copy" });
+    expect(compare.closest(".helm-copy-action")).toBe(copy.closest(".helm-copy-action"));
+    expect(compare.closest(".helm-code-header")).toBeTruthy();
+    expect(compare.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".helm-comparison-toolbar")).toBeNull();
+  };
+  assertInlineCompare();
+  fireEvent.click(screen.getByRole("tab", { name: "Manifest" }));
+  await screen.findByLabelText("manifest for revision 1");
+  assertInlineCompare();
+  fireEvent.click(screen.getByRole("tab", { name: "Values" }));
+  await screen.findByLabelText("values for revision 1");
   const beforeCompare = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details").length;
   fireEvent.click(screen.getByText("Compare with current"));
   await screen.findByLabelText("Revision comparison");
+  expect(screen.getByRole("button", { name: "Show revision" }).closest(".helm-comparison-toolbar")).toBeTruthy();
   expect(screen.getByLabelText("Revision comparison").querySelector("h4")?.parentElement?.textContent).toContain(
     "Latest · Revision 2",
   );
@@ -1095,4 +1110,181 @@ it.each([
   expect(mocks.invoke.mock.calls.some(([, r]) => r.operation === "rollback" || r.operation === "uninstall")).toBe(
     false,
   );
+});
+
+it("shows one comparison loader and cancels both document requests without rendering late data", async () => {
+  const source = { ...release, revision: 1, uid: "sample-secret-uid-1" };
+  const pending = new Map<number, ReturnType<typeof deferred>>();
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "details" && request.section === "values") {
+      const response = deferred();
+      pending.set(request.revision, response);
+      return response.promise;
+    }
+    return Promise.resolve(
+      request.operation === "history"
+        ? { ...listing, releases: [release, source], rollbackAllowed: true }
+        : request.operation === "details"
+          ? { ok: true, detail: { content: "overview" } }
+          : listing,
+    );
+  });
+  const view = render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "sample-release" }));
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Compare revision 1" }));
+  await screen.findByText("Loading comparison…");
+  await waitFor(() => expect([...pending.keys()].sort()).toEqual([1, 2]));
+  const loading = screen.getByLabelText("Comparison loading state");
+  expect(loading.classList.contains("helm-comparison-loading")).toBe(true);
+  expect(loading.closest(".helm-comparison-active")).toBeTruthy();
+  expect(loading.querySelectorAll(".helm-spinner")).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "Cancel loading" })).toHaveLength(1);
+  expect(screen.queryByLabelText("Revision comparison")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Restore revision" })).toBeNull();
+  const requests = mocks.invoke.mock.calls
+    .filter(([, request]) => request.operation === "details" && request.section === "values")
+    .map(([, request]) => request);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel loading" }));
+  for (const request of requests)
+    expect(
+      mocks.invoke.mock.calls.some(
+        ([, cancel]) => cancel.operation === "cancel" && cancel.requestId === request.requestId,
+      ),
+    ).toBe(true);
+  await act(async () => {
+    for (const [revision, response] of pending)
+      response.resolve({ ok: true, detail: { content: `late revision ${revision}` } });
+  });
+  expect(screen.queryByLabelText("Revision comparison")).toBeNull();
+  expect(screen.queryByText(/late revision/)).toBeNull();
+  expect(view.container.querySelectorAll(".helm-comparison-loading .helm-spinner")).toHaveLength(0);
+  expect(loading.closest(".helm-comparison-active")).toBeTruthy();
+  fireEvent.click(within(loading).getByRole("button", { name: "Refresh" }));
+  await waitFor(() =>
+    expect(
+      mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details" && request.section === "values"),
+    ).toHaveLength(4),
+  );
+  expect(screen.getByLabelText("Comparison loading state").closest(".helm-comparison-active")).toBeTruthy();
+  await act(async () => {
+    for (const [revision, response] of pending)
+      response.resolve({ ok: true, detail: { content: `fresh revision ${revision}` } });
+  });
+  const comparison = await screen.findByLabelText("Revision comparison");
+  expect(comparison.closest(".helm-comparison-active")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Show revision" }));
+  expect(view.container.querySelector(".helm-comparison-active")).toBeNull();
+});
+
+it("keeps the chart-source error height while centered retry loading uses a refresh icon", async () => {
+  const retry = deferred();
+  let attempts = 0;
+  const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return {
+      height: this.classList.contains("helm-chart-source-status") ? 56 : 0,
+      width: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    } as DOMRect;
+  });
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "mode: original" } }
+        : request.operation === "edit-options"
+          ? ++attempts === 1
+            ? { ok: false, error: { code: "unavailable", message: "No Helm repositories configured" } }
+            : retry.promise
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "sample-release" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Values" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit values" }));
+  await screen.findByText("No Helm repositories configured");
+  const button = screen.getByRole("button", { name: "Retry" });
+  expect(button.textContent).toContain("refresh");
+  fireEvent.click(button);
+  const label = await screen.findByText("Loading chart sources…");
+  const frame = label.closest<HTMLElement>(".helm-chart-source-status")!;
+  expect(frame.style.minHeight).toBe("56px");
+  expect(frame.classList.contains("helm-chart-source-loading")).toBe(true);
+  await act(async () =>
+    retry.resolve({ ok: false, error: { code: "unavailable", message: "No Helm repositories configured" } }),
+  );
+  await screen.findByText("No Helm repositories configured");
+  expect(frame.style.minHeight).toBe("");
+  geometry.mockRestore();
+});
+
+it("keeps an in-flight restore mounted when the comparison documents refresh", async () => {
+  const source = { ...release, revision: 1, uid: "sample-secret-uid-1", status: "deployed" };
+  const latest = { ...release, status: "failed" };
+  const rollback = deferred();
+  const pending: ReturnType<typeof deferred>[] = [];
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "rollback") return rollback.promise;
+    if (request.operation === "details" && request.section === "values" && request.refresh) {
+      const next = deferred();
+      pending.push(next);
+      return next.promise;
+    }
+    return Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: `revision: ${request.revision}` } }
+        : request.operation === "history"
+          ? { ...listing, releases: [latest, source], rollbackAllowed: true }
+          : { ...listing, releases: [latest] },
+    );
+  });
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "sample-release" }));
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Compare revision 1" }));
+  const restore = await screen.findByRole("button", { name: "Restore revision" });
+  fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to Revision 1/ }));
+  fireEvent.click(restore);
+  await act(async () => mocks.confirm.mock.calls[0][0].ok());
+  const mutation = mocks.invoke.mock.calls.find(([, request]) => request.operation === "rollback")![1];
+  const restoreOwner = document.querySelector(".helm-comparison-restore");
+  fireEvent.click(
+    within(document.querySelector<HTMLElement>(".helm-comparison-refresh")!).getByRole("button", { name: "Refresh" }),
+  );
+  await waitFor(() => expect(pending).toHaveLength(2));
+  expect(screen.queryByRole("button", { name: "Restore revision" })).toBeNull();
+  expect(document.querySelector(".helm-comparison-restore")?.hasAttribute("hidden")).toBe(true);
+  const canceled = () =>
+    mocks.invoke.mock.calls.some(
+      ([, request]) => request.operation === "cancel" && request.requestId === mutation.requestId,
+    );
+  expect(canceled()).toBe(false);
+  fireEvent.change(screen.getByRole("combobox", { name: "Comparison baseline" }), { target: { value: "deployed" } });
+  expect(document.querySelector(".helm-comparison-restore")).toBe(restoreOwner);
+  expect(canceled()).toBe(false);
+  const histories = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "history").length;
+  await act(async () => rollback.resolve({ ok: true }));
+  await waitFor(() =>
+    expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "history").length).toBeGreaterThan(
+      histories,
+    ),
+  );
+  expect(canceled()).toBe(false);
+  await act(async () => {
+    for (const response of pending) response.resolve({ ok: true, detail: { content: "fresh values" } });
+  });
+  await screen.findByLabelText("Revision comparison");
+  expect((screen.getByRole("button", { name: "Restore revision" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("checkbox", { name: /I confirm rolling back sample-release to Revision 1/ }) as HTMLInputElement)
+      .checked,
+  ).toBe(false);
 });

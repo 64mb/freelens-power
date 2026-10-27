@@ -33,7 +33,11 @@ export const HelmReleaseActions = observer((props: HelmReleaseActionsProps) => {
   const latest = useRef(props);
   latest.current = props;
   const operation = useRef<HelmRequest>();
-  const enabled = writable() && props.allowed && Boolean(props.contextId && props.release.uid) && !busy;
+  const isWritable = writable();
+  const enabled = isWritable && props.allowed && Boolean(props.contextId && props.release.uid) && !busy;
+  useEffect(() => {
+    if (!isWritable) setMenuOpen(false);
+  }, [isWritable]);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -116,6 +120,7 @@ export const HelmReleaseActions = observer((props: HelmReleaseActionsProps) => {
       },
     });
   };
+  if (!isWritable) return null;
   return (
     <>
       <NativeTooltip title={menuOpen ? undefined : "Release actions"}>

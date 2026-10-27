@@ -272,6 +272,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             <Renderer.Component.Icon
               material="battery_charging_full"
               className="freelens-power-settings-icon"
+              style={process.platform === "darwin" ? { marginRight: 4 } : undefined}
               tooltip="Freelens Power settings"
               onClick={() => this.navigateToPreferences()}
             />

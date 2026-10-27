@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { clipboard, ipcRenderer } from "electron";
 import { observer } from "mobx-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatDateTime } from "../common/date-time";
 import {
@@ -344,7 +344,25 @@ function RequestStatus({
       data-error={Boolean(state.error)}
       aria-busy={state.loading}
     >
-      {state.loading && (
+      {state.loading && compact && (
+        <NativeTooltip title="Cancel loading">
+          <button
+            type="button"
+            className="helm-icon-button helm-loading-cancel"
+            aria-label="Cancel loading"
+            onClick={state.cancel}
+          >
+            <span aria-hidden="true" className="helm-spinner">
+              <Icon material="autorenew" size={18} />
+            </span>
+            <span aria-hidden="true" className="helm-cancel-icon">
+              <Icon material="close" size={18} />
+            </span>
+            <span className="helm-sr-only">{loadingLabel}</span>
+          </button>
+        </NativeTooltip>
+      )}
+      {state.loading && !compact && (
         <>
           <span className="helm-loading" aria-label={compact ? loadingLabel : undefined}>
             <span aria-hidden="true" className="helm-spinner">
@@ -365,7 +383,16 @@ function RequestStatus({
             <Icon material="error_outline" size={16} />
             {state.error}
           </span>
-          <Button label="Retry" onClick={state.refresh} />
+          <Button
+            aria-label="Retry"
+            label={
+              <>
+                <Icon material="refresh" size={16} />
+                <span>Retry</span>
+              </>
+            }
+            onClick={state.refresh}
+          />
         </>
       )}
       {!state.loading && !state.error && (
@@ -471,6 +498,7 @@ function Section({
   const [compare, setCompare] = useState(initialCompare);
   const [baseline, setBaseline] = useState("latest");
   const [comparisonToolbar, setComparisonToolbar] = useState<HTMLDivElement | null>(null);
+  const [comparisonReady, setComparisonReady] = useState(false);
   const comparisonRelease = baseline === "deployed" && deployedRelease ? deployedRelease : currentRelease;
   const [editing, setEditing] = useState(false);
   const [codeActions, setCodeActions] = useState<HTMLSpanElement | null>(null);
@@ -513,13 +541,41 @@ function Section({
     return count;
   }, [detail?.content]);
   const inlineRefresh = Boolean(detail && tab !== "notes" && !(tab === "overview" && detail.overview));
+  const comparisonToggle = (
+    <Button
+      className="helm-comparison-toggle"
+      aria-label={compare ? "Show revision" : "Compare with current"}
+      label={
+        <>
+          <Icon material={compare ? "visibility" : "difference"} size={18} />
+          {compare ? "Show revision" : "Compare with current"}
+        </>
+      }
+      disabled={state.loading || Boolean(state.error) || state.stale}
+      onClick={() => setCompare(!compare)}
+    />
+  );
   return (
-    <div className={tab === "values" || tab === "manifest" ? "helm-document-section" : undefined}>
+    <div
+      className={
+        tab === "values" || tab === "manifest"
+          ? `helm-document-section${compare ? " helm-comparison-active" : ""}`
+          : tab === "notes"
+            ? "helm-notes-section"
+            : undefined
+      }
+    >
       {!(tab === "overview" && detail?.overview) &&
         !(tab === "notes" && detail && !detail.content.trim()) &&
         !inlineRefresh &&
-        (!compare || state.loading || state.error || state.stale) && <RequestStatus state={state} />}
-      {(historical || compare) && (tab === "values" || tab === "manifest") && detail && (
+        !(compare && (tab === "values" || tab === "manifest")) && (
+          <RequestStatus
+            state={state}
+            labeled={tab === "notes"}
+            refreshLabel={tab === "notes" ? "Refresh notes" : "Refresh"}
+          />
+        )}
+      {compare && (tab === "values" || tab === "manifest") && detail && (
         <div className="helm-toolbar helm-comparison-toolbar">
           {compare && deployedRelease && (
             <label className="helm-filter helm-comparison-baseline">
@@ -535,18 +591,7 @@ function Section({
               />
             </label>
           )}
-          <Button
-            className="helm-comparison-toggle"
-            aria-label={compare ? "Show revision" : "Compare with current"}
-            label={
-              <>
-                <Icon material={compare ? "visibility" : "difference"} size={18} />
-                {compare ? "Show revision" : "Compare with current"}
-              </>
-            }
-            disabled={state.loading || Boolean(state.error) || state.stale}
-            onClick={() => setCompare(!compare)}
-          />
+          {comparisonToggle}
           {compare && <div className="helm-comparison-refresh" ref={setComparisonToolbar} />}
         </div>
       )}
@@ -566,14 +611,13 @@ function Section({
           }}
         />
       )}
-      {!editing && compare && restoreControls}
+      {!editing && compare && restoreControls && (
+        <div className="helm-comparison-restore" hidden={!comparisonReady}>
+          {restoreControls}
+        </div>
+      )}
       {!editing &&
-        (compare &&
-        detail &&
-        !state.loading &&
-        !state.error &&
-        !state.stale &&
-        (tab === "values" || tab === "manifest") ? (
+        (compare && (tab === "values" || tab === "manifest") ? (
           <RevisionComparison
             key={`${tab}/${release.revision}/${comparisonRelease.revision}/${comparisonRelease.uid ?? ""}`}
             clusterId={clusterId}
@@ -582,7 +626,8 @@ function Section({
             selected={release}
             baselineLabel={baseline === "deployed" && deployedRelease ? "Last deployed" : "Latest"}
             section={tab}
-            content={detail.content}
+            selectedState={state}
+            onReadyChange={setComparisonReady}
             toolbar={comparisonToolbar}
           />
         ) : (
@@ -595,7 +640,7 @@ function Section({
             )}
             {detail && tab === "notes" && !detail.content.trim() && (
               <div className="helm-notes-state">
-                <RequestStatus state={state} refreshLabel="Refresh notes" showTimestamp={false} />
+                <RequestStatus state={state} refreshLabel="Refresh notes" showTimestamp={false} labeled />
                 <div className="helm-notes-empty" role="status">
                   <Icon material="description" size={24} />
                   <strong>No release notes</strong>
@@ -616,6 +661,7 @@ function Section({
                       {lineCount} {lineCount === 1 ? "line" : "lines"}
                     </small>
                     <span className="helm-copy-action">
+                      {historical && (tab === "values" || tab === "manifest") && comparisonToggle}
                       {tab === "values" && <span ref={setCodeActions} className="helm-edit-action" />}
                       <span role="status" className="helm-sr-only">
                         {copied ? "Copied" : ""}
@@ -759,6 +805,18 @@ const ValuesEditor = observer(
     const live = useRef(true);
     const operation = useRef<HelmRequest>();
     const choices = state.result?.ok ? (state.result.chartChoices ?? []) : [];
+    const sourceStatusRef = useRef<HTMLDivElement>(null);
+    const [sourceStatusHeight, setSourceStatusHeight] = useState(0);
+    useLayoutEffect(() => {
+      const root = sourceStatusRef.current;
+      if (state.loading || choices.length || !root) return;
+      const measure = () => setSourceStatusHeight(root.getBoundingClientRect().height);
+      measure();
+      if (typeof ResizeObserver === "undefined") return;
+      const observer = new ResizeObserver(measure);
+      observer.observe(root);
+      return () => observer.disconnect();
+    }, [state.loading, state.error, choices.length]);
     const selectedChart = chart || choices[0]?.ref || "";
     const permitted = Boolean(
       state.result?.ok &&
@@ -937,12 +995,20 @@ const ValuesEditor = observer(
             <p>Applying creates a new release revision. The chart version stays unchanged.</p>
           </div>
         </div>
-        {!choices.length && <RequestStatus state={state} refreshLabel="Refresh chart sources" />}
-        {!state.loading && !state.error && !choices.length && (
-          <p role="alert">
-            No matching chart is available in your Helm repositories. Add the repository for this chart before editing
-            values.
-          </p>
+        {!choices.length && (
+          <div
+            ref={sourceStatusRef}
+            className={`helm-chart-source-status${state.loading ? " helm-chart-source-loading" : ""}`}
+            style={state.loading && sourceStatusHeight ? { minHeight: sourceStatusHeight } : undefined}
+          >
+            <RequestStatus state={state} refreshLabel="Refresh chart sources" loadingLabel="Loading chart sources…" />
+            {!state.loading && !state.error && (
+              <p role="alert">
+                No matching chart is available in your Helm repositories. Add the repository for this chart before
+                editing values.
+              </p>
+            )}
+          </div>
         )}
         {choices.length > 0 && (
           <label className="helm-filter">
@@ -1013,7 +1079,8 @@ function RevisionComparison({
   release,
   selected,
   section,
-  content,
+  selectedState,
+  onReadyChange,
   baselineLabel,
   toolbar,
 }: {
@@ -1022,7 +1089,8 @@ function RevisionComparison({
   release: HelmReleaseMetadata;
   selected: HelmReleaseMetadata;
   section: HelmSection;
-  content: string;
+  selectedState: ReturnType<typeof useHelmRequest>;
+  onReadyChange: (ready: boolean) => void;
   baselineLabel: string;
   toolbar: HTMLElement | null;
 }) {
@@ -1037,12 +1105,37 @@ function RevisionComparison({
     section,
   });
   const current = state.result?.ok ? state.result.detail : undefined;
+  const selectedDetail = selectedState.result?.ok ? selectedState.result.detail : undefined;
+  const combinedState = {
+    ...state,
+    loading: selectedState.loading || state.loading,
+    stale: selectedState.stale || state.stale,
+    error: selectedState.error || state.error,
+    cancel: () => {
+      selectedState.cancel();
+      state.cancel();
+    },
+    refresh: () => {
+      selectedState.refresh();
+      state.refresh();
+    },
+  };
+  const ready = !combinedState.loading && !combinedState.error && !combinedState.stale && current && selectedDetail;
+  useLayoutEffect(() => onReadyChange(Boolean(ready)), [Boolean(ready), onReadyChange]);
   return (
     <>
-      {toolbar && createPortal(<RequestStatus state={state} labeled />, toolbar)}
-      {!state.loading && !state.error && !state.stale && current && (
+      {!ready && (
+        <div className="helm-comparison-loading" aria-label="Comparison loading state">
+          <RequestStatus state={combinedState} loadingLabel="Loading comparison…" showTimestamp={false} labeled />
+          {!combinedState.loading && !combinedState.error && (
+            <span>Refresh to load both revisions for comparison.</span>
+          )}
+        </div>
+      )}
+      {ready && toolbar && createPortal(<RequestStatus state={combinedState} labeled />, toolbar)}
+      {ready && (
         <HelmRevisionDiff
-          before={content}
+          before={selectedDetail.content}
           after={current.content}
           beforeLabel={
             <>
@@ -1461,21 +1554,23 @@ const History = observer(
                       onView(item);
                     }}
                   >
-                    <td>
+                    <td className="helm-revision-cell">
                       <div className="helm-history-revision">
                         {allowed ? (
                           <>
-                            <input
-                              aria-label={`Revision ${item.revision}`}
-                              type="radio"
-                              name="helm-revision"
-                              checked={revision === item.revision}
-                              disabled={busy || !historyCurrent}
-                              onChange={() => {
-                                setRevision(item.revision);
-                                setConfirmed(false);
-                              }}
-                            />{" "}
+                            <label className="helm-revision-select">
+                              <input
+                                aria-label={`Revision ${item.revision}`}
+                                type="radio"
+                                name="helm-revision"
+                                checked={revision === item.revision}
+                                disabled={busy || !historyCurrent}
+                                onChange={() => {
+                                  setRevision(item.revision);
+                                  setConfirmed(false);
+                                }}
+                              />
+                            </label>
                             <span className="helm-version-badge">{item.revision}</span>
                           </>
                         ) : (
@@ -1549,7 +1644,7 @@ const History = observer(
                 <span>{restoreTarget ? "Restore this revision" : "Roll back release"}</span>
                 {!revision && <span className="helm-rollback-hint">Select a revision to restore this release.</span>}
                 {restoreTarget && target && (
-                  <div className="helm-confirmation-target" data-current-status={release.status}>
+                  <div className="helm-confirmation-target">
                     <span>Current</span>
                     <span className="helm-version-badge helm-consent-revision">Revision {release.revision}</span>
                     <StatusBadge status={release.status} />
@@ -1796,10 +1891,7 @@ function ReleasePanel({
         {deleteError && <InlineAlert>{deleteError}</InlineAlert>}
         {historicalRelease && (
           <div className="helm-viewing-banner">
-            <span>
-              Historical revision · Read only
-              <span className="helm-current-tag">Current · Revision {release.revision}</span>
-            </span>
+            <span>Historical revision · Read only</span>
             <NativeTooltip title="Back to current">
               <button
                 type="button"
@@ -2285,6 +2377,11 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-native-button, .power-helm .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
         .power-helm .helm-native-button:hover, .power-helm .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
         .power-helm .helm-list-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin: 6px 0 10px; }
+        .power-helm .helm-chart-source-loading { display: flex; align-items: center; justify-content: center; }
+        .power-helm .helm-chart-source-loading .helm-request-status { justify-content: center; }
+        .power-helm .helm-comparison-restore { flex-shrink: 0; }
+        .power-helm .helm-comparison-loading { display: flex; flex: 1; min-height: 140px; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--textColorSecondary); }
+        .power-helm .helm-comparison-loading .helm-request-status { justify-content: center; }
         .power-helm .helm-initial-loading { display: flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: 120px; padding: 28px; border: 1px dashed var(--borderColor); border-radius: 8px; color: var(--textColorSecondary); }
         .power-helm .helm-initial-loading .helm-request-status { justify-content: center; }
         .power-helm .helm-request-status[data-error=true] { border: 1px solid color-mix(in srgb, var(--colorError) 35%, var(--borderColor)); background: var(--contentColor); border-radius: 6px; padding: 12px; justify-content: space-between; }
@@ -2292,11 +2389,15 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-request-status[data-error=true] .Icon { flex-shrink: 0; }
         .power-helm .helm-request-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; }
         .power-helm .helm-panel-content > .helm-request-status { justify-content: flex-end; margin-bottom: 12px; }
-        .power-helm .helm-request-compact:not([data-error=true]) { width: 64px; min-width: 64px; flex-wrap: nowrap; justify-content: flex-end; gap: 4px; }
+        .power-helm .helm-request-compact:not([data-error=true]) { width: 32px; min-width: 32px; flex-wrap: nowrap; justify-content: flex-end; gap: 4px; }
+        .power-helm .helm-loading-cancel .helm-cancel-icon { display: none; }
+        .power-helm .helm-loading-cancel:is(:hover, :focus-visible) .helm-spinner { display: none; }
+        .power-helm .helm-loading-cancel:is(:hover, :focus-visible) .helm-cancel-icon { display: inline-flex; }
         .power-helm .helm-request-compact .helm-loading { order: 1; justify-content: center; width: 30px; height: 30px; }
         .power-helm .helm-request-compact .helm-spinner .Icon { --size: 18px; }
         .power-helm .helm-notes-state { width: 100%; }
-        .power-helm .helm-notes-state > .helm-request-status { justify-content: flex-start; min-height: 30px; }
+        .power-helm .helm-notes-section > .helm-request-status { justify-content: flex-end; min-height: 32px; margin-bottom: 12px; }
+        .power-helm .helm-notes-state > .helm-request-status { justify-content: flex-end; min-height: 32px; }
         .power-helm .helm-loading, .power-helm .helm-error { display: inline-flex; gap: 6px; align-items: center; }
         .power-helm .helm-inline-alert { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--colorError) 30%, var(--borderColor)); border-radius: 5px; background: color-mix(in srgb, var(--colorError) 7%, var(--mainBackground)); color: var(--textColorPrimary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
         .power-helm .helm-inline-alert > .Icon { color: var(--colorError); flex-shrink: 0; margin-top: 1px; }
@@ -2340,7 +2441,7 @@ export const PowerHelmPage = observer(() => {
         :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=superseded], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalled], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=unknown] { color: var(--textColorSecondary); background: var(--contentColor); }
         :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalled] { border-style: dashed; }
         .power-helm .helm-native-drawer { max-width: 95%; }
-        .power-helm .helm-native-drawer:has(.helm-revision-diff) { width: min(1100px, calc(100% - 24px)); }
+        .power-helm .helm-native-drawer:has(.helm-comparison-active) { width: min(1100px, calc(100% - 24px)); }
         .power-helm .helm-native-drawer-content { padding: 0; overflow: hidden; min-height: 0; }
         .power-helm .helm-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; outline: none; }
         .power-helm .helm-release-row { cursor: pointer; }
@@ -2348,16 +2449,17 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-panel-actions { display: flex; align-items: center; gap: 4px; }
         .helm-release-actions-menu { max-height: min(360px, 70vh); overflow-y: auto; }
         .helm-release-actions-menu .MenuItem { gap: 8px; }
-        .power-helm .helm-panel-heading { flex-shrink: 0; background: var(--mainBackground); display: flex; justify-content: space-between; align-items: start; padding: 22px 22px 18px; gap: 12px; }
+        :root .helm-release-actions-menu .MenuItem { --bgc-active: var(--primary); --color-active: var(--buttonPrimaryColor, white); }
+        .power-helm .helm-panel-heading { flex-shrink: 0; background: var(--mainBackground); display: flex; justify-content: space-between; align-items: start; padding: 22px 15.5px 18px 22px; gap: 12px; }
         .power-helm .helm-panel-heading h2 { overflow-wrap: anywhere; }
-        .power-helm .helm-native-drawer:has(.helm-revision-diff) .helm-panel-heading { padding-top: 10px; padding-bottom: 6px; }
+        .power-helm .helm-native-drawer:has(.helm-comparison-active) .helm-panel-heading { padding-top: 10px; padding-bottom: 6px; }
         .power-helm .helm-panel-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
         .power-helm .helm-tabs { flex-shrink: 0; background: var(--mainBackground); display: flex; overflow-x: auto; padding: 0 18px; gap: 4px; border-bottom: 1px solid var(--borderColor); }
         :root .power-helm .Button.helm-tab { background: transparent; border: 0; border-radius: 0; padding: 12px 8px; color: var(--textColorSecondary); white-space: nowrap; box-shadow: none; border-bottom: 2px solid transparent; }
         :root .power-helm .Button.helm-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -4px; }
         :root .power-helm .Button.helm-tab-active { color: var(--textColorPrimary); border-bottom-color: var(--primary); }
         .power-helm .helm-panel-content { min-height: 0; overflow: auto; flex: 1; padding: 18px 22px 24px; }
-        .power-helm .helm-panel-content:has(> .helm-document-section > .helm-revision-diff) { padding-top: 8px; }
+        .power-helm .helm-panel-content:has(> .helm-comparison-active) { padding-top: 8px; }
         .power-helm .helm-overview-card { border: 1px solid var(--borderColor); border-radius: 6px; overflow: hidden; }
         .power-helm .helm-overview-card > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 6px 12px 6px 16px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); }
         .power-helm .helm-overview-card h3 { margin: 0; font-size: 12px; font-weight: 500; }
@@ -2375,7 +2477,6 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-overview dd { font-size: 13px; line-height: 1.5; }
         .power-helm .helm-overview dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
         :is(.power-helm, .power-helm-confirmation) .helm-version-badge { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 22px; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--borderColor)); border-radius: 4px; background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); font-size: 12px; font-weight: 600; line-height: 18px; white-space: nowrap; vertical-align: middle; }
-        .power-helm [data-current-status=deployed] .helm-version-badge { color: var(--colorOk); background: color-mix(in srgb, var(--colorOk) 9%, var(--mainBackground)); border-color: color-mix(in srgb, var(--colorOk) 25%, var(--borderColor)); }
         .power-helm .helm-edit-notice { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--borderColor); border-radius: 4px; margin-bottom: 14px; }
         .power-helm .helm-edit-notice p { margin-top: 5px; color: var(--textColorSecondary); font-size: 12px; line-height: 1.5; }
         .power-helm .helm-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -2394,7 +2495,8 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-values-editor > .helm-filter { margin: 12px 0; }
         .power-helm .helm-values-editor > .helm-toolbar { position: sticky; bottom: -24px; z-index: 4; margin: 12px -22px -24px; padding: 12px 22px; border-top: 1px solid var(--borderColor); background: var(--mainBackground); box-shadow: 0 -6px 12px color-mix(in srgb, var(--mainBackground) 70%, transparent); }
         .power-helm .helm-revision-notice, .power-helm .helm-viewing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; color: var(--textColorSecondary); font-size: 12px; padding: 10px 12px; border: 1px solid var(--borderColor); border-radius: 4px; }
-        .power-helm .helm-viewing-banner { margin: 0 22px 4px; padding: 0; border: 0; }
+        .power-helm .helm-viewing-banner { margin: 0 22px 4px; padding: 4px 0; min-height: 38px; box-sizing: border-box; border: 0; }
+        .power-helm .helm-viewing-banner > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
         .power-helm .helm-comparison-toolbar { align-items: center; gap: 8px; margin: 0 0 8px; }
         :root .power-helm .helm-comparison-toolbar .Button { height: 32px; box-sizing: border-box; }
         :root .power-helm .Button.helm-comparison-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; height: 32px; }
@@ -2418,6 +2520,10 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-access-badge { box-sizing: border-box; height: 22px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--borderColor); border-radius: 4px; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
         .power-helm .helm-history-actions { display: flex; align-items: center; gap: 4px; }
         .power-helm .helm-history-revision { display: flex; align-items: center; gap: 7px; min-height: 30px; }
+        .power-helm .helm-revision-cell { position: relative; }
+        .power-helm .helm-history-revision:has(.helm-revision-select) { padding-left: 24px; }
+        .power-helm .helm-revision-select { display: inline-flex; align-items: center; justify-content: center; position: absolute; inset: 0 auto 0 0; width: 34px; cursor: pointer; }
+        .power-helm .helm-revision-select:has(input:disabled) { cursor: default; }
         .power-helm .helm-history-revision .helm-current-tag { margin-left: 0; }
         .power-helm .helm-history-layout { display: flex; flex-direction: column; min-height: 0; width: 100%; flex: 1; }
         .power-helm .helm-history-layout > :not(.helm-history-frame) { flex-shrink: 0; }

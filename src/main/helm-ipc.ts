@@ -132,21 +132,57 @@ export function executeHelmRollback(
         args,
         {
           env: { ...process.env },
-          timeout: 60_000,
+          // allow [--timeout 60s] to report its result before the outer process deadline
+          timeout: 75_000,
           maxBuffer: 8 * 1024 * 1024,
           killSignal: "SIGKILL",
           windowsHide: true,
         },
-        (error) => {
+        (error, _stdout, stderr) => {
           signal.removeEventListener("abort", abort);
-          if (error || signal.aborted)
+          if (!error && !signal.aborted) return resolve();
+          if (error && ["ENOENT", "EACCES", "ENOEXEC"].includes(String(error.code))) {
             reject(
               new HelmError(
-                `${operation}-unknown`,
-                `${operation === "upgrade" ? "Upgrade" : operation === "uninstall" ? "Uninstall" : "Rollback"} outcome is unknown; refresh release history before retrying`,
+                "helm-unavailable",
+                error.code === "ENOENT"
+                  ? "The Freelens Helm executable or one of its required programs is unavailable. Check the Freelens installation and Kubernetes credential plugin, then retry"
+                  : "The Freelens Helm executable could not start. Check its permissions and compatibility, then retry",
               ),
             );
-          else resolve();
+            return;
+          }
+          const diagnostic = String(stderr ?? "").slice(0, 16 * 1024);
+          const hint = signal.aborted
+            ? "The Helm command was cancelled or exceeded the request time limit"
+            : error?.killed
+              ? "The Helm command exceeded its time limit"
+              : /forbidden|cannot (?:get|list|create|update|patch|delete).*resource/i.test(diagnostic)
+                ? "Kubernetes denied access. Check permissions for release Secrets and managed resources"
+                : /unauthorized|authentication required|provide credentials|getting credentials|credential plugin|exec: executable/i.test(
+                      diagnostic,
+                    )
+                  ? "Kubernetes authentication failed. Refresh cluster credentials and check the credential plugin"
+                  : /x509:|tls handshake|certificate/i.test(diagnostic)
+                    ? "Kubernetes TLS verification failed. Check the cluster certificate and kubeconfig"
+                    : /connection refused|no such host|dial tcp|network is unreachable|i\/o timeout|context deadline exceeded/i.test(
+                          diagnostic,
+                        )
+                      ? "The Kubernetes API could not be reached. Check the cluster connection and credentials"
+                      : /conflict|field manager|fieldmanager/i.test(diagnostic)
+                        ? "Kubernetes reported a resource conflict. Review the resource state and field ownership"
+                        : /hook|timed out waiting|deadline exceeded/i.test(diagnostic)
+                          ? "A Helm hook or resource operation failed or timed out. Review release events and hook Jobs"
+                          : /unknown flag|unknown command|incompatible|unsupported/i.test(diagnostic)
+                            ? "The Helm command is incompatible with this Helm version. Check the Freelens Helm installation"
+                            : "The Helm command failed. Review release history and Kubernetes events for details";
+          const label = operation === "upgrade" ? "Upgrade" : operation === "uninstall" ? "Uninstall" : "Rollback";
+          reject(
+            new HelmError(
+              `${operation}-unknown`,
+              `${hint}. ${label} outcome is unknown; refresh release history before retrying`,
+            ),
+          );
         },
       );
       const abort = () => child.kill("SIGKILL");
@@ -528,8 +564,14 @@ export function startPowerHelm(): () => void {
       }
       if (r.operation !== "rollback" || r.confirmed !== true || readOnly.enabled)
         throw new HelmError("read-only", "Disable read-only mode and explicitly confirm rollback");
+      const checkRollbackOutcome = () => {
+        if (uncertain.has(releaseKey))
+          throw new HelmError("rollback-unknown", "Refresh release history before retrying rollback");
+      };
+      checkRollbackOutcome();
       await mutate(async () => {
         check();
+        checkRollbackOutcome();
         if (readOnly.enabled) throw new HelmError("read-only", "Read-only mode blocks rollback");
         try {
           await executeHelmRollback(
@@ -551,6 +593,7 @@ export function startPowerHelm(): () => void {
             "rollback",
             async () => {
               writeCheck();
+              checkRollbackOutcome();
               const fresh = await service!.list(context, r.namespace, signal, r.name, true);
               const target = fresh.rows.find(
                 (candidate) => candidate.revision === r.revision && candidate.uid === r.uid,
@@ -558,8 +601,14 @@ export function startPowerHelm(): () => void {
               if (!target) throw new HelmError("stale-revision", "Release changed; refresh history before rollback");
               writeCheck();
             },
-            writeCheck,
+            () => {
+              writeCheck();
+              checkRollbackOutcome();
+            },
           );
+        } catch (error) {
+          if (error instanceof HelmError && error.code === "rollback-unknown") uncertain.set(releaseKey, Symbol());
+          throw error;
         } finally {
           for (const s of services.values()) s.clear();
         }
