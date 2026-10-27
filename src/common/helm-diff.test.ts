@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareHelmLines } from "./helm-diff";
+import { buildHelmDiffBlocks, compareHelmLines, findHelmDocumentMatches } from "./helm-diff";
 
 describe("Helm line comparison", () => {
   it.each([
@@ -58,4 +58,101 @@ describe("Helm line comparison", () => {
     expect(compareHelmLines("x".repeat(1024 * 1024 + 1), "")).toMatchObject({ available: false });
     expect(compareHelmLines("\n".repeat(20_001), "")).toMatchObject({ available: false });
   });
+});
+
+describe("Helm context blocks", () => {
+  function blocks(before: string, after: string, full = false) {
+    const diff = compareHelmLines(before, after);
+    if (!diff.available) throw new Error("unexpected comparison bound");
+    return buildHelmDiffBlocks(diff, full)!;
+  }
+
+  it("keeps three lines around changes and original document line numbers", () => {
+    const source = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+    const target = [...source];
+    target[10] = "replacement";
+    const result = blocks(source.join("\n"), target.join("\n"));
+    expect(result).toMatchObject([
+      { kind: "gap", count: 7 },
+      { kind: "code", beforeStart: 8, afterStart: 8, before: source.slice(7, 10), changed: false },
+      { kind: "code", beforeStart: 11, afterStart: 11, before: ["line 11"], after: ["replacement"], changed: true },
+      { kind: "code", beforeStart: 12, afterStart: 12, before: source.slice(11, 14), changed: false },
+      { kind: "gap", count: 16 },
+    ]);
+  });
+
+  it("merges overlapping context without duplicating original lines", () => {
+    const source = Array.from({ length: 16 }, (_, index) => `${index}`);
+    const target = [...source];
+    target[4] = "first";
+    target[9] = "second";
+    const result = blocks(source.join("\n"), target.join("\n"));
+    expect(result.filter((block) => block.kind === "gap")).toEqual([
+      { kind: "gap", count: 1 },
+      { kind: "gap", count: 3 },
+    ]);
+    expect(result.filter((block) => block.kind === "code").flatMap((block) => block.before)).toEqual(
+      source.slice(1, 13),
+    );
+  });
+
+  it.each([
+    ["", "a\nb"],
+    ["a\nb", ""],
+  ])("aligns pure insertion or deletion without inventing opposite content", (before, after) => {
+    expect(blocks(before, after)).toMatchObject([
+      {
+        kind: "code",
+        before: before ? before.split("\n") : [],
+        after: after ? after.split("\n") : [],
+        beforeStart: 1,
+        afterStart: 1,
+      },
+    ]);
+  });
+
+  it("maps following context after unequal replacement lengths", () => {
+    expect(blocks("a\nold\nz", "a\nnew\nextra\nz")).toMatchObject([
+      { kind: "code", beforeStart: 1, afterStart: 1 },
+      { kind: "code", beforeStart: 2, afterStart: 2, before: ["old"], after: ["new", "extra"] },
+      { kind: "code", beforeStart: 3, afterStart: 4, before: ["z"], after: ["z"] },
+    ]);
+  });
+
+  it("expands complete documents only when requested", () => {
+    const source = Array.from({ length: 12 }, (_, index) => `${index}`);
+    expect(blocks(source.join("\n"), source.join("\n"))).toEqual([{ kind: "gap", count: 12 }]);
+    expect(blocks(source.join("\n"), source.join("\n"), true)).toMatchObject([
+      { kind: "code", before: source, after: source },
+    ]);
+  });
+
+  it("bounds native editor count for fragmented comparisons", () => {
+    const before = Array.from({ length: 200 }, (_, index) => `${index}`);
+    const after = before.map((line, index) => (index % 2 ? line : `new ${line}`));
+    const diff = compareHelmLines(before.join("\n"), after.join("\n"));
+    if (!diff.available) throw new Error("unexpected comparison bound");
+    expect(buildHelmDiffBlocks(diff)).toBeUndefined();
+  });
+});
+
+it("finds original lines on both sides including hidden context and later hunks", () => {
+  expect(findHelmDocumentMatches("hidden\nold\nhidden", "hidden\nnew\nhidden", "hidden")).toEqual({
+    available: true,
+    count: 4,
+    matches: [
+      { source: "before", line: 1, column: 1 },
+      { source: "before", line: 3, column: 1 },
+      { source: "after", line: 1, column: 1 },
+      { source: "after", line: 3, column: 1 },
+    ],
+  });
+  expect(findHelmDocumentMatches("aa aa", "", "aa").matches).toMatchObject([{ column: 1 }, { column: 4 }]);
+});
+
+it("bounds find navigation while reporting the full match count and oversized documents explicitly", () => {
+  const result = findHelmDocumentMatches("x".repeat(1500), "x", "x");
+  expect(result.count).toBe(1501);
+  expect(result.matches).toHaveLength(1000);
+  expect(findHelmDocumentMatches("x".repeat(2 * 1024 * 1024 + 1), "", "x").available).toBe(false);
 });

@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { clipboard, ipcRenderer } from "electron";
 import { observer } from "mobx-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatDateTime } from "../common/date-time";
 import {
   HELM_CHANNEL,
@@ -16,7 +17,7 @@ import { HelmPreferencesStore } from "../common/store/helm-preferences-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { HelmAppVersionCell } from "./helm-app-version";
-import { HelmCodeView, HelmRevisionDiff } from "./helm-code-view";
+import { HelmCodeView, HelmRevisionDiff, openHelmDocumentFind } from "./helm-code-view";
 import { useHelmVersionIndex } from "./helm-version-index";
 import { NativeTooltip } from "./native-tooltip";
 
@@ -86,15 +87,32 @@ function ReleaseTimestamp({ value }: { value?: string | number }) {
   );
 }
 
+function ReleaseAppVersion({
+  clusterId,
+  contextId,
+  release,
+}: {
+  clusterId: string;
+  contextId?: string;
+  release: HelmReleaseMetadata;
+}) {
+  if (!contextId) return null;
+  return (
+    <span className="helm-release-app-version">
+      App version <HelmAppVersionCell clusterId={clusterId} contextId={contextId} release={release} />
+    </span>
+  );
+}
+
 function ReleaseOverview({ overview, actions }: { overview: HelmOverview; actions: ReactNode }) {
   const fields = [
-    ["Name", overview.name],
-    ["Namespace", overview.namespace],
     ["Revision", overview.revision],
+    ["Name", overview.name],
+    ["App version", overview.appVersion],
+    ["Namespace", overview.namespace],
+    ["Chart version", overview.chartVersion],
     ["Status", overview.status],
     ["Chart", overview.chartName || overview.chart],
-    ["App version", overview.appVersion],
-    ["Chart version", overview.chartVersion],
     ["Updated", overview.updatedAt],
     ["Description", overview.description],
   ] as const;
@@ -108,7 +126,11 @@ function ReleaseOverview({ overview, actions }: { overview: HelmOverview; action
         {fields
           .filter(([, value]) => value !== undefined && value !== "")
           .map(([label, value]) => (
-            <div key={label} className={label === "Description" ? "helm-overview-description" : undefined}>
+            <div
+              key={label}
+              data-field={label}
+              className={label === "Description" ? "helm-overview-description" : undefined}
+            >
               <dt>{label}</dt>
               <dd>
                 {label === "Status" ? (
@@ -205,7 +227,7 @@ function invalidatesPartition(error: unknown) {
   return error instanceof Error && "code" in error && ["forbidden", "context-changed"].includes(String(error.code));
 }
 const invalidationListeners = new Set<(clusterId: string, error: Error) => void>();
-const { Button, Checkbox, Icon, Menu, MenuItem, Select } = Renderer.Component;
+const { Button, Checkbox, Drawer, Icon, Menu, MenuItem, Select } = Renderer.Component;
 
 function statusLabel(status: string) {
   const label = status.replace(/-/g, " ");
@@ -238,7 +260,11 @@ export function useHelmRequest(request: Omit<HelmRequest, "requestId">, cacheKey
   const cancelRef = useRef<() => void>();
   useEffect(() => {
     let current = true;
-    const payload: HelmRequest = { ...request, requestId: `${session}-${++requestSequence}`, refresh: attempt > 0 };
+    const payload: HelmRequest = {
+      ...request,
+      requestId: `${session}-${++requestSequence}`,
+      refresh: request.refresh || attempt > 0,
+    };
     const cancel = () => {
       if (!current) return;
       current = false;
@@ -296,9 +322,11 @@ export function useHelmRequest(request: Omit<HelmRequest, "requestId">, cacheKey
 function RequestStatus({
   state,
   refreshLabel = "Refresh",
+  labeled = false,
 }: {
   state: ReturnType<typeof useHelmRequest>;
   refreshLabel?: string;
+  labeled?: boolean;
 }) {
   return (
     <div role="status" className="helm-request-status" data-error={Boolean(state.error)} aria-busy={state.loading}>
@@ -324,10 +352,24 @@ function RequestStatus({
       )}
       {!state.loading && !state.error && (
         <NativeTooltip title={refreshLabel}>
-          <button type="button" className="helm-icon-button" aria-label={refreshLabel} onClick={state.refresh}>
-            <Icon material="refresh" size={18} />
-            <span className="helm-sr-only">{refreshLabel}</span>
-          </button>
+          {labeled ? (
+            <Button
+              className="helm-comparison-toggle"
+              aria-label={refreshLabel}
+              label={
+                <>
+                  <Icon material="refresh" size={18} />
+                  {refreshLabel}
+                </>
+              }
+              onClick={state.refresh}
+            />
+          ) : (
+            <button type="button" className="helm-icon-button" aria-label={refreshLabel} onClick={state.refresh}>
+              <Icon material="refresh" size={18} />
+              <span className="helm-sr-only">{refreshLabel}</span>
+            </button>
+          )}
         </NativeTooltip>
       )}
       {state.result?.ok && state.result.fetchedAt && (
@@ -348,6 +390,9 @@ function Section({
   currentRelease,
   onChanged,
   deployedRelease,
+  initialCompare = false,
+  isOverlayEscape,
+  restoreControls,
 }: {
   clusterId: string;
   contextId?: string;
@@ -355,6 +400,9 @@ function Section({
   tab: HelmSection;
   currentRelease: HelmReleaseMetadata;
   deployedRelease?: HelmReleaseMetadata;
+  initialCompare?: boolean;
+  isOverlayEscape?: (event: KeyboardEvent) => boolean;
+  restoreControls?: ReactNode;
   onChanged: () => void;
 }) {
   const state = useHelmRequest({
@@ -367,10 +415,32 @@ function Section({
     uid: release.uid,
     section: tab,
   });
-  const [compare, setCompare] = useState(false);
+  const [compare, setCompare] = useState(initialCompare);
   const [baseline, setBaseline] = useState("latest");
+  const [comparisonToolbar, setComparisonToolbar] = useState<HTMLDivElement | null>(null);
   const comparisonRelease = baseline === "deployed" && deployedRelease ? deployedRelease : currentRelease;
   const [editing, setEditing] = useState(false);
+  const [codeActions, setCodeActions] = useState<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        isOverlayEscape?.(event) ||
+        document.querySelector(
+          '[data-testid="confirmation-dialog"], .Select__menu, .helm-release-actions-menu, .monaco-editor .find-widget.visible, .helm-diff-find',
+        )
+      )
+        return;
+      if (editing || (compare && !initialCompare)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!editing) setCompare(false);
+      }
+    };
+    document.addEventListener("keydown", onEscape, true);
+    return () => document.removeEventListener("keydown", onEscape, true);
+  }, [editing, compare, initialCompare, isOverlayEscape]);
   const historical = release.revision !== currentRelease.revision;
   const detail = state.result?.ok ? state.result.detail : undefined;
   const [copySequence, setCopySequence] = useState(0);
@@ -398,12 +468,12 @@ function Section({
       !state.stale,
   );
   return (
-    <>
+    <div className={tab === "values" || tab === "manifest" ? "helm-document-section" : undefined}>
       {!(tab === "overview" && detail?.overview) &&
         !inlineRefresh &&
         (!compare || state.loading || state.error || state.stale) && <RequestStatus state={state} />}
-      {historical && (tab === "values" || tab === "manifest") && detail && (
-        <div className="helm-toolbar">
+      {(historical || compare) && (tab === "values" || tab === "manifest") && detail && (
+        <div className="helm-toolbar helm-comparison-toolbar">
           {compare && deployedRelease && (
             <label className="helm-filter helm-comparison-baseline">
               <span>Compare with</span>
@@ -419,19 +489,28 @@ function Section({
             </label>
           )}
           <Button
-            label={compare ? "Show revision" : "Compare with current"}
+            className="helm-comparison-toggle"
+            aria-label={compare ? "Show revision" : "Compare with current"}
+            label={
+              <>
+                <Icon material={compare ? "visibility" : "difference"} size={18} />
+                {compare ? "Show revision" : "Compare with current"}
+              </>
+            }
             disabled={state.loading || Boolean(state.error) || state.stale}
             onClick={() => setCompare(!compare)}
           />
+          {compare && <div className="helm-comparison-refresh" ref={setComparisonToolbar} />}
         </div>
       )}
-      {tab === "values" && !historical && detail && !state.loading && !state.error && !state.stale && (
+      {tab === "values" && !historical && !compare && detail && !state.loading && !state.error && !state.stale && (
         <ValuesEditing
           release={release}
           clusterId={clusterId}
           contextId={contextId}
           content={detail.content}
           editing={editing}
+          actionTarget={codeActions}
           setEditing={setEditing}
           onChanged={() => {
             state.refresh();
@@ -439,6 +518,7 @@ function Section({
           }}
         />
       )}
+      {!editing && compare && restoreControls}
       {!editing &&
         (compare &&
         detail &&
@@ -455,6 +535,7 @@ function Section({
             baselineLabel={baseline === "deployed" && deployedRelease ? "Last deployed" : "Latest"}
             section={tab}
             content={detail.content}
+            toolbar={comparisonToolbar}
           />
         ) : (
           <>
@@ -484,10 +565,17 @@ function Section({
                       {lineCount} {lineCount === 1 ? "line" : "lines"}
                     </small>
                     <span className="helm-copy-action">
+                      {tab === "values" && <span ref={setCodeActions} className="helm-edit-action" />}
                       {inlineRefresh && <RequestStatus state={state} refreshLabel={`Refresh ${tab}`} />}
                       {copied && <small role="status">Copied</small>}
                       <Button
-                        label={copied ? "Copy again" : "Copy"}
+                        aria-label={copied ? "Copy again" : "Copy"}
+                        label={
+                          <>
+                            <Icon material="content_copy" size={16} />
+                            {copied ? "Copy again" : "Copy"}
+                          </>
+                        }
                         onClick={() => {
                           clipboard.writeText(detail.content);
                           setCopySequence((value) => value + 1);
@@ -508,13 +596,17 @@ function Section({
                       <code>{detail.content}</code>
                     </pre>
                   ) : (
-                    <HelmCodeView value={detail.content} ariaLabel={`${tab} for revision ${release.revision}`} />
+                    <HelmCodeView
+                      value={detail.content}
+                      ariaLabel={`${tab} for revision ${release.revision}`}
+                      style={{ height: "100%", minHeight: 0, flex: 1 }}
+                    />
                   )}
                 </>
               )}
           </>
         ))}
-    </>
+    </div>
   );
 }
 
@@ -525,6 +617,7 @@ const ValuesEditing = observer(
     contextId,
     content,
     editing,
+    actionTarget,
     setEditing,
     onChanged,
   }: {
@@ -533,6 +626,7 @@ const ValuesEditing = observer(
     contextId?: string;
     content: string;
     editing: boolean;
+    actionTarget: HTMLElement | null;
     setEditing: (value: boolean) => void;
     onChanged: () => void;
   }) => {
@@ -553,11 +647,21 @@ const ValuesEditing = observer(
         onCancel={() => setEditing(false)}
         onChanged={onChanged}
       />
-    ) : (
-      <div className="helm-toolbar">
-        <Button label="Edit values" onClick={() => setEditing(true)} />
-      </div>
-    );
+    ) : actionTarget ? (
+      createPortal(
+        <Button
+          aria-label="Edit values"
+          label={
+            <>
+              <Icon material="edit" size={16} />
+              Edit values
+            </>
+          }
+          onClick={() => setEditing(true)}
+        />,
+        actionTarget,
+      )
+    ) : null;
   },
 );
 
@@ -802,6 +906,7 @@ const ValuesEditor = observer(
             setError("");
           }}
           ariaLabel="Edit current release values"
+          style={{ height: "100%", minHeight: 0, flex: 1 }}
         />
         {validationPending && (
           <small className="helm-validation-pending" role="status">
@@ -832,6 +937,7 @@ function RevisionComparison({
   section,
   content,
   baselineLabel,
+  toolbar,
 }: {
   clusterId: string;
   contextId?: string;
@@ -840,6 +946,7 @@ function RevisionComparison({
   section: HelmSection;
   content: string;
   baselineLabel: string;
+  toolbar: HTMLElement | null;
 }) {
   const state = useHelmRequest({
     clusterId,
@@ -854,7 +961,7 @@ function RevisionComparison({
   const current = state.result?.ok ? state.result.detail : undefined;
   return (
     <>
-      <RequestStatus state={state} />
+      {toolbar && createPortal(<RequestStatus state={state} labeled />, toolbar)}
       {!state.loading && !state.error && !state.stale && current && (
         <HelmRevisionDiff
           before={content}
@@ -863,6 +970,7 @@ function RevisionComparison({
             <>
               <span>Revision {selected.revision}</span>
               <StatusBadge status={selected.status} />
+              <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={selected} />
             </>
           }
           afterLabel={
@@ -871,6 +979,7 @@ function RevisionComparison({
                 {baselineLabel} · Revision {release.revision}
               </span>
               <StatusBadge status={release.status} />
+              <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={release} />
             </>
           }
         />
@@ -889,15 +998,17 @@ const History = observer(
     onLatest,
     onDeployed,
     generation,
+    restoreTarget,
   }: {
     clusterId: string;
     contextId?: string;
     release: HelmReleaseMetadata;
     onChanged: () => void;
-    onView: (revision: HelmReleaseMetadata) => void;
+    onView: (revision: HelmReleaseMetadata, compare?: boolean) => void;
     onLatest: (revision: HelmReleaseMetadata) => void;
     onDeployed: (revision: HelmReleaseMetadata | undefined) => void;
     generation: number;
+    restoreTarget?: HelmReleaseMetadata;
   }) => {
     const state = useHelmRequest(
       {
@@ -905,12 +1016,14 @@ const History = observer(
         contextId,
         namespace: release.namespace,
         operation: "history",
+        refresh: Boolean(restoreTarget),
         name: release.name,
       },
       undefined,
       generation,
     );
-    const [revision, setRevision] = useState<number>();
+    const [selectedRevision, setRevision] = useState<number>();
+    const revision = restoreTarget?.revision ?? selectedRevision;
     const [versionGeneration, setVersionGeneration] = useState(0);
     const [revisionFilter, setRevisionFilter] = useState("");
     const [page, setPage] = useState(0);
@@ -996,7 +1109,10 @@ const History = observer(
       onDeployed(deployed);
     }, [state.result, state.loading, state.error, state.stale]);
     const [confirmed, setConfirmed] = useState(false);
-    useEffect(() => setConfirmed(false), [state.result, generation]);
+    useEffect(
+      () => setConfirmed(false),
+      [state.result, state.loading, generation, contextId, restoreTarget?.revision, restoreTarget?.uid],
+    );
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const live = useRef(true);
@@ -1021,10 +1137,22 @@ const History = observer(
         setRevision(undefined);
       }
     }, [allowed]);
-    const historyCurrent = !state.loading && !state.error && !state.stale;
+    const historyCurrent =
+      !state.loading &&
+      !state.error &&
+      !state.stale &&
+      !(contextId && state.result?.ok && state.result.contextId && contextId !== state.result.contextId);
     const eligible = useRef(false);
-    eligible.current = Boolean(allowed && historyCurrent);
-    const target = state.result?.ok ? state.result.releases?.find((item) => item.revision === revision) : undefined;
+    const target = state.result?.ok
+      ? state.result.releases?.find(
+          (item) =>
+            item.revision === revision &&
+            item.name === release.name &&
+            item.namespace === release.namespace &&
+            (!restoreTarget || (item.uid === restoreTarget.uid && item.revision !== release.revision)),
+        )
+      : undefined;
+    eligible.current = Boolean(allowed && historyCurrent && target);
     const consent = useRef({ revision, confirmed, uid: target?.uid });
     consent.current = { revision, confirmed, uid: target?.uid };
     const rollback = () => {
@@ -1033,7 +1161,9 @@ const History = observer(
       Renderer.Component.ConfirmDialog.open({
         message: (
           <div className="power-helm-confirmation helm-rollback-confirmation">
-            <strong>Roll back {release.name}?</strong>
+            <strong>
+              {restoreTarget ? "Restore revision for" : "Roll back"} {release.name}?
+            </strong>
             <p>
               Restore this release in <strong>{release.namespace}</strong> to revision
             </p>
@@ -1063,7 +1193,7 @@ const History = observer(
             </p>
           </div>
         ),
-        labelOk: `Roll back to revision ${revision}`,
+        labelOk: `${restoreTarget ? "Restore" : "Roll back to"} revision ${revision}`,
         okButtonProps: { className: "power-helm-confirm" },
         ok: () => {
           if (
@@ -1122,12 +1252,15 @@ const History = observer(
             state.refresh();
           },
         }}
+        refreshLabel={restoreTarget ? "Refresh restore availability" : "Refresh"}
+        labeled={Boolean(restoreTarget)}
       />
     );
+    if (restoreTarget && readOnly) return null;
     return (
-      <div className="helm-history-layout">
-        {!state.result?.ok && requestStatus}
-        {state.result?.ok && (
+      <div className={restoreTarget ? "helm-restore-revision" : "helm-history-layout"}>
+        {(!state.result?.ok || (restoreTarget && !allowed)) && requestStatus}
+        {!restoreTarget && state.result?.ok && (
           <div className="helm-toolbar helm-history-tools">
             <HelmSearchField
               label="Search revision history"
@@ -1168,7 +1301,7 @@ const History = observer(
             <div className="helm-history-refresh">{requestStatus}</div>
           </div>
         )}
-        {revisionFilter && (
+        {!restoreTarget && revisionFilter && (
           <VersionSearchProgress
             index={versionIndex}
             paused={versionsPaused}
@@ -1179,7 +1312,7 @@ const History = observer(
             }}
           />
         )}
-        {state.result?.ok && (
+        {!restoreTarget && state.result?.ok && (
           <div
             ref={historyFrame}
             className="helm-history-frame"
@@ -1262,6 +1395,15 @@ const History = observer(
                           onClick={() => onView(item)}
                         />
                       </NativeTooltip>
+                      <NativeTooltip title={`Compare revision ${item.revision} with latest`}>
+                        <Button
+                          className="helm-inline-action helm-history-view"
+                          aria-label={`Compare revision ${item.revision}`}
+                          label={<Icon material="difference" size={18} />}
+                          disabled={!historyCurrent || busy}
+                          onClick={() => onView(item, true)}
+                        />
+                      </NativeTooltip>
                     </td>
                   </tr>
                 ))}
@@ -1269,7 +1411,7 @@ const History = observer(
             </table>
           </div>
         )}
-        {history.length > 50 && (
+        {!restoreTarget && history.length > 50 && (
           <div className="helm-toolbar">
             <Button label="Previous revisions" disabled={page === 0} onClick={() => setPage((value) => value - 1)} />
             <span>
@@ -1287,8 +1429,26 @@ const History = observer(
             <div className="helm-rollback">
               <div className="helm-rollback-title">
                 <Icon material="restore" size={18} />
-                Roll back release
+                {restoreTarget ? "Restore this revision" : "Roll back release"}
+                {restoreTarget && requestStatus}
               </div>
+              {restoreTarget && (
+                <p>Restoring the complete release creates a new current revision. Existing history is preserved.</p>
+              )}
+              {restoreTarget && target && (
+                <div className="helm-confirmation-target">
+                  <span className="helm-consent-revision">Revision {target.revision}</span>
+                  <StatusBadge status={target.status} />
+                  <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={target} />
+                </div>
+              )}
+              {restoreTarget && !target && historyCurrent && (
+                <p role="alert">
+                  {restoreTarget.revision === release.revision
+                    ? "This revision is already current."
+                    : "This revision is no longer available to restore. Refresh history before continuing."}
+                </p>
+              )}
               {!revision && <p>Select a revision to restore this release.</p>}
               <div className="helm-rollback-controls">
                 <Checkbox
@@ -1301,19 +1461,33 @@ const History = observer(
                           {" "}
                           to <span className="helm-consent-revision">revision {target.revision}</span>
                           <span className="helm-consent-version">
-                            App version {versionIndex.versionFor(target)?.appVersion ?? "—"}
+                            App version{" "}
+                            {versionIndex.versionFor(target)?.appVersion ? (
+                              <span className="helm-consent-revision">
+                                {versionIndex.versionFor(target)?.appVersion}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
                           </span>
                         </>
                       )}
                     </span>
                   }
                   value={confirmed}
-                  disabled={busy || !revision || !historyCurrent}
+                  disabled={busy || !revision || !historyCurrent || !target}
                   onChange={(value) => setConfirmed(value)}
                 />
                 <Button
-                  label={busy ? "Rolling back…" : "Roll back"}
-                  disabled={!revision || !confirmed || busy || !historyCurrent}
+                  className="helm-rollback-button"
+                  aria-label={busy ? "Rolling back…" : restoreTarget ? "Restore revision" : "Roll back"}
+                  label={
+                    <>
+                      <Icon material="restore" size={18} />
+                      {busy ? "Rolling back…" : restoreTarget ? "Restore revision" : "Roll back"}
+                    </>
+                  }
+                  disabled={!revision || !confirmed || busy || !historyCurrent || !target}
                   onClick={rollback}
                 />
               </div>
@@ -1349,16 +1523,38 @@ function ReleasePanel({
   const menuButton = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const overlayEscapes = useRef(new WeakSet<KeyboardEvent>());
+  const overlayClicks = useRef(new WeakSet<Event>());
   const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
-  const closeButton = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const currentEvent = useRef<Event>();
   const latestClose = useRef(close);
+  const previousScreen = useRef<() => void>();
   latestClose.current = close;
   useEffect(() => {
-    closeButton.current?.focus({ preventScroll: true });
+    panel.current?.focus({ preventScroll: true });
+    const captureEvent = (event: Event) => {
+      currentEvent.current = event;
+      if (
+        event.type === "click" &&
+        event.target instanceof Element &&
+        event.target.closest(
+          '.helm-panel, .Select__menu, .helm-release-actions-menu, [data-testid="confirmation-dialog"]',
+        )
+      ) {
+        overlayClicks.current.add(event);
+      }
+      window.setTimeout(() => {
+        if (currentEvent.current === event) currentEvent.current = undefined;
+      }, 0);
+    };
+    window.addEventListener("click", captureEvent, true);
+    window.addEventListener("keydown", captureEvent, true);
     const captureEscape = (event: KeyboardEvent) => {
       if (
         event.key === "Escape" &&
-        document.querySelector('[data-testid="confirmation-dialog"], .Select__menu, .helm-release-actions-menu')
+        document.querySelector(
+          '[data-testid="confirmation-dialog"], .Select__menu, .helm-release-actions-menu, .monaco-editor .find-widget.visible, .helm-diff-find',
+        )
       )
         overlayEscapes.current.add(event);
     };
@@ -1368,15 +1564,20 @@ function ReleasePanel({
         event.key !== "Escape" ||
         event.defaultPrevented ||
         overlayEscapes.current.has(event) ||
-        document.querySelector('[data-testid="confirmation-dialog"], .Select__menu, .helm-release-actions-menu')
+        document.querySelector(
+          '[data-testid="confirmation-dialog"], .Select__menu, .helm-release-actions-menu, .monaco-editor .find-widget.visible, .helm-diff-find',
+        )
       )
         return;
       event.preventDefault();
       event.stopPropagation();
-      latestClose.current();
+      if (previousScreen.current) previousScreen.current();
+      else latestClose.current();
     };
     document.addEventListener("keydown", onEscape);
     return () => {
+      window.removeEventListener("click", captureEvent, true);
+      window.removeEventListener("keydown", captureEvent, true);
       window.removeEventListener("keydown", captureEscape, true);
       document.removeEventListener("keydown", onEscape);
       if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
@@ -1390,173 +1591,245 @@ function ReleasePanel({
   const [deployedRelease, setDeployedRelease] = useState<HelmReleaseMetadata>();
   useEffect(() => setDeployedRelease(undefined), [historyGeneration]);
   const [historicalRelease, setHistoricalRelease] = useState<HelmReleaseMetadata>();
-  useEffect(() => setHistoricalRelease(undefined), [release.revision, release.uid]);
+  const [initialCompare, setInitialCompare] = useState(false);
+  const [screens, setScreens] = useState<
+    { tab: HelmSection | "history"; release?: HelmReleaseMetadata; compare: boolean }[]
+  >([]);
+  const navigate = (next: HelmSection | "history", historical?: HelmReleaseMetadata, compare = false) => {
+    setScreens((items) => [...items, { tab, release: historicalRelease, compare: initialCompare }]);
+    setTab(next);
+    setHistoricalRelease(historical);
+    setInitialCompare(compare);
+  };
+  previousScreen.current = screens.length
+    ? () => {
+        const previous = screens[screens.length - 1];
+        setScreens((items) => items.slice(0, -1));
+        setTab(previous.tab);
+        setHistoricalRelease(previous.release);
+        setInitialCompare(previous.compare);
+      }
+    : undefined;
+  useEffect(() => {
+    setHistoricalRelease(undefined);
+    setInitialCompare(false);
+  }, [release.revision, release.uid]);
   const viewedRelease = historicalRelease ?? release;
+  useEffect(() => {
+    if (tab !== "values" && tab !== "manifest") return;
+    const onFind = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "f") return;
+      const dialog = document.querySelector<HTMLElement>('[data-testid="confirmation-dialog"]');
+      const container = dialog ? (dialog.querySelector(".helm-revision-diff") ? dialog : undefined) : panel.current;
+      if (!container) return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest(".helm-code-view") ||
+          (!container.contains(target) && target.closest("input, textarea, select, [contenteditable=true]")))
+      )
+        return;
+      if (openHelmDocumentFind(container)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    document.addEventListener("keydown", onFind, true);
+    return () => document.removeEventListener("keydown", onFind, true);
+  }, [tab]);
   return (
-    <aside aria-label={`Release ${release.name}`} className="helm-panel">
-      <div className="helm-panel-heading">
-        <div>
-          <h2>{release.name}</h2>
-          <div className="helm-panel-meta">
-            <span>{release.namespace}</span>
-            <span>
-              {historicalRelease ? "Viewing revision" : "Revision"} {viewedRelease.revision}
-            </span>
-            <StatusBadge status={viewedRelease.status} />
+    <Drawer
+      open
+      className="helm-native-drawer"
+      contentClass="helm-native-drawer-content"
+      testIdForClose="helm-release-close"
+      title={`Helm release: ${release.name}`}
+      onClose={() => {
+        const event = currentEvent.current;
+        if (event && overlayClicks.current.has(event)) return;
+        if (event instanceof KeyboardEvent && (event.defaultPrevented || overlayEscapes.current.has(event))) return;
+        if (
+          event?.target instanceof Element &&
+          event.target.closest('.Select__menu, .helm-release-actions-menu, [data-testid="confirmation-dialog"]')
+        )
+          return;
+        latestClose.current();
+      }}
+    >
+      <aside ref={panel} tabIndex={-1} aria-label={`Release ${release.name}`} className="helm-panel">
+        <div className="helm-panel-heading">
+          <div>
+            <div className="helm-panel-meta">
+              <span>{release.namespace}</span>
+              <span>
+                {historicalRelease ? "Viewing revision" : "Revision"} {viewedRelease.revision}
+              </span>
+              <StatusBadge status={viewedRelease.status} />
+              <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={viewedRelease} />
+            </div>
+          </div>
+          <div className="helm-panel-actions">
+            <NativeTooltip title={menuOpen ? undefined : "Release actions"}>
+              <button
+                ref={menuButton}
+                type="button"
+                className="helm-icon-button"
+                aria-label="Release actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen(!menuOpen)}
+              >
+                <Icon material="more_vert" size={20} />
+              </button>
+            </NativeTooltip>
+            {menuOpen && (
+              <Menu
+                isOpen
+                open={() => setMenuOpen(true)}
+                close={closeMenu}
+                contextTarget={menuButton.current}
+                autoFocus
+                usePortal
+                className="helm-release-actions-menu"
+              >
+                <MenuItem
+                  onClick={() => {
+                    navigate("values");
+                    closeMenu();
+                  }}
+                >
+                  <Icon material="description" size={16} />
+                  Show values
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    navigate("history");
+                    closeMenu();
+                  }}
+                >
+                  <Icon material="history" size={16} />
+                  Show history
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    clipboard.writeText(release.name);
+                    closeMenu();
+                  }}
+                >
+                  <Icon material="content_copy" size={16} />
+                  Copy release name
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    clipboard.writeText(release.namespace);
+                    closeMenu();
+                  }}
+                >
+                  <Icon material="content_copy" size={16} />
+                  Copy namespace
+                </MenuItem>
+              </Menu>
+            )}
           </div>
         </div>
-        <div className="helm-panel-actions">
-          <NativeTooltip title={menuOpen ? undefined : "Release actions"}>
-            <button
-              ref={menuButton}
-              type="button"
-              className="helm-icon-button"
-              aria-label="Release actions"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(!menuOpen)}
-            >
-              <Icon material="more_vert" size={20} />
-            </button>
-          </NativeTooltip>
-          {menuOpen && (
-            <Menu
-              isOpen
-              open={() => setMenuOpen(true)}
-              close={closeMenu}
-              contextTarget={menuButton.current}
-              autoFocus
-              usePortal
-              className="helm-release-actions-menu"
-            >
-              <MenuItem
-                onClick={() => {
-                  setHistoricalRelease(undefined);
-                  setTab("values");
-                  closeMenu();
-                }}
-              >
-                <Icon material="description" size={16} />
-                Show values
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setHistoricalRelease(undefined);
-                  setTab("history");
-                  closeMenu();
-                }}
-              >
-                <Icon material="history" size={16} />
-                Show history
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  clipboard.writeText(release.name);
-                  closeMenu();
-                }}
-              >
-                <Icon material="content_copy" size={16} />
-                Copy release name
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  clipboard.writeText(release.namespace);
-                  closeMenu();
-                }}
-              >
-                <Icon material="content_copy" size={16} />
-                Copy namespace
-              </MenuItem>
-            </Menu>
-          )}
-          <NativeTooltip title="Close (Esc)">
-            <button ref={closeButton} type="button" className="helm-icon-button" aria-label="Close" onClick={close}>
-              <Icon material="close" size={20} />
-            </button>
-          </NativeTooltip>
-        </div>
-      </div>
-      {historicalRelease && (
-        <div className="helm-viewing-banner">
-          <span>
-            Historical revision · Read only
-            <small className="helm-current-baseline">Current revision {release.revision}</small>
-          </span>
-          <Button label="Back to current" onClick={() => setHistoricalRelease(undefined)} />
-        </div>
-      )}
-      <nav
-        className="helm-tabs"
-        role="tablist"
-        aria-label="Release sections"
-        onKeyDown={(event) => {
-          const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
-          if (!keys.includes(event.key) || !(event.target instanceof HTMLButtonElement)) return;
-          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-          const index = tabs.indexOf(event.target);
-          if (index < 0) return;
-          event.preventDefault();
-          const next =
-            event.key === "Home"
-              ? 0
-              : event.key === "End"
-                ? tabs.length - 1
-                : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-          tabs[next]?.focus();
-          tabs[next]?.click();
-        }}
-      >
-        {(["overview", "values", "manifest", "notes", "history"] as const).map((value) => (
-          <Button
-            key={value}
-            role="tab"
-            id={`${tabIdentity}-${value}`}
-            aria-controls={`${tabIdentity}-panel`}
-            aria-selected={tab === value}
-            tabIndex={tab === value ? 0 : -1}
-            label={value[0].toUpperCase() + value.slice(1)}
-            className={tab === value ? "helm-tab helm-tab-active" : "helm-tab"}
-            onClick={() => {
-              setTab(value);
-              if (value === "history") setHistoricalRelease(undefined);
-            }}
-          />
-        ))}
-      </nav>
-      <div
-        className="helm-panel-content"
-        role="tabpanel"
-        id={`${tabIdentity}-panel`}
-        aria-labelledby={`${tabIdentity}-${tab}`}
-      >
-        {tab === "history" ? (
-          <History
-            generation={historyGeneration}
-            clusterId={clusterId}
-            contextId={contextId}
-            release={release}
-            onChanged={onChanged}
-            onLatest={onLatest}
-            onDeployed={setDeployedRelease}
-            onView={(item) => {
-              setHistoricalRelease(item.revision === release.revision ? undefined : item);
-              setTab("values");
-            }}
-          />
-        ) : (
-          <Section
-            key={`${tab}/${viewedRelease.revision}/${viewedRelease.uid ?? ""}`}
-            clusterId={clusterId}
-            contextId={contextId}
-            release={viewedRelease}
-            currentRelease={release}
-            deployedRelease={deployedRelease}
-            onChanged={onChanged}
-            tab={tab}
-          />
+        {historicalRelease && (
+          <div className="helm-viewing-banner">
+            <span>
+              Historical revision · Read only
+              <span className="helm-current-tag">Current · Revision {release.revision}</span>
+            </span>
+            <Button label="Back to current" onClick={() => navigate(tab)} />
+          </div>
         )}
-      </div>
-    </aside>
+        <nav
+          className="helm-tabs"
+          role="tablist"
+          aria-label="Release sections"
+          onKeyDown={(event) => {
+            const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+            if (!keys.includes(event.key) || !(event.target instanceof HTMLButtonElement)) return;
+            const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+            const index = tabs.indexOf(event.target);
+            if (index < 0) return;
+            event.preventDefault();
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? tabs.length - 1
+                  : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+            tabs[next]?.focus();
+            tabs[next]?.click();
+          }}
+        >
+          {(["overview", "values", "manifest", "notes", "history"] as const).map((value) => (
+            <Button
+              key={value}
+              role="tab"
+              id={`${tabIdentity}-${value}`}
+              aria-controls={`${tabIdentity}-panel`}
+              aria-selected={tab === value}
+              tabIndex={tab === value ? 0 : -1}
+              label={value[0].toUpperCase() + value.slice(1)}
+              className={tab === value ? "helm-tab helm-tab-active" : "helm-tab"}
+              onClick={() => {
+                if (value !== tab) navigate(value, value === "history" ? undefined : historicalRelease);
+              }}
+            />
+          ))}
+        </nav>
+        <div
+          className="helm-panel-content"
+          role="tabpanel"
+          id={`${tabIdentity}-panel`}
+          aria-labelledby={`${tabIdentity}-${tab}`}
+        >
+          {tab === "history" ? (
+            <History
+              generation={historyGeneration}
+              clusterId={clusterId}
+              contextId={contextId}
+              release={release}
+              onChanged={onChanged}
+              onLatest={onLatest}
+              onDeployed={setDeployedRelease}
+              onView={(item, compare) =>
+                navigate("values", item.revision !== release.revision ? item : undefined, compare)
+              }
+            />
+          ) : (
+            <Section
+              key={`${tab}/${viewedRelease.revision}/${viewedRelease.uid ?? ""}/${initialCompare}`}
+              clusterId={clusterId}
+              contextId={contextId}
+              release={viewedRelease}
+              currentRelease={release}
+              deployedRelease={deployedRelease}
+              initialCompare={initialCompare}
+              isOverlayEscape={(event) => overlayEscapes.current.has(event)}
+              restoreControls={
+                historicalRelease && (
+                  <History
+                    key={`restore/${historicalRelease.revision}/${historicalRelease.uid ?? ""}`}
+                    clusterId={clusterId}
+                    contextId={contextId}
+                    release={release}
+                    restoreTarget={historicalRelease}
+                    generation={historyGeneration}
+                    onChanged={onChanged}
+                    onLatest={onLatest}
+                    onDeployed={setDeployedRelease}
+                    onView={() => undefined}
+                  />
+                )
+              }
+              onChanged={onChanged}
+              tab={tab}
+            />
+          )}
+        </div>
+      </aside>
+    </Drawer>
   );
 }
 
@@ -1719,14 +1992,36 @@ function Releases({
             </thead>
             <tbody>
               {filtered.slice(page * 100, (page + 1) * 100).map((release) => (
-                <tr key={`${release.namespace}/${release.name}`}>
+                <tr
+                  key={`${release.namespace}/${release.name}`}
+                  className="helm-release-row"
+                  onClick={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey ||
+                      window.getSelection()?.toString() ||
+                      (event.target instanceof Element &&
+                        event.target.closest("button, a, input, select, textarea") &&
+                        !event.target.closest(".helm-release-link"))
+                    )
+                      return;
+                    event.preventDefault();
+                    event.currentTarget
+                      .querySelector<HTMLButtonElement>(".helm-release-link")
+                      ?.focus({ preventScroll: true });
+                    if (result) setSelection({ release, result });
+                  }}
+                >
                   <td>
                     <NativeTooltip title={release.name}>
                       <Button
                         className="helm-release-link"
                         label={release.name}
-                        onClick={() => {
-                          if (result) setSelection({ release, result });
+                        onMouseDown={(event) => {
+                          if (event.button === 0) event.preventDefault();
                         }}
                       />
                     </NativeTooltip>
@@ -1904,6 +2199,8 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-search-field > input { width: 100%; padding-right: 34px; }
         .power-helm .helm-search-clear { position: absolute; top: 1px; right: 1px; height: 30px; width: 30px; border: 0; border-radius: 3px; background: transparent; color: var(--textColorSecondary); display: flex; align-items: center; justify-content: center; cursor: pointer; }
         .power-helm .helm-search-clear:hover { background: var(--contentColor); color: var(--textColorPrimary); }
+        :root .power-helm :is(.helm-filters, .helm-comparison-toolbar) .Select .Select__control { border: 1px solid var(--borderColor); box-shadow: none !important; }
+        :root .power-helm :is(.helm-filters, .helm-comparison-toolbar) .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled) { border-color: var(--primary) !important; box-shadow: inset 0 0 0 1px var(--primary) !important; }
         .power-helm .helm-text-input { box-sizing: border-box; height: 32px; color: var(--textColorPrimary); background: var(--inputControlBackground, var(--mainBackground)); border: 1px solid var(--borderColor); border-radius: 4px; padding: 6px 10px; font: inherit; }
         .power-helm .helm-text-input:focus-visible, .power-helm input[type=radio]:focus-visible, .power-helm button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .power-helm input[type=checkbox], .power-helm input[type=radio] { accent-color: var(--primary); margin: 0 7px 0 0; vertical-align: middle; }
@@ -1957,8 +2254,12 @@ export const PowerHelmPage = observer(() => {
         :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status^=pending-], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalling] { color: var(--colorWarning, var(--textColorAccent)); background: color-mix(in srgb, var(--colorWarning, var(--primary)) 9%, var(--mainBackground)); border-color: color-mix(in srgb, var(--colorWarning, var(--primary)) 30%, var(--borderColor)); }
         :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=superseded], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalled], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=unknown] { color: var(--textColorSecondary); background: var(--contentColor); }
         :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalled] { border-style: dashed; }
-        .power-helm .helm-panel { display: flex; flex-direction: column; position: absolute; inset: 0 0 0 auto; width: min(640px, 90%); box-sizing: border-box; background: var(--mainBackground); border-left: 1px solid var(--borderColor); box-shadow: -12px 0 30px color-mix(in srgb, var(--textColorPrimary) 8%, transparent); overflow: hidden; z-index: 5; }
-        .power-helm .helm-panel:has(.helm-revision-diff) { width: min(1100px, calc(100% - 24px)); }
+        .power-helm .helm-native-drawer { max-width: 95%; }
+        .power-helm .helm-native-drawer:has(.helm-revision-diff) { width: min(1100px, calc(100% - 24px)); }
+        .power-helm .helm-native-drawer-content { padding: 0; overflow: hidden; min-height: 0; }
+        .power-helm .helm-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; outline: none; }
+        .power-helm .helm-release-row { cursor: pointer; }
+        :root .power-helm .Button.helm-release-link:focus:not(:focus-visible) { outline: none; box-shadow: none; }
         .power-helm .helm-panel-actions { display: flex; align-items: center; gap: 4px; }
         .helm-release-actions-menu { max-height: min(360px, 70vh); overflow-y: auto; }
         .helm-release-actions-menu .MenuItem { gap: 8px; }
@@ -1973,6 +2274,12 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-overview-card { border: 1px solid var(--borderColor); border-radius: 6px; overflow: hidden; }
         .power-helm .helm-overview-card > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 6px 12px 6px 16px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); }
         .power-helm .helm-overview-card h3 { margin: 0; font-size: 12px; font-weight: 500; }
+        .power-helm .helm-overview > [data-field="Revision"] { grid-area: 1 / 1; }
+        .power-helm .helm-overview > [data-field="App version"] { grid-area: 2 / 1; }
+        .power-helm .helm-overview > [data-field="Chart version"] { grid-area: 3 / 1; }
+        .power-helm .helm-overview > [data-field="Name"] { grid-area: 1 / 2; }
+        .power-helm .helm-overview > [data-field="Namespace"] { grid-area: 2 / 2; }
+        .power-helm .helm-overview > [data-field="Status"] { grid-area: 3 / 2; }
         .power-helm .helm-overview { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; padding: 0 16px; }
         .power-helm .helm-overview > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 15px 0; border-bottom: 1px solid var(--borderColor); }
         .power-helm .helm-overview > div:last-child { border: 0; }
@@ -1983,10 +2290,22 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-edit-notice { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--borderColor); border-radius: 4px; margin-bottom: 14px; }
         .power-helm .helm-edit-notice p { margin-top: 5px; color: var(--textColorSecondary); font-size: 12px; line-height: 1.5; }
         .power-helm .helm-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .power-helm .helm-release-app-version { display: inline-flex; align-items: center; gap: 6px; }
+        .power-helm .helm-values-editor > .helm-request-status { margin-bottom: 16px; }
+        .power-helm .helm-panel-content:has(> .helm-document-section) { display: flex; overflow: hidden; }
+        .power-helm .helm-document-section > .helm-revision-diff { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+        .power-helm .helm-document-section > .helm-revision-diff > .helm-diff-scroll { flex: 1; min-height: 0; max-height: none; }
+        .power-helm .helm-document-section > .helm-revision-diff > :not(.helm-diff-scroll) { flex-shrink: 0; }
+        .power-helm .helm-document-section, .power-helm .helm-values-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+        .power-helm .helm-document-section > :not(.helm-code-view):not(.helm-values-editor):not(.helm-revision-diff), .power-helm .helm-values-editor > :not(.helm-code-view) { flex-shrink: 0; }
+        .power-helm .helm-copy-action .Button { display: inline-flex; align-items: center; gap: 6px; }
         .power-helm .helm-values-editor > .helm-filter { margin: 12px 0; }
         .power-helm .helm-values-editor > .helm-toolbar { position: sticky; bottom: -24px; z-index: 4; margin: 12px -22px -24px; padding: 12px 22px; border-top: 1px solid var(--borderColor); background: var(--mainBackground); box-shadow: 0 -6px 12px color-mix(in srgb, var(--mainBackground) 70%, transparent); }
         .power-helm .helm-revision-notice, .power-helm .helm-viewing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; color: var(--textColorSecondary); font-size: 12px; padding: 10px 12px; border: 1px solid var(--borderColor); border-radius: 4px; }
         .power-helm .helm-viewing-banner { margin: 0 22px 14px; }
+        .power-helm .helm-comparison-toolbar { align-items: flex-end; }
+        :root .power-helm .helm-comparison-toolbar .Button { height: 32px; box-sizing: border-box; }
+        :root .power-helm .Button.helm-comparison-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; height: 32px; }
         .power-helm .helm-comparison-baseline { min-width: 220px; }
         .power-helm .helm-current-baseline { display: block; margin-top: 4px; }
         .power-helm .helm-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -2014,6 +2333,10 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-history-frame:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .power-helm .helm-history-table { font-size: 12px; }
         .power-helm .helm-history-table th, .power-helm .helm-history-table td { padding: 8px 10px; white-space: nowrap; }
+        :root .power-helm .Button.helm-rollback-button { display: inline-flex; align-items: center; gap: 6px; }
+        :root .power-helm .Button.helm-rollback-button:not(:disabled) { color: var(--textColorAccent); border-color: var(--primary); }
+        :root .power-helm .Button.helm-history-view { color: var(--textColorPrimary); }
+        :root .power-helm .Button.helm-history-view:not(:disabled):hover, :root .power-helm .Button.helm-history-view:focus-visible { color: var(--primary); }
         .power-helm .helm-history-table .helm-inline-action { white-space: nowrap; font-size: 12px; }
         .power-helm .helm-history-table input[type=radio] { appearance: none; width: 14px; height: 14px; border: 1px solid var(--textColorSecondary); border-radius: 50%; background: var(--mainBackground); cursor: pointer; }
         .power-helm .helm-history-table input[type=radio]:checked { background: var(--primary); border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--mainBackground); }
@@ -2025,13 +2348,19 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-consent-target strong { font-weight: 500; }
         .power-helm .helm-consent-revision { display: inline-block; margin: 0 4px; padding: 0 6px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--borderColor)); border-radius: 4px; font-weight: 600; white-space: nowrap; }
         .power-helm .helm-consent-version { display: inline-block; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
-        .power-helm .helm-current-tag { margin-left: 7px; color: var(--textColorSecondary); font-size: 10px; }
-        :root .power-helm .Button.helm-inline-action { border-color: transparent; background: transparent; color: var(--primary); padding: 4px 6px; }
+        .power-helm .helm-current-tag { display: inline-flex; align-items: center; margin-left: 7px; padding: 2px 6px; border-radius: 3px; background: var(--contentColor); border: 1px solid var(--borderColor); color: var(--textColorSecondary); font-size: 11px; line-height: 16px; vertical-align: middle; }
+        :root .power-helm .Button.helm-inline-action:not(.helm-history-view) { border-color: transparent; background: transparent; color: var(--primary); padding: 4px 6px; }
         .power-helm .helm-history-table label { cursor: pointer; display: inline-flex; align-items: center; }
         .power-helm .helm-rollback { margin-top: 16px; padding: 12px; min-height: 110px; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--colorWarning, var(--primary)) 35%, var(--borderColor)); border-radius: 6px; }
         .power-helm .helm-rollback-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-top: 12px; }
         .power-helm .helm-rollback-controls > .Button { min-height: 30px; white-space: nowrap; }
         .power-helm .helm-rollback-controls .helm-consent { margin: 0; min-height: 32px; }
+        .power-helm .helm-restore-revision { flex-shrink: 0; margin-bottom: 12px; }
+        .power-helm .helm-restore-revision > .helm-request-status { margin-bottom: 8px; }
+        .power-helm .helm-restore-revision .helm-rollback { background: color-mix(in srgb, var(--colorWarning, var(--primary)) 5%, transparent); }
+        .power-helm .helm-restore-revision .helm-rollback-title { flex-wrap: wrap; }
+        .power-helm .helm-restore-revision .helm-rollback-title > .helm-request-status { margin-left: auto; font-weight: 400; }
+        .power-helm .helm-restore-revision .helm-confirmation-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
         .power-helm .helm-rollback-title { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .power-helm .helm-rollback p { color: var(--textColorSecondary); margin-top: 8px; font-size: 12px; line-height: 1.5; }
         .power-helm .helm-consent { display: flex; margin: 16px 0; font-size: 12px; }

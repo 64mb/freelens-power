@@ -623,6 +623,36 @@ describe("Helm IPC", () => {
     expect(launchGuard).toHaveBeenCalledOnce();
     expect(mocks.exec).not.toHaveBeenCalled();
   });
+  it.each([
+    ["Error: no repositories configured", {}, "No Helm repositories are configured"],
+    ["Error: no cached repo found for example", {}, "Helm repository indexes are unavailable"],
+    ["", { killed: true }, "Helm repository search timed out"],
+    ["", { code: "ENOENT" }, "The Freelens Helm executable is unavailable"],
+    ["private diagnostic https://user:secret@example.invalid", {}, "Check repository configuration"],
+  ])("explains repository search failures without exposing process diagnostics", async (stderr, details, message) => {
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      queueMicrotask(() => callback(Object.assign(new Error("process failed"), details), "", stderr));
+      return { kill: vi.fn() };
+    });
+    const result = executeHelmRead("neutral", ["search"], new AbortController().signal);
+    await expect(result).rejects.toMatchObject({
+      code: "chart-unavailable",
+      message: expect.stringContaining(message),
+    });
+    await expect(result).rejects.not.toThrow("secret");
+  });
+  it("reports a cancelled running repository search separately from repository failures", async () => {
+    let finish!: (error: Error, stdout: string, stderr: string) => void;
+    const controller = new AbortController();
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      finish = callback;
+      return { kill: () => finish(new Error("killed"), "", "no repositories configured") };
+    });
+    const result = executeHelmRead("neutral", ["search"], controller.signal);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    controller.abort();
+    await expect(result).rejects.toMatchObject({ code: "cancelled" });
+  });
   it("shares two process permits across reads and writes and cancels queued commands", async () => {
     const callbacks: Array<(error: Error | null, stdout?: string) => void> = [];
     mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
