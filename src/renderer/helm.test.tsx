@@ -1047,3 +1047,52 @@ it("keeps cached document refresh progress in the toolbar and preserves Copy", a
   await act(async () => pending.resolve({ ok: true, detail: { content: "ignored late document" } }));
   expect(screen.queryByText("ignored late document")).toBeNull();
 });
+
+it.each([
+  "click",
+  "Enter",
+  " ",
+])("opens revision preview from its row using %s without turning radio selection into navigation", async (activation) => {
+  const previous = { ...release, revision: 1, uid: "sample-secret-uid-1", status: "superseded" };
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "history"
+        ? { ...listing, releases: [release, previous], rollbackAllowed: true }
+        : request.operation === "details"
+          ? { ok: true, detail: { content: request.revision === 1 ? "historical values" : "current values" } }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  const radio = await screen.findByRole("radio", { name: "Revision 1" });
+  fireEvent.click(radio);
+  expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.queryByText("historical values")).toBeNull();
+  const row = radio.closest("tr")!;
+  if (activation === "click") {
+    const badge = row.querySelector(".helm-version-badge")!;
+    const selection = window.getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(badge);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    try {
+      fireEvent.click(row);
+      expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    } finally {
+      selection.removeAllRanges();
+    }
+    for (const modifier of ["ctrlKey", "metaKey", "shiftKey", "altKey"]) {
+      fireEvent.click(row, { [modifier]: true });
+      expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    }
+    fireEvent.click(badge);
+  } else fireEvent.keyDown(row, { key: activation });
+  await screen.findByText("historical values");
+  expect(screen.getByRole("tab", { name: "Values" }).getAttribute("aria-selected")).toBe("true");
+  expect(mocks.invoke.mock.calls.some(([, r]) => r.operation === "rollback" || r.operation === "uninstall")).toBe(
+    false,
+  );
+});

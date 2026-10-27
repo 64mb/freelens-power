@@ -1421,11 +1421,50 @@ const History = observer(
                   </tr>
                 )}
                 {historyPage.map((item) => (
-                  <tr key={item.revision} data-revision={item.revision} data-selected={revision === item.revision}>
+                  <tr
+                    key={item.revision}
+                    data-revision={item.revision}
+                    data-selected={revision === item.revision}
+                    tabIndex={historyCurrent && !busy ? 0 : -1}
+                    aria-disabled={!historyCurrent || busy}
+                    onClick={(event) => {
+                      if (
+                        !historyCurrent ||
+                        busy ||
+                        event.defaultPrevented ||
+                        event.button !== 0 ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey ||
+                        window.getSelection()?.toString() ||
+                        (event.target instanceof Element &&
+                          event.target.closest("button, input, a, label, select, textarea, [role=button]"))
+                      )
+                        return;
+                      onView(item);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        !historyCurrent ||
+                        busy ||
+                        event.defaultPrevented ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey ||
+                        event.target !== event.currentTarget ||
+                        !["Enter", " "].includes(event.key)
+                      )
+                        return;
+                      event.preventDefault();
+                      onView(item);
+                    }}
+                  >
                     <td>
                       <div className="helm-history-revision">
                         {allowed ? (
-                          <label>
+                          <>
                             <input
                               aria-label={`Revision ${item.revision}`}
                               type="radio"
@@ -1438,7 +1477,7 @@ const History = observer(
                               }}
                             />{" "}
                             <span className="helm-version-badge">{item.revision}</span>
-                          </label>
+                          </>
                         ) : (
                           <span className="helm-version-badge" aria-label={`Revision ${item.revision}`}>
                             {item.revision}
@@ -2388,6 +2427,8 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-history-frame { flex: 0 1 auto; min-height: 80px; overflow: auto; border: 1px solid var(--borderColor); border-radius: 6px; overscroll-behavior: contain; scrollbar-gutter: auto; }
         .power-helm .helm-history-frame:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .power-helm .helm-history-table { font-size: 12px; }
+        .power-helm .helm-history-table tbody tr[aria-disabled=false] { cursor: pointer; }
+        .power-helm .helm-history-table tbody tr:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
         .power-helm .helm-history-table th, .power-helm .helm-history-table td { padding: 8px 10px; white-space: nowrap; }
         :root .power-helm .Button.helm-rollback-button { display: inline-flex; align-items: center; gap: 6px; }
         :root .power-helm .Button.helm-rollback-button:not(:disabled) { color: var(--textColorAccent); border-color: var(--primary); }
