@@ -174,14 +174,14 @@ export function HelmRevisionDiff({
       .helm-revision-diff { min-width: 0; }
       .helm-diff-summary { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; color: var(--textColorSecondary); }
       .helm-diff-summary strong { color: var(--textColorPrimary); }
-      .helm-diff-added { color: var(--colorSuccess, var(--primary)); }
+      .helm-diff-added { color: var(--colorOk, var(--primary)); }
       .helm-diff-removed { color: var(--colorError, var(--textColorPrimary)); }
       .helm-diff-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
       .helm-diff-pane { min-width: 0; border: 1px solid var(--borderColor); border-radius: 6px; overflow: hidden; }
       .helm-diff-pane h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); font-size: 12px; overflow-wrap: anywhere; }
-      .helm-diff-line-added { background: color-mix(in srgb, var(--colorSuccess, var(--primary)) 16%, transparent); }
+      .helm-diff-line-added { background: color-mix(in srgb, var(--colorOk, var(--primary)) 16%, transparent); }
       .helm-diff-line-removed { background: color-mix(in srgb, var(--colorError, var(--textColorPrimary)) 16%, transparent); }
-      .helm-diff-gutter-added { border-left: 3px solid var(--colorSuccess, var(--primary)); }
+      .helm-diff-gutter-added { border-left: 3px solid var(--colorOk, var(--primary)); }
       .helm-diff-gutter-removed { border-left: 3px solid var(--colorError, var(--textColorPrimary)); }
       @media (max-width: 900px) { .helm-diff-panes { grid-template-columns: minmax(0, 1fr); } }
     `}</style>

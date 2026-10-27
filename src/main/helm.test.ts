@@ -66,8 +66,28 @@ describe("Helm metadata", () => {
     expect(read).toHaveBeenCalledTimes(4);
     expect(read.mock.calls.every((call) => call[1].limit === 5000)).toBe(true);
   });
-  it("rejects full Secrets without falling back", async () => {
-    const read = vi.fn().mockResolvedValue({ kind: "SecretList", items: [] });
+  it("accepts and caches an empty Kubernetes metadata list with null items", async () => {
+    const read = vi.fn().mockResolvedValue({
+      kind: "PartialObjectMetadataList",
+      apiVersion: "meta.k8s.io/v1",
+      metadata: { resourceVersion: "12345" },
+      items: null,
+    });
+    const service = new HelmService(read);
+    await expect(service.list("context", "system", signal())).resolves.toMatchObject({ rows: [], cached: false });
+    await expect(service.list("context", "system", signal())).resolves.toMatchObject({ rows: [], cached: true });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read.mock.calls[0][2]).toBe(true);
+  });
+  it.each([[], null])("rejects full Secrets with items %j without falling back", async (items) => {
+    const read = vi.fn().mockResolvedValue({ apiVersion: "v1", kind: "SecretList", items });
+    await expect(new HelmService(read).list("context", "", signal())).rejects.toMatchObject({
+      code: "metadata-unavailable",
+    });
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+  it.each([undefined, {}, "", 0])("rejects malformed metadata list items %j", async (items) => {
+    const read = vi.fn().mockResolvedValue({ ...page([]), items });
     await expect(new HelmService(read).list("context", "", signal())).rejects.toMatchObject({
       code: "metadata-unavailable",
     });

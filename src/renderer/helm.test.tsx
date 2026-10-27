@@ -7,6 +7,7 @@ import { PowerHelmPage } from "./helm";
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   confirm: vi.fn(),
+  copy: vi.fn(),
   helmEnabled: true,
   readOnly: false,
   readOnlyStore: undefined as { enabled: boolean } | undefined,
@@ -39,7 +40,7 @@ vi.mock("./helm-code-view", () => ({
 vi.mock("../common/store/helm-preferences-store", () => ({
   HelmPreferencesStore: { getInstanceOrCreate: () => ({ enabled: mocks.helmEnabled }) },
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke }, clipboard: { writeText: mocks.copy } }));
 vi.mock("../common/store/read-only-preferences-store", () => ({
   ReadOnlyPreferencesStore: { getInstanceOrCreate: () => mocks.readOnlyStore ?? { enabled: mocks.readOnly } },
 }));
@@ -65,11 +66,7 @@ vi.mock("@freelensapp/extensions", () => ({
           {label}
         </label>
       ),
-      Button: ({ label, onClick, disabled }: any) => (
-        <button onClick={onClick} disabled={disabled}>
-          {label}
-        </button>
-      ),
+      Button: ({ label, children, ...props }: any) => <button {...props}>{label ?? children}</button>,
       Select: ({ value, options, onChange, "aria-label": label }: any) => (
         <select aria-label={label} value={value} onChange={(event) => onChange({ value: event.target.value })}>
           {options.map((option: any) => (
@@ -107,6 +104,7 @@ beforeEach(() => {
   mocks.indexState = { completed: 0, total: 0, errors: 0, truncated: false };
   mocks.invoke.mockReset();
   mocks.confirm.mockReset();
+  mocks.copy.mockReset();
   mocks.invoke.mockResolvedValue(listing);
 });
 afterEach(cleanup);
@@ -133,7 +131,7 @@ it("preserves rows on refresh errors and cancels obsolete namespace requests", a
   );
   fireEvent.click(screen.getByText("Retry"));
   fireEvent.change(screen.getByLabelText("Helm namespace"), { target: { value: "sample" } });
-  await screen.findByText("No releases found");
+  await screen.findByText("No Helm releases in sample");
   await act(async () => stale.resolve(listing));
   expect(screen.queryByText("sample-release")).toBeNull();
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "cancel")).toBe(true);
@@ -310,7 +308,7 @@ it("views historical values independently of rollback selection and compares aga
   fireEvent.click(await screen.findByText("sample-release"));
   fireEvent.click(screen.getByText("History"));
   await screen.findByLabelText("Revision 1");
-  fireEvent.click(screen.getAllByText("View revision")[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "View revision" })[0]);
   await screen.findByText("replicas: 1");
   expect(screen.getByText("Historical revision · Read only")).toBeTruthy();
   expect(screen.queryByText("Edit values")).toBeNull();
@@ -460,14 +458,14 @@ it("promotes the latest fresh history revision to the current baseline without r
   fireEvent.click(await screen.findByText("sample-release"));
   fireEvent.click(screen.getByText("History"));
   await screen.findByLabelText("Revision 3");
-  fireEvent.click(screen.getAllByText("View revision")[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "View revision" })[0]);
   await screen.findByText("replicas: 3");
   expect(screen.queryByText("Historical revision · Read only")).toBeNull();
   expect(screen.getByText("Edit values")).toBeTruthy();
   expect(screen.getByText("Revision 3")).toBeTruthy();
   fireEvent.click(screen.getByText("History"));
   await screen.findByLabelText("Revision 1");
-  fireEvent.click(screen.getAllByText("View revision")[1]);
+  fireEvent.click(screen.getAllByRole("button", { name: "View revision" })[1]);
   await screen.findByText("replicas: 1");
   expect(screen.getByText("Historical revision · Read only")).toBeTruthy();
   expect(screen.getByText("Superseded")).toBeTruthy();
@@ -759,7 +757,7 @@ it("uses inspection-only history in read-only mode and clears old rollback conse
       preferences.enabled = true;
     }),
   );
-  fireEvent.click(screen.getAllByText("View revision")[1]);
+  fireEvent.click(screen.getAllByRole("button", { name: "View revision" })[1]);
   await screen.findByText("replicas: 1");
   expect(screen.queryByText("Edit values")).toBeNull();
   fireEvent.click(screen.getByText("Compare with current"));
@@ -769,4 +767,84 @@ it("uses inspection-only history in read-only mode and clears old rollback conse
       ([, request]) => request.operation === "rollback" || request.operation === "upgrade-values",
     ),
   ).toBe(false);
+});
+
+it("names an empty namespace without implying all namespaces are one namespace", async () => {
+  mocks.invoke.mockResolvedValue({ ok: true, contextId: "empty-context", releases: [] });
+  render(<PowerHelmPage />);
+  await screen.findByText("No Helm releases in the available namespaces");
+  fireEvent.change(screen.getByLabelText("Helm namespace"), { target: { value: "sample" } });
+  await screen.findByText("No Helm releases in sample");
+});
+
+it("returns to the selected later page after clearing an all-matching version filter", async () => {
+  const revisions = Array.from({ length: 250 }, (_, index) => ({
+    ...release,
+    revision: 250 - index,
+    uid: `sample-secret-uid-${250 - index}`,
+  }));
+  mocks.appVersions[release.name] = "2.7";
+  mocks.indexState = { completed: 250, total: 250, errors: 0, truncated: false };
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "history"
+        ? { ...listing, releases: revisions, rollbackAllowed: true }
+        : request.operation === "details"
+          ? { ok: true, detail: { content: "Overview" } }
+          : { ...listing, releases: [revisions[0]] },
+    ),
+  );
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  try {
+    render(<PowerHelmPage />);
+    fireEvent.click(await screen.findByRole("button", { name: release.name }));
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    await screen.findByLabelText("Revision 250");
+    fireEvent.click(screen.getByText("Next revisions"));
+    fireEvent.click(screen.getByText("Next revisions"));
+    fireEvent.click(screen.getByRole("radio", { name: "Revision 125" }));
+    fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2.7" } });
+    await screen.findByText("Page 1 of 5");
+    fireEvent.click(screen.getByText("Next revisions"));
+    fireEvent.click(screen.getByText("Next revisions"));
+    fireEvent.click(screen.getByRole("button", { name: "Show selected revision" }));
+    await screen.findByText("Page 3 of 5");
+    const selected = screen.getByRole("radio", { name: "Revision 125" }) as HTMLInputElement;
+    expect(selected.checked).toBe(true);
+    expect(document.activeElement).toBe(selected);
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
+  } finally {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});
+
+it("restarts copy feedback for each successful copy", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(request.operation === "details" ? { ok: true, detail: { content: "replicas: 2" } } : listing),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "Values" }));
+  await screen.findByText("replicas: 2");
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Copy", exact: true }));
+    act(() => {
+      vi.advanceTimersByTime(1900);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Copy again", exact: true }));
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+    expect(screen.getByText("Copied")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(1850);
+    });
+    expect(screen.queryByText("Copied")).toBeNull();
+    expect(mocks.copy.mock.calls).toEqual([["replicas: 2"], ["replicas: 2"]]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

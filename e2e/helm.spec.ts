@@ -82,7 +82,7 @@ test("Helm native fallback, history and safe read-only actions", async ({}, info
     await expect(row.locator(".helm-app-version-cell")).toContainText("2.7-demo");
     await release.click();
     const panel = page.getByRole("complementary");
-    await panel.getByRole("button", { name: "History", exact: true }).click();
+    await panel.getByRole("tab", { name: "History", exact: true }).click();
     const historical = panel.getByRole("radio", { name: "Revision 1", exact: true }).locator("xpath=ancestor::tr");
     await expect(historical).toContainText("Deployed");
     await expect(historical.locator(".helm-app-version-cell")).toContainText("2.7-demo");
@@ -99,7 +99,7 @@ test("Helm native fallback, history and safe read-only actions", async ({}, info
     await frame.getByText("Last deployed · Revision 1", { exact: true }).last().click();
     await expect(panel).toContainText("No changes between these revisions");
     await panel.getByRole("button", { name: "Back to current", exact: true }).click();
-    await panel.getByRole("button", { name: "History", exact: true }).click();
+    await panel.getByRole("tab", { name: "History", exact: true }).click();
     await panel.getByRole("radio", { name: "Revision 1", exact: true }).check();
     await panel.getByRole("checkbox", { name: new RegExp(`I confirm rolling back ${name} to revision 1`) }).check();
     await panel.getByRole("button", { name: "Roll back", exact: true }).click();
@@ -113,7 +113,7 @@ test("Helm native fallback, history and safe read-only actions", async ({}, info
     await openSettings();
     await settings.locator('label[data-testid="switch"]').filter({ hasText: "Read-only mode" }).click();
     await closeSettings();
-    await panel.getByRole("button", { name: "Values", exact: true }).click();
+    await panel.getByRole("tab", { name: "Values", exact: true }).click();
     await expect(panel.getByRole("button", { name: "Edit values", exact: true })).toHaveCount(0);
     await openSettings();
     await helmToggle.click();

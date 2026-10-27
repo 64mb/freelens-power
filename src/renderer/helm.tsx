@@ -20,6 +20,72 @@ import { HelmCodeView, HelmRevisionDiff } from "./helm-code-view";
 import { useHelmVersionIndex } from "./helm-version-index";
 import { NativeTooltip } from "./native-tooltip";
 
+function HelmSearchField({
+  value,
+  onChange,
+  label,
+  placeholder,
+  clearLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  placeholder: string;
+  clearLabel: string;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className="helm-search-field">
+      <input
+        ref={input}
+        className="helm-text-input"
+        aria-label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {value && (
+        <button
+          type="button"
+          className="helm-search-clear"
+          aria-label={clearLabel}
+          onClick={(event) => {
+            event.preventDefault();
+            onChange("");
+            input.current?.focus();
+          }}
+        >
+          <Icon material="close" size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+const ReadOnlyDocumentIndicator = observer(() => {
+  if (!ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>().enabled) return null;
+  return (
+    <span className="helm-access-badge" role="status" aria-label="Read only">
+      <Icon material="lock_outline" size={14} />
+      Read only
+    </span>
+  );
+});
+
+function ReleaseTimestamp({ value }: { value?: string | number }) {
+  if (value === undefined || value === "") return <>—</>;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return <>Unavailable</>;
+  const timestamp = date.toISOString();
+  return (
+    <NativeTooltip title={`UTC: ${timestamp}`}>
+      <time className="helm-timestamp" dateTime={timestamp}>
+        {formatDateTime(value)}
+      </time>
+    </NativeTooltip>
+  );
+}
+
 function ReleaseOverview({ overview, actions }: { overview: HelmOverview; actions: ReactNode }) {
   const fields = [
     ["Name", overview.name],
@@ -48,7 +114,7 @@ function ReleaseOverview({ overview, actions }: { overview: HelmOverview; action
                 {label === "Status" ? (
                   <StatusBadge status={String(value)} />
                 ) : label === "Updated" ? (
-                  formatDateTime(String(value))
+                  <ReleaseTimestamp value={String(value)} />
                 ) : (
                   String(value)
                 )}
@@ -100,7 +166,17 @@ function VersionSearchProgress({
         {paused && index.completed < index.total ? " · Paused" : ""}
       </span>
       <progress aria-label="App versions checked" value={index.completed} max={index.total} />
-      {index.completed < index.total && <Button label={paused ? "Resume" : "Stop"} onClick={onToggle} />}
+      {index.completed < index.total && (
+        <NativeTooltip
+          title={
+            paused
+              ? "Continue checking app versions from the saved progress"
+              : "Pause background checks and keep the versions already found"
+          }
+        >
+          <Button label={paused ? "Resume" : "Pause"} onClick={onToggle} />
+        </NativeTooltip>
+      )}
       {index.errors > 0 && <small className="helm-version-unavailable">{index.errors} unavailable</small>}
       {index.truncated && (
         <small className="helm-version-unavailable">Only the first {index.total} entries are checked</small>
@@ -225,7 +301,7 @@ function RequestStatus({
   refreshLabel?: string;
 }) {
   return (
-    <div role="status" className="helm-request-status">
+    <div role="status" className="helm-request-status" data-error={Boolean(state.error)} aria-busy={state.loading}>
       {state.loading && (
         <>
           <span className="helm-loading">
@@ -257,7 +333,7 @@ function RequestStatus({
       {state.result?.ok && state.result.fetchedAt && (
         <small>
           {state.stale || state.loading || state.error || state.result.cached ? "Cached · " : "Updated · "}
-          {formatDateTime(state.result.fetchedAt)}
+          <ReleaseTimestamp value={state.result.fetchedAt} />
         </small>
       )}
     </div>
@@ -297,17 +373,35 @@ function Section({
   const [editing, setEditing] = useState(false);
   const historical = release.revision !== currentRelease.revision;
   const detail = state.result?.ok ? state.result.detail : undefined;
+  const [copySequence, setCopySequence] = useState(0);
+  const copied = copySequence > 0;
+  useEffect(() => {
+    setCopySequence(0);
+  }, [detail?.content]);
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = setTimeout(() => setCopySequence(0), 2000);
+    return () => clearTimeout(timeout);
+  }, [copySequence]);
   const lineCount = useMemo(() => {
     const content = detail?.content ?? "";
     let count = content ? 1 : 0;
     for (let index = 0; index < content.length; index++) if (content.charCodeAt(index) === 10) count++;
     return count;
   }, [detail?.content]);
+  const inlineRefresh = Boolean(
+    detail &&
+      !(tab === "overview" && detail.overview) &&
+      !(tab === "notes" && !detail.content.trim()) &&
+      !state.loading &&
+      !state.error &&
+      !state.stale,
+  );
   return (
     <>
-      {!(tab === "overview" && detail?.overview) && (!compare || state.loading || state.error || state.stale) && (
-        <RequestStatus state={state} />
-      )}
+      {!(tab === "overview" && detail?.overview) &&
+        !inlineRefresh &&
+        (!compare || state.loading || state.error || state.stale) && <RequestStatus state={state} />}
       {historical && (tab === "values" || tab === "manifest") && detail && (
         <div className="helm-toolbar">
           {compare && deployedRelease && (
@@ -370,31 +464,54 @@ function Section({
                 actions={<RequestStatus state={state} refreshLabel="Refresh overview" />}
               />
             )}
-            {detail && (tab !== "overview" || !detail.overview) && (
-              <>
-                <div className="helm-code-header">
-                  <span>
-                    {tab === "notes" ? "Release notes" : `${tab.charAt(0).toUpperCase() + tab.slice(1)} · YAML`}
-                  </span>
-                  <small>{lineCount} lines</small>
-                  <Button label="Copy" onClick={() => clipboard.writeText(detail.content)} />
-                </div>
-                {tab === "notes" ? (
-                  <pre
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "anywhere",
-                      fontFamily: "var(--font-monospace, monospace)",
-                      userSelect: "text",
-                    }}
-                  >
-                    <code>{detail.content}</code>
-                  </pre>
-                ) : (
-                  <HelmCodeView value={detail.content} ariaLabel={`${tab} for revision ${release.revision}`} />
-                )}
-              </>
+            {detail && tab === "notes" && !detail.content.trim() && (
+              <div className="helm-notes-empty" role="status">
+                <Icon material="description" size={24} />
+                <strong>No release notes</strong>
+                <span>This chart did not provide notes for this revision.</span>
+              </div>
             )}
+            {detail &&
+              (tab !== "overview" || !detail.overview) &&
+              (tab !== "notes" || Boolean(detail.content.trim())) && (
+                <>
+                  <div className="helm-code-header">
+                    <span>
+                      {tab === "notes" ? "Release notes" : `${tab.charAt(0).toUpperCase() + tab.slice(1)} · YAML`}
+                      {!historical && <ReadOnlyDocumentIndicator />}
+                    </span>
+                    <small>
+                      {lineCount} {lineCount === 1 ? "line" : "lines"}
+                    </small>
+                    <span className="helm-copy-action">
+                      {inlineRefresh && <RequestStatus state={state} refreshLabel={`Refresh ${tab}`} />}
+                      {copied && <small role="status">Copied</small>}
+                      <Button
+                        label={copied ? "Copy again" : "Copy"}
+                        onClick={() => {
+                          clipboard.writeText(detail.content);
+                          setCopySequence((value) => value + 1);
+                        }}
+                      />
+                    </span>
+                  </div>
+                  {tab === "notes" ? (
+                    <pre
+                      className="helm-notes"
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                        fontFamily: "var(--font-monospace, monospace)",
+                        userSelect: "text",
+                      }}
+                    >
+                      <code>{detail.content}</code>
+                    </pre>
+                  ) : (
+                    <HelmCodeView value={detail.content} ariaLabel={`${tab} for revision ${release.revision}`} />
+                  )}
+                </>
+              )}
           </>
         ))}
     </>
@@ -656,7 +773,7 @@ const ValuesEditor = observer(
             <p>Applying creates a new release revision. The chart version stays unchanged.</p>
           </div>
         </div>
-        <RequestStatus state={state} />
+        {!choices.length && <RequestStatus state={state} refreshLabel="Refresh chart sources" />}
         {!state.loading && !state.error && !choices.length && (
           <p role="alert">
             No matching chart is available in your Helm repositories. Add the repository for this chart before editing
@@ -665,7 +782,10 @@ const ValuesEditor = observer(
         )}
         {choices.length > 0 && (
           <label className="helm-filter">
-            <span>Chart source · same version</span>
+            <span className="helm-field-heading">
+              Chart source · same version
+              <RequestStatus state={state} refreshLabel="Refresh chart sources" />
+            </span>
             <Select
               aria-label="Chart source"
               value={selectedChart}
@@ -795,6 +915,7 @@ const History = observer(
     const [revisionFilter, setRevisionFilter] = useState("");
     const [page, setPage] = useState(0);
     const historyFrame = useRef<HTMLDivElement>(null);
+    const [revealRevision, setRevealRevision] = useState<{ revision: number; result: HelmResponse }>();
     useEffect(() => {
       if (historyFrame.current) historyFrame.current.scrollTop = 0;
     }, [page, revisionFilter, state.result]);
@@ -818,6 +939,36 @@ const History = observer(
         )
       : [];
     const historyPage = history.slice(page * 50, (page + 1) * 50);
+    useEffect(() => {
+      if (revealRevision === undefined) return;
+      if (revealRevision.result !== state.result) {
+        setRevealRevision(undefined);
+        return;
+      }
+      if (revisionFilter) {
+        setRevisionFilter("");
+        setPage(0);
+        return;
+      }
+      const entries = state.result?.ok ? (state.result.releases ?? []) : [];
+      const index = entries.findIndex((item) => item.revision === revealRevision.revision);
+      if (index < 0) {
+        setRevealRevision(undefined);
+        return;
+      }
+      const targetPage = Math.floor(index / 50);
+      if (page !== targetPage) {
+        setPage(targetPage);
+        return;
+      }
+      const row = historyFrame.current?.querySelector<HTMLTableRowElement>(
+        `tr[data-revision="${revealRevision.revision}"]`,
+      );
+      if (!row) return;
+      row.scrollIntoView({ block: "nearest" });
+      row.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      setRevealRevision(undefined);
+    }, [revealRevision, revisionFilter, page, state.result]);
     useEffect(() => {
       if (
         !state.result?.ok ||
@@ -962,29 +1113,50 @@ const History = observer(
         },
       });
     };
+    const requestStatus = (
+      <RequestStatus
+        state={{
+          ...state,
+          refresh: () => {
+            setVersionGeneration((value) => value + 1);
+            state.refresh();
+          },
+        }}
+      />
+    );
     return (
       <div className="helm-history-layout">
-        <RequestStatus
-          state={{
-            ...state,
-            refresh: () => {
-              setVersionGeneration((value) => value + 1);
-              state.refresh();
-            },
-          }}
-        />
+        {!state.result?.ok && requestStatus}
         {state.result?.ok && (
-          <div className="helm-toolbar">
-            <input
-              className="helm-text-input"
-              aria-label="Search revision history"
+          <div className="helm-toolbar helm-history-tools">
+            <HelmSearchField
+              label="Search revision history"
               placeholder="Revision or App version"
               value={revisionFilter}
-              onChange={(event) => setRevisionFilter(event.target.value)}
+              onChange={setRevisionFilter}
+              clearLabel="Clear revision search"
             />
             <small>
-              {history.length} revisions{revision ? ` · Selected revision ${revision}` : ""}
+              {history.length !== (state.result.releases?.length ?? 0)
+                ? `${history.length} of ${state.result.releases?.length ?? 0} revisions`
+                : `${history.length} ${history.length === 1 ? "revision" : "revisions"}`}
             </small>
+            {revision && (
+              <NativeTooltip title="Return to the selected revision in the table">
+                <Button
+                  className="helm-inline-action"
+                  aria-label="Show selected revision"
+                  label={`Selected revision ${revision}`}
+                  onClick={() => {
+                    if (!state.result?.ok) return;
+                    setRevisionFilter("");
+                    setPage(0);
+                    setRevealRevision({ revision, result: state.result });
+                  }}
+                  disabled={busy || !historyCurrent}
+                />
+              </NativeTooltip>
+            )}
             {readOnly && (
               <NativeTooltip title="Read-only mode is enabled. Revision contents and comparisons remain available">
                 <span className="helm-access-badge" role="status" aria-label="Read only">
@@ -993,6 +1165,7 @@ const History = observer(
                 </span>
               </NativeTooltip>
             )}
+            <div className="helm-history-refresh">{requestStatus}</div>
           </div>
         )}
         {revisionFilter && (
@@ -1037,7 +1210,7 @@ const History = observer(
                   </tr>
                 )}
                 {historyPage.map((item) => (
-                  <tr key={item.revision} data-selected={revision === item.revision}>
+                  <tr key={item.revision} data-revision={item.revision} data-selected={revision === item.revision}>
                     <td>
                       {allowed ? (
                         <label>
@@ -1076,14 +1249,19 @@ const History = observer(
                     <td>
                       <StatusBadge status={item.status} />
                     </td>
-                    <td>{item.updatedAt ? formatDateTime(item.updatedAt) : "—"}</td>
                     <td>
-                      <Button
-                        className="helm-inline-action"
-                        label="View revision"
-                        disabled={!historyCurrent || busy}
-                        onClick={() => onView(item)}
-                      />
+                      <ReleaseTimestamp value={item.updatedAt} />
+                    </td>
+                    <td>
+                      <NativeTooltip title={`View values from revision ${item.revision}`}>
+                        <Button
+                          className="helm-inline-action helm-history-view"
+                          aria-label="View revision"
+                          label={<Icon material="visibility" size={18} />}
+                          disabled={!historyCurrent || busy}
+                          onClick={() => onView(item)}
+                        />
+                      </NativeTooltip>
                     </td>
                   </tr>
                 ))}
@@ -1148,6 +1326,8 @@ const History = observer(
   },
 );
 
+let nextTabIdentity = 0;
+
 function ReleasePanel({
   clusterId,
   contextId,
@@ -1165,6 +1345,7 @@ function ReleasePanel({
   onLatest: (revision: HelmReleaseMetadata) => void;
   historyGeneration: number;
 }) {
+  const [tabIdentity] = useState(() => `helm-release-tabs-${++nextTabIdentity}`);
   const menuButton = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const overlayEscapes = useRef(new WeakSet<KeyboardEvent>());
@@ -1304,10 +1485,35 @@ function ReleasePanel({
           <Button label="Back to current" onClick={() => setHistoricalRelease(undefined)} />
         </div>
       )}
-      <nav className="helm-tabs">
+      <nav
+        className="helm-tabs"
+        role="tablist"
+        aria-label="Release sections"
+        onKeyDown={(event) => {
+          const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+          if (!keys.includes(event.key) || !(event.target instanceof HTMLButtonElement)) return;
+          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const index = tabs.indexOf(event.target);
+          if (index < 0) return;
+          event.preventDefault();
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? tabs.length - 1
+                : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+          tabs[next]?.focus();
+          tabs[next]?.click();
+        }}
+      >
         {(["overview", "values", "manifest", "notes", "history"] as const).map((value) => (
           <Button
             key={value}
+            role="tab"
+            id={`${tabIdentity}-${value}`}
+            aria-controls={`${tabIdentity}-panel`}
+            aria-selected={tab === value}
+            tabIndex={tab === value ? 0 : -1}
             label={value[0].toUpperCase() + value.slice(1)}
             className={tab === value ? "helm-tab helm-tab-active" : "helm-tab"}
             onClick={() => {
@@ -1317,7 +1523,12 @@ function ReleasePanel({
           />
         ))}
       </nav>
-      <div className="helm-panel-content">
+      <div
+        className="helm-panel-content"
+        role="tabpanel"
+        id={`${tabIdentity}-panel`}
+        aria-labelledby={`${tabIdentity}-${tab}`}
+      >
         {tab === "history" ? (
           <History
             generation={historyGeneration}
@@ -1366,6 +1577,10 @@ function Releases({
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [search, status, state.result]);
+  const releaseFrame = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (releaseFrame.current) releaseFrame.current.scrollTop = 0;
+  }, [page, search, status, state.result]);
   const [selection, setSelection] = useState<{
     release: HelmReleaseMetadata;
     result: Extract<HelmResponse, { ok: true }>;
@@ -1427,12 +1642,12 @@ function Releases({
         {namespaceFilter}
         <label className="helm-filter">
           <span>Search</span>
-          <input
-            className="helm-text-input"
-            aria-label="Search releases"
+          <HelmSearchField
+            label="Search releases"
             placeholder="Search releases"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={setSearch}
+            clearLabel="Clear release search"
           />
         </label>
         <label className="helm-filter helm-status-filter">
@@ -1461,7 +1676,9 @@ function Releases({
       </div>
       <div className="helm-list-summary">
         <span>
-          {filtered.length} {filtered.length === 1 ? "release" : "releases"}
+          {filtered.length !== releases.length
+            ? `${filtered.length} of ${releases.length} releases`
+            : `${filtered.length} ${filtered.length === 1 ? "release" : "releases"}`}
         </span>
         <RequestStatus
           state={{
@@ -1485,11 +1702,17 @@ function Releases({
         />
       )}
       {(filtered.length > 0 || state.loading || state.error) && (
-        <div className="helm-table-frame" role="region" aria-label="Helm releases table" tabIndex={0}>
+        <div
+          ref={releaseFrame}
+          className="helm-table-frame"
+          role="region"
+          aria-label="Helm releases table"
+          tabIndex={0}
+        >
           <table className="helm-table">
             <thead>
               <tr>
-                {["Name", "Namespace", "App version", "Revision", "Status", "Metadata updated"].map((title) => (
+                {["Name", "Status", "Namespace", "App version", "Revision", "Metadata updated"].map((title) => (
                   <th key={title}>{title}</th>
                 ))}
               </tr>
@@ -1498,13 +1721,18 @@ function Releases({
               {filtered.slice(page * 100, (page + 1) * 100).map((release) => (
                 <tr key={`${release.namespace}/${release.name}`}>
                   <td>
-                    <Button
-                      className="helm-release-link"
-                      label={release.name}
-                      onClick={() => {
-                        if (result) setSelection({ release, result });
-                      }}
-                    />
+                    <NativeTooltip title={release.name}>
+                      <Button
+                        className="helm-release-link"
+                        label={release.name}
+                        onClick={() => {
+                          if (result) setSelection({ release, result });
+                        }}
+                      />
+                    </NativeTooltip>
+                  </td>
+                  <td>
+                    <StatusBadge status={release.status} />
                   </td>
                   <td>{release.namespace}</td>
                   <td>
@@ -1523,9 +1751,8 @@ function Releases({
                   </td>
                   <td>{release.revision}</td>
                   <td>
-                    <StatusBadge status={release.status} />
+                    <ReleaseTimestamp value={release.updatedAt} />
                   </td>
-                  <td>{release.updatedAt ? formatDateTime(release.updatedAt) : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -1536,7 +1763,8 @@ function Releases({
         <div className="helm-toolbar">
           <Button label="Previous releases" disabled={page === 0} onClick={() => setPage((value) => value - 1)} />
           <span>
-            {filtered.length} releases · Page {page + 1} of {Math.ceil(filtered.length / 100)}
+            {page * 100 + 1}–{Math.min((page + 1) * 100, filtered.length)} of {filtered.length} releases · Page{" "}
+            {page + 1} of {Math.ceil(filtered.length / 100)}
           </span>
           <Button
             label="Next releases"
@@ -1547,12 +1775,14 @@ function Releases({
       )}
       {!state.loading && !state.error && !filtered.length && (
         <div className="helm-empty">
-          <Icon material="search" size={28} />
+          <Icon material={search || status ? "search" : "inbox"} size={28} />
           <p>
             {search &&
             (versionIndex.completed < versionIndex.total || versionIndex.errors > 0 || versionIndex.truncated)
               ? "No known matches"
-              : "No releases found"}
+              : search || status
+                ? "No releases found"
+                : "No Helm releases"}
           </p>
           <span>
             {search &&
@@ -1564,7 +1794,9 @@ function Releases({
                   : "More matches may appear as App versions are checked"
               : search || status
                 ? "No releases match your filters"
-                : "This namespace has no Helm releases"}
+                : namespace
+                  ? `No Helm releases in ${namespace}`
+                  : "No Helm releases in the available namespaces"}
           </span>
           {(search || status) && (
             <Button
@@ -1668,12 +1900,19 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-filter .Select__input-container { margin: 0; padding: 0; }
         .power-helm .helm-filter .Select__indicator { padding: 4px 8px; }
         @media (max-width: 760px) { .power-helm .helm-filters { grid-template-columns: minmax(0, 1fr); } }
+        .power-helm .helm-search-field { position: relative; min-width: 0; }
+        .power-helm .helm-search-field > input { width: 100%; padding-right: 34px; }
+        .power-helm .helm-search-clear { position: absolute; top: 1px; right: 1px; height: 30px; width: 30px; border: 0; border-radius: 3px; background: transparent; color: var(--textColorSecondary); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .power-helm .helm-search-clear:hover { background: var(--contentColor); color: var(--textColorPrimary); }
         .power-helm .helm-text-input { box-sizing: border-box; height: 32px; color: var(--textColorPrimary); background: var(--inputControlBackground, var(--mainBackground)); border: 1px solid var(--borderColor); border-radius: 4px; padding: 6px 10px; font: inherit; }
         .power-helm .helm-text-input:focus-visible, .power-helm input[type=radio]:focus-visible, .power-helm button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .power-helm input[type=checkbox], .power-helm input[type=radio] { accent-color: var(--primary); margin: 0 7px 0 0; vertical-align: middle; }
         .power-helm .helm-native-button, .power-helm .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
         .power-helm .helm-native-button:hover, .power-helm .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
         .power-helm .helm-list-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin: 6px 0 10px; }
+        .power-helm .helm-request-status[data-error=true] { border: 1px solid color-mix(in srgb, var(--colorError) 35%, var(--borderColor)); background: var(--contentColor); border-radius: 6px; padding: 12px; justify-content: space-between; }
+        .power-helm .helm-request-status[data-error=true] .helm-error { flex: 1 1 200px; min-width: 0; align-items: flex-start; line-height: 1.5; }
+        .power-helm .helm-request-status[data-error=true] .Icon { flex-shrink: 0; }
         .power-helm .helm-request-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; }
         .power-helm .helm-panel-content > .helm-request-status { justify-content: flex-end; margin-bottom: 12px; }
         .power-helm .helm-loading, .power-helm .helm-error { display: inline-flex; gap: 6px; align-items: center; }
@@ -1728,6 +1967,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-panel-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
         .power-helm .helm-tabs { flex-shrink: 0; background: var(--mainBackground); display: flex; overflow-x: auto; padding: 0 18px; gap: 4px; border-bottom: 1px solid var(--borderColor); }
         :root .power-helm .Button.helm-tab { background: transparent; border: 0; border-radius: 0; padding: 12px 8px; color: var(--textColorSecondary); white-space: nowrap; box-shadow: none; border-bottom: 2px solid transparent; }
+        :root .power-helm .Button.helm-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -4px; }
         :root .power-helm .Button.helm-tab-active { color: var(--textColorPrimary); border-bottom-color: var(--primary); }
         .power-helm .helm-panel-content { min-height: 0; overflow: auto; flex: 1; padding: 18px 22px 24px; }
         .power-helm .helm-overview-card { border: 1px solid var(--borderColor); border-radius: 6px; overflow: hidden; }
@@ -1742,6 +1982,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-overview dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
         .power-helm .helm-edit-notice { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--borderColor); border-radius: 4px; margin-bottom: 14px; }
         .power-helm .helm-edit-notice p { margin-top: 5px; color: var(--textColorSecondary); font-size: 12px; line-height: 1.5; }
+        .power-helm .helm-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
         .power-helm .helm-values-editor > .helm-filter { margin: 12px 0; }
         .power-helm .helm-values-editor > .helm-toolbar { position: sticky; bottom: -24px; z-index: 4; margin: 12px -22px -24px; padding: 12px 22px; border-top: 1px solid var(--borderColor); background: var(--mainBackground); box-shadow: 0 -6px 12px color-mix(in srgb, var(--mainBackground) 70%, transparent); }
         .power-helm .helm-revision-notice, .power-helm .helm-viewing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; color: var(--textColorSecondary); font-size: 12px; padding: 10px 12px; border: 1px solid var(--borderColor); border-radius: 4px; }
@@ -1751,12 +1992,23 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
         .power-helm .helm-code-header + .helm-code-view { border: 1px solid var(--borderColor); border-top: 0; border-radius: 0 0 6px 6px; }
         .power-helm .helm-code-view { overscroll-behavior: contain; }
+        .power-helm .helm-notes-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 16px; color: var(--textColorSecondary); text-align: center; }
+        .power-helm .helm-notes-empty strong { font-size: 14px; font-weight: 500; color: var(--textColorPrimary); }
+        .power-helm .helm-timestamp { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .power-helm .helm-copy-action { display: inline-flex; align-items: center; gap: 8px; }
+        .power-helm .helm-code-header > span:first-child { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 10px; }
         .power-helm .helm-code-header { display: flex; justify-content: space-between; align-items: center; background: var(--contentColor); border: 1px solid var(--borderColor); border-radius: 6px 6px 0 0; padding: 8px 12px; color: var(--textColorSecondary); font-size: 12px; }
+        .power-helm pre.helm-notes { max-height: 52vh; overscroll-behavior: contain; color: var(--textColorPrimary); background: var(--mainBackground); }
+        .power-helm pre.helm-notes code { color: inherit; opacity: 1; background: transparent; }
         .power-helm pre { margin: 0; padding: 16px; font-size: 12px; line-height: 1.65; border: 1px solid var(--borderColor); border-top: 0; border-radius: 0 0 6px 6px; max-height: 65vh; overflow: auto; }
         .power-helm .helm-panel-content:has(> .helm-history-layout) { display: flex; overflow: hidden; }
         .power-helm .helm-access-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--borderColor); border-radius: 4px; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
+        :root .power-helm .Button.helm-history-view { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; padding: 4px; }
         .power-helm .helm-history-layout { display: flex; flex-direction: column; min-height: 0; width: 100%; flex: 1; }
         .power-helm .helm-history-layout > :not(.helm-history-frame) { flex-shrink: 0; }
+        .power-helm .helm-history-tools { margin: 0 0 12px; gap: 8px; }
+        .power-helm .helm-history-tools > .helm-search-field { width: 180px; min-width: 140px; flex: 1; }
+        .power-helm .helm-history-refresh { margin-left: auto; }
         .power-helm .helm-history-layout > .helm-request-status { justify-content: flex-end; margin-bottom: 12px; }
         .power-helm .helm-history-frame { flex: 0 1 auto; min-height: 80px; overflow: auto; border: 1px solid var(--borderColor); border-radius: 6px; overscroll-behavior: contain; scrollbar-gutter: stable; }
         .power-helm .helm-history-frame:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

@@ -222,13 +222,13 @@ export class HelmService {
       if (
         response?.kind !== "PartialObjectMetadataList" ||
         response?.apiVersion !== "meta.k8s.io/v1" ||
-        !Array.isArray(response.items)
+        (response.items !== null && !Array.isArray(response.items))
       )
         throw new HelmError(
           "metadata-unavailable",
           "The API server must support PartialObjectMetadataList; full Secret listing is disabled",
         );
-      for (const item of response.items) {
+      for (const item of response.items ?? []) {
         const row = metadataRelease(item);
         if (row && (!namespace || row.namespace === namespace) && (!name || row.name === name)) rows.push(row);
       }
