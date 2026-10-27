@@ -1,5 +1,6 @@
 export const HELM_INSTALLED_CHART = "@installed";
 export const HELM_CHANNEL = "freelens-power:helm";
+export const formatHelmAppVersion = (value: string | undefined) => value?.replace(/@sha256:.*$/i, "");
 export type HelmSection = "overview" | "values" | "manifest" | "notes";
 export interface HelmReleaseMetadata {
   name: string;

@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useRef, useState } from "react";
+import { formatHelmAppVersion, type HelmReleaseMetadata } from "../common/helm";
 import {
   type HelmVersion,
   type HelmVersionResult,
@@ -8,8 +9,6 @@ import {
   subscribeHelmVersion,
 } from "./helm-version-index";
 import { NativeTooltip } from "./native-tooltip";
-
-import type { HelmReleaseMetadata } from "../common/helm";
 
 export function HelmAppVersionCell({
   clusterId,
@@ -100,7 +99,7 @@ export function HelmAppVersionCell({
       {result && "value" in result ? (
         result.value.appVersion ? (
           <NativeTooltip title={result.value.chartVersion ? `Chart version: ${result.value.chartVersion}` : undefined}>
-            <span className="helm-version-badge">{result.value.appVersion}</span>
+            <span className="helm-version-badge">{formatHelmAppVersion(result.value.appVersion) || "—"}</span>
           </NativeTooltip>
         ) : (
           <span aria-label="Application version unavailable">—</span>

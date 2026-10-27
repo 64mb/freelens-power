@@ -111,9 +111,9 @@ function ReleaseNameConfirmation({
           Type <strong>{name}</strong> exactly to permanently delete this release and its Helm-managed resources.
         </p>
         <div className="power-helm-release-delete-field">
-          <label htmlFor="power-helm-release-delete-name">Release name</label>
+          <label id="power-helm-release-delete-name-label">Release name</label>
           <Input
-            id="power-helm-release-delete-name"
+            aria-labelledby="power-helm-release-delete-name-label"
             value={value}
             onChange={setValue}
             trim={false}

@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { createPortal } from "react-dom";
 import { formatDateTime } from "../common/date-time";
 import {
+  formatHelmAppVersion,
   HELM_CHANNEL,
   HELM_INSTALLED_CHART,
   type HelmOperation,
@@ -113,7 +114,7 @@ function ReleaseOverview({ overview, actions }: { overview: HelmOverview; action
   const fields = [
     ["Revision", overview.revision],
     ["Name", overview.name],
-    ["App version", overview.appVersion],
+    ["App version", formatHelmAppVersion(overview.appVersion)],
     ["Namespace", overview.namespace],
     ["Chart version", overview.chartVersion],
     ["Status", overview.status],
@@ -1694,7 +1695,7 @@ const History = observer(
                             App version{" "}
                             {versionIndex.versionFor(target)?.appVersion ? (
                               <span className="helm-version-badge helm-consent-revision">
-                                {versionIndex.versionFor(target)?.appVersion}
+                                {formatHelmAppVersion(versionIndex.versionFor(target)?.appVersion) || "—"}
                               </span>
                             ) : (
                               "—"
