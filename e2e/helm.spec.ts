@@ -112,7 +112,7 @@ test("Helm native fallback, history and safe read-only actions", async ({}, info
     await panel.getByRole("button", { name: "Back to current", exact: true }).click();
     await panel.getByRole("tab", { name: "History", exact: true }).click();
     await panel.getByRole("radio", { name: "Revision 1", exact: true }).check();
-    await panel.getByRole("checkbox", { name: new RegExp(`I confirm rolling back ${name} to revision 1`) }).check();
+    await panel.getByRole("checkbox", { name: new RegExp(`I confirm rolling back ${name} to Revision 1`) }).check();
     await panel.getByRole("button", { name: "Roll back", exact: true }).click();
     const confirmation = frame.getByTestId("confirmation-dialog");
     await expect(confirmation).toBeVisible();

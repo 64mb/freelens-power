@@ -1,4 +1,9 @@
 export const diagnosticsStyles = `
+.power-diagnostics .diagnostics-loading { display:flex; align-items:center; justify-content:center; gap:8px; }
+.power-diagnostics .diagnostics-loading-icon { display:inline-flex; flex-shrink:0; animation:power-diagnostics-loading-spin 1.2s linear infinite; }
+@keyframes power-diagnostics-loading-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .power-diagnostics .diagnostics-loading-icon { animation:none; } }
+
 .power-diagnostics{container-type:inline-size;container-name:diagnostics;box-sizing:border-box;color:var(--textColorPrimary);max-width:100%;line-height:1.5}
 .power-diagnostics *{box-sizing:border-box}.power-diagnostics h2{margin:0 0 6px;font-size:24px}.power-diagnostics h3{margin:0 0 6px;font-size:18px}.power-diagnostics p{margin:8px 0 16px}.power-diagnostics .page-intro,.power-diagnostics small,.power-diagnostics .view-intro p{color:var(--textColorSecondary)}
 .power-diagnostics nav{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;border-bottom:1px solid var(--borderColor);padding-bottom:8px}.power-diagnostics button{cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:5px;border:1px solid var(--borderColor);background:var(--contentColor);color:var(--textColorPrimary);font:inherit;padding:6px 10px;margin:3px 4px 3px 0}.power-diagnostics button:hover{border-color:var(--primary)}.power-diagnostics button[aria-pressed=true]{color:var(--primary);border-color:var(--primary)}.power-diagnostics button:disabled{opacity:.5;cursor:default}.power-diagnostics :is(button,input,summary):focus-visible{outline:2px solid var(--primary);outline-offset:2px}

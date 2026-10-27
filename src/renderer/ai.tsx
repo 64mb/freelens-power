@@ -106,7 +106,9 @@ export function aiLauncherLeft(): number {
 export function hasAiResourceDetails(): boolean {
   if (new URLSearchParams(window.location.search).get("kube-details")) return true;
   return Array.from(
-    document.querySelectorAll<HTMLElement>(".Drawer.KubeObjectDetails, .Drawer.ReleaseDetails, .DetailsDrawer"),
+    document.querySelectorAll<HTMLElement>(
+      ".Drawer.KubeObjectDetails, .Drawer.ReleaseDetails, .Drawer.helm-native-drawer, .DetailsDrawer",
+    ),
   ).some((element) => {
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();

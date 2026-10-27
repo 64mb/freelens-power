@@ -18,7 +18,7 @@ const MAX_CELLS = 1_000_000;
 export function compareHelmLines(before: string, after: string): HelmDiff {
   const unavailable = {
     available: false as const,
-    reason: "Detailed comparison exceeds the size limit. Full documents are shown below without change highlighting.",
+    reason: "Detailed comparison exceeds the size limit. Documents are shown below without change highlighting.",
   };
   if (before.length > MAX_CHARACTERS || after.length > MAX_CHARACTERS) return unavailable;
   const oldLines = before === "" ? [] : before.split("\n");
@@ -94,7 +94,7 @@ export type HelmDiffBlock =
   | { kind: "code"; before: string[]; after: string[]; beforeStart: number; afterStart: number; changed: boolean };
 
 // keep native editor count bounded even for documents containing many tiny edits
-export const MAX_HELM_DIFF_BLOCKS = 12;
+export const MAX_HELM_DIFF_CODE_BLOCKS = 12;
 
 export function buildHelmDiffBlocks(
   diff: Extract<HelmDiff, { available: true }>,
@@ -108,6 +108,7 @@ export function buildHelmDiffBlocks(
     else groups.push({ equal, lines: [line] });
   }
   const blocks: HelmDiffBlock[] = [];
+  let codeBlockCount = 0;
   let beforeStart = 1;
   let afterStart = 1;
   function code(lines: HelmDiffLine[], changed: boolean) {
@@ -118,7 +119,10 @@ export function buildHelmDiffBlocks(
       if (last?.kind === "code" && !last.changed && !changed) {
         last.before.push(...before);
         last.after.push(...after);
-      } else blocks.push({ kind: "code", before, after, beforeStart, afterStart, changed });
+      } else {
+        blocks.push({ kind: "code", before, after, beforeStart, afterStart, changed });
+        codeBlockCount++;
+      }
     }
     beforeStart += before.length;
     afterStart += after.length;
@@ -138,7 +142,7 @@ export function buildHelmDiffBlocks(
       }
       code(trailing ? group.lines.slice(-trailing) : [], false);
     }
-    if (blocks.length > MAX_HELM_DIFF_BLOCKS) return undefined;
+    if (codeBlockCount > MAX_HELM_DIFF_CODE_BLOCKS) return undefined;
   }
   return blocks;
 }
@@ -167,4 +171,20 @@ export function findHelmDocumentMatches(before: string, after: string, query: st
     }
   }
   return { matches, count, available: true };
+}
+
+export const MAX_HELM_PREVIEW_LINES = 1000;
+export const MAX_HELM_PREVIEW_CHARACTERS = 256 * 1024;
+export function helmDocumentPreview(document: string) {
+  let end = Math.min(document.length, MAX_HELM_PREVIEW_CHARACTERS);
+  let lines = 1;
+  for (let index = 0; index < end; index++) {
+    if (document.charCodeAt(index) !== 10) continue;
+    if (lines === MAX_HELM_PREVIEW_LINES) {
+      end = index;
+      break;
+    }
+    lines++;
+  }
+  return { value: document.slice(0, end), lines, limited: end < document.length };
 }

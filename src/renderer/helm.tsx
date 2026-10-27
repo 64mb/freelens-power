@@ -137,6 +137,8 @@ function ReleaseOverview({ overview, actions }: { overview: HelmOverview; action
                   <StatusBadge status={String(value)} />
                 ) : label === "Updated" ? (
                   <ReleaseTimestamp value={String(value)} />
+                ) : label === "Revision" || label === "App version" || label === "Chart version" ? (
+                  <span className="helm-overview-version-badge">{String(value)}</span>
                 ) : (
                   String(value)
                 )}
@@ -323,10 +325,14 @@ function RequestStatus({
   state,
   refreshLabel = "Refresh",
   labeled = false,
+  showTimestamp = true,
+  loadingLabel = "Loading…",
 }: {
   state: ReturnType<typeof useHelmRequest>;
   refreshLabel?: string;
   labeled?: boolean;
+  showTimestamp?: boolean;
+  loadingLabel?: string;
 }) {
   return (
     <div role="status" className="helm-request-status" data-error={Boolean(state.error)} aria-busy={state.loading}>
@@ -336,9 +342,13 @@ function RequestStatus({
             <span aria-hidden="true" className="helm-spinner">
               <Icon material="autorenew" />
             </span>
-            Loading…
+            {loadingLabel}
           </span>
-          <Button label="Cancel" onClick={state.cancel} />
+          <NativeTooltip title="Cancel loading">
+            <button type="button" className="helm-icon-button" aria-label="Cancel loading" onClick={state.cancel}>
+              <Icon material="close" size={18} />
+            </button>
+          </NativeTooltip>
         </>
       )}
       {state.error && (
@@ -372,13 +382,48 @@ function RequestStatus({
           )}
         </NativeTooltip>
       )}
-      {state.result?.ok && state.result.fetchedAt && (
+      {showTimestamp && state.result?.ok && state.result.fetchedAt && (
         <small>
           {state.stale || state.loading || state.error || state.result.cached ? "Cached · " : "Updated · "}
           <ReleaseTimestamp value={state.result.fetchedAt} />
         </small>
       )}
     </div>
+  );
+}
+
+function HelmPagination({
+  page,
+  pages,
+  kind,
+  onChange,
+}: {
+  page: number;
+  pages: number;
+  kind: "releases" | "revisions";
+  onChange: (page: number) => void;
+}) {
+  return (
+    <nav className="helm-toolbar helm-pagination" aria-label={`Helm ${kind} pages`}>
+      <NativeTooltip title={`Previous ${kind}`}>
+        <button type="button" aria-label={`Previous ${kind}`} disabled={page === 0} onClick={() => onChange(page - 1)}>
+          <Icon material="chevron_left" size={16} />
+        </button>
+      </NativeTooltip>
+      <span>
+        Page {page + 1} / {pages}
+      </span>
+      <NativeTooltip title={`Next ${kind}`}>
+        <button
+          type="button"
+          aria-label={`Next ${kind}`}
+          disabled={page + 1 >= pages}
+          onClick={() => onChange(page + 1)}
+        >
+          <Icon material="chevron_right" size={16} />
+        </button>
+      </NativeTooltip>
+    </nav>
   );
 }
 
@@ -566,7 +611,6 @@ function Section({
                     </small>
                     <span className="helm-copy-action">
                       {tab === "values" && <span ref={setCodeActions} className="helm-edit-action" />}
-                      {inlineRefresh && <RequestStatus state={state} refreshLabel={`Refresh ${tab}`} />}
                       {copied && <small role="status">Copied</small>}
                       <Button
                         aria-label={copied ? "Copy again" : "Copy"}
@@ -581,6 +625,9 @@ function Section({
                           setCopySequence((value) => value + 1);
                         }}
                       />
+                      {inlineRefresh && (
+                        <RequestStatus state={state} refreshLabel={`Refresh ${tab}`} showTimestamp={false} />
+                      )}
                     </span>
                   </div>
                   {tab === "notes" ? (
@@ -1253,7 +1300,7 @@ const History = observer(
           },
         }}
         refreshLabel={restoreTarget ? "Refresh restore availability" : "Refresh"}
-        labeled={Boolean(restoreTarget)}
+        showTimestamp={!restoreTarget}
       />
     );
     if (restoreTarget && readOnly) return null;
@@ -1279,7 +1326,7 @@ const History = observer(
                 <Button
                   className="helm-inline-action"
                   aria-label="Show selected revision"
-                  label={`Selected revision ${revision}`}
+                  label={`Selected Revision ${revision}`}
                   onClick={() => {
                     if (!state.result?.ok) return;
                     setRevisionFilter("");
@@ -1345,25 +1392,27 @@ const History = observer(
                 {historyPage.map((item) => (
                   <tr key={item.revision} data-revision={item.revision} data-selected={revision === item.revision}>
                     <td>
-                      {allowed ? (
-                        <label>
-                          <input
-                            aria-label={`Revision ${item.revision}`}
-                            type="radio"
-                            name="helm-revision"
-                            checked={revision === item.revision}
-                            disabled={busy || !historyCurrent}
-                            onChange={() => {
-                              setRevision(item.revision);
-                              setConfirmed(false);
-                            }}
-                          />{" "}
-                          {item.revision}
-                        </label>
-                      ) : (
-                        <span aria-label={`Revision ${item.revision}`}>{item.revision}</span>
-                      )}
-                      {item.revision === release.revision && <span className="helm-current-tag">Current</span>}
+                      <div className="helm-history-revision">
+                        {allowed ? (
+                          <label>
+                            <input
+                              aria-label={`Revision ${item.revision}`}
+                              type="radio"
+                              name="helm-revision"
+                              checked={revision === item.revision}
+                              disabled={busy || !historyCurrent}
+                              onChange={() => {
+                                setRevision(item.revision);
+                                setConfirmed(false);
+                              }}
+                            />{" "}
+                            {item.revision}
+                          </label>
+                        ) : (
+                          <span aria-label={`Revision ${item.revision}`}>{item.revision}</span>
+                        )}
+                        {item.revision === release.revision && <span className="helm-current-tag">Current</span>}
+                      </div>
                     </td>
                     <td>
                       {contextId ? (
@@ -1386,24 +1435,30 @@ const History = observer(
                       <ReleaseTimestamp value={item.updatedAt} />
                     </td>
                     <td>
-                      <NativeTooltip title={`View values from revision ${item.revision}`}>
-                        <Button
-                          className="helm-inline-action helm-history-view"
-                          aria-label="View revision"
-                          label={<Icon material="visibility" size={18} />}
-                          disabled={!historyCurrent || busy}
-                          onClick={() => onView(item)}
-                        />
-                      </NativeTooltip>
-                      <NativeTooltip title={`Compare revision ${item.revision} with latest`}>
-                        <Button
-                          className="helm-inline-action helm-history-view"
-                          aria-label={`Compare revision ${item.revision}`}
-                          label={<Icon material="difference" size={18} />}
-                          disabled={!historyCurrent || busy}
-                          onClick={() => onView(item, true)}
-                        />
-                      </NativeTooltip>
+                      <div className="helm-history-actions">
+                        <NativeTooltip title={`View values from revision ${item.revision}`}>
+                          <button
+                            type="button"
+                            className="helm-icon-button helm-history-view"
+                            aria-label="View revision"
+                            disabled={!historyCurrent || busy}
+                            onClick={() => onView(item)}
+                          >
+                            <Icon material="visibility" size={18} />
+                          </button>
+                        </NativeTooltip>
+                        <NativeTooltip title={`Compare revision ${item.revision} with latest`}>
+                          <button
+                            type="button"
+                            className="helm-icon-button helm-history-view"
+                            aria-label={`Compare revision ${item.revision}`}
+                            disabled={!historyCurrent || busy}
+                            onClick={() => onView(item, true)}
+                          >
+                            <Icon material="difference" size={18} />
+                          </button>
+                        </NativeTooltip>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1412,36 +1467,24 @@ const History = observer(
           </div>
         )}
         {!restoreTarget && history.length > 50 && (
-          <div className="helm-toolbar">
-            <Button label="Previous revisions" disabled={page === 0} onClick={() => setPage((value) => value - 1)} />
-            <span>
-              Page {page + 1} of {Math.ceil(history.length / 50)}
-            </span>
-            <Button
-              label="Next revisions"
-              disabled={(page + 1) * 50 >= history.length}
-              onClick={() => setPage((value) => value + 1)}
-            />
-          </div>
+          <HelmPagination page={page} pages={Math.ceil(history.length / 50)} kind="revisions" onChange={setPage} />
         )}
         {allowed && (
           <>
             <div className="helm-rollback">
               <div className="helm-rollback-title">
                 <Icon material="restore" size={18} />
-                {restoreTarget ? "Restore this revision" : "Roll back release"}
+                <span>{restoreTarget ? "Restore this revision" : "Roll back release"}</span>
+                {restoreTarget && target && (
+                  <div className="helm-confirmation-target">
+                    <span>Current</span>
+                    <span className="helm-consent-revision">Revision {release.revision}</span>
+                    <StatusBadge status={release.status} />
+                    <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={release} />
+                  </div>
+                )}
                 {restoreTarget && requestStatus}
               </div>
-              {restoreTarget && (
-                <p>Restoring the complete release creates a new current revision. Existing history is preserved.</p>
-              )}
-              {restoreTarget && target && (
-                <div className="helm-confirmation-target">
-                  <span className="helm-consent-revision">Revision {target.revision}</span>
-                  <StatusBadge status={target.status} />
-                  <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={target} />
-                </div>
-              )}
               {restoreTarget && !target && historyCurrent && (
                 <p role="alert">
                   {restoreTarget.revision === release.revision
@@ -1459,7 +1502,7 @@ const History = observer(
                       {target && (
                         <>
                           {" "}
-                          to <span className="helm-consent-revision">revision {target.revision}</span>
+                          to <span className="helm-consent-revision">Revision {target.revision}</span>
                           <span className="helm-consent-version">
                             App version{" "}
                             {versionIndex.versionFor(target)?.appVersion ? (
@@ -1662,7 +1705,7 @@ function ReleasePanel({
             <div className="helm-panel-meta">
               <span>{release.namespace}</span>
               <span>
-                {historicalRelease ? "Viewing revision" : "Revision"} {viewedRelease.revision}
+                {historicalRelease ? "Viewing Revision" : "Revision"} {viewedRelease.revision}
               </span>
               <StatusBadge status={viewedRelease.status} />
               <ReleaseAppVersion clusterId={clusterId} contextId={contextId} release={viewedRelease} />
@@ -1738,7 +1781,16 @@ function ReleasePanel({
               Historical revision · Read only
               <span className="helm-current-tag">Current · Revision {release.revision}</span>
             </span>
-            <Button label="Back to current" onClick={() => navigate(tab)} />
+            <NativeTooltip title="Back to current">
+              <button
+                type="button"
+                className="helm-icon-button"
+                aria-label="Back to current"
+                onClick={() => navigate(tab)}
+              >
+                <Icon material="keyboard_return" size={18} />
+              </button>
+            </NativeTooltip>
           </div>
         )}
         <nav
@@ -1762,7 +1814,7 @@ function ReleasePanel({
             tabs[next]?.click();
           }}
         >
-          {(["overview", "values", "manifest", "notes", "history"] as const).map((value) => (
+          {(["overview", "values", "manifest", "history", "notes"] as const).map((value) => (
             <Button
               key={value}
               role="tab"
@@ -1890,6 +1942,7 @@ function Releases({
       ? selected
       : item,
   );
+  const initialLoading = state.loading && releases.length === 0;
   const selectedRelease = selected;
   const [versionsPaused, setVersionsPaused] = useState(false);
   useEffect(() => setVersionsPaused(false), [result?.contextId]);
@@ -1949,19 +2002,23 @@ function Releases({
       </div>
       <div className="helm-list-summary">
         <span>
-          {filtered.length !== releases.length
-            ? `${filtered.length} of ${releases.length} releases`
-            : `${filtered.length} ${filtered.length === 1 ? "release" : "releases"}`}
+          {initialLoading
+            ? "Releases"
+            : filtered.length !== releases.length
+              ? `${filtered.length} of ${releases.length} releases`
+              : `${filtered.length} ${filtered.length === 1 ? "release" : "releases"}`}
         </span>
-        <RequestStatus
-          state={{
-            ...state,
-            refresh: () => {
-              setVersionGeneration((value) => value + 1);
-              state.refresh();
-            },
-          }}
-        />
+        {!initialLoading && (
+          <RequestStatus
+            state={{
+              ...state,
+              refresh: () => {
+                setVersionGeneration((value) => value + 1);
+                state.refresh();
+              },
+            }}
+          />
+        )}
       </div>
       {search && (
         <VersionSearchProgress
@@ -1974,7 +2031,12 @@ function Releases({
           }}
         />
       )}
-      {(filtered.length > 0 || state.loading || state.error) && (
+      {initialLoading && (
+        <div className="helm-initial-loading" role="region" aria-label="Helm releases table">
+          <RequestStatus state={state} loadingLabel="Loading Helm releases and their current status…" />
+        </div>
+      )}
+      {!initialLoading && (filtered.length > 0 || state.loading || state.error) && (
         <div
           ref={releaseFrame}
           className="helm-table-frame"
@@ -2055,18 +2117,7 @@ function Releases({
         </div>
       )}
       {filtered.length > 100 && (
-        <div className="helm-toolbar">
-          <Button label="Previous releases" disabled={page === 0} onClick={() => setPage((value) => value - 1)} />
-          <span>
-            {page * 100 + 1}–{Math.min((page + 1) * 100, filtered.length)} of {filtered.length} releases · Page{" "}
-            {page + 1} of {Math.ceil(filtered.length / 100)}
-          </span>
-          <Button
-            label="Next releases"
-            disabled={(page + 1) * 100 >= filtered.length}
-            onClick={() => setPage((value) => value + 1)}
-          />
-        </div>
+        <HelmPagination page={page} pages={Math.ceil(filtered.length / 100)} kind="releases" onChange={setPage} />
       )}
       {!state.loading && !state.error && !filtered.length && (
         <div className="helm-empty">
@@ -2185,6 +2236,10 @@ export const PowerHelmPage = observer(() => {
         .power-helm h2 { font-size: 19px; font-weight: 600; line-height: 1.4; }
         .power-helm .helm-page-title span, .power-helm small, .power-helm .helm-filter > span, .power-helm .helm-panel-meta, .power-helm .helm-empty > span { color: var(--textColorSecondary); font-size: 12px; }
         .power-helm .helm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
+        .power-helm .helm-pagination { justify-content: flex-end; gap: 8px; }
+        .power-helm .helm-pagination button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 3px; border: 1px solid var(--borderColor); border-radius: 4px; color: var(--textColorSecondary); background: var(--contentColor); cursor: pointer; }
+        .power-helm .helm-pagination button:not(:disabled):hover { color: var(--primary); border-color: var(--primary); }
+        .power-helm .helm-pagination button:disabled { opacity: .45; cursor: default; }
         .power-helm .helm-filter { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
         .power-helm .helm-namespace { width: 230px; }
         .power-helm .helm-filters { display: grid; grid-template-columns: 200px minmax(160px, 1fr) 160px; align-items: end; margin-top: 0; }
@@ -2207,6 +2262,8 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-native-button, .power-helm .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
         .power-helm .helm-native-button:hover, .power-helm .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
         .power-helm .helm-list-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin: 6px 0 10px; }
+        .power-helm .helm-initial-loading { display: flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: 120px; padding: 28px; border: 1px dashed var(--borderColor); border-radius: 8px; color: var(--textColorSecondary); }
+        .power-helm .helm-initial-loading .helm-request-status { justify-content: center; }
         .power-helm .helm-request-status[data-error=true] { border: 1px solid color-mix(in srgb, var(--colorError) 35%, var(--borderColor)); background: var(--contentColor); border-radius: 6px; padding: 12px; justify-content: space-between; }
         .power-helm .helm-request-status[data-error=true] .helm-error { flex: 1 1 200px; min-width: 0; align-items: flex-start; line-height: 1.5; }
         .power-helm .helm-request-status[data-error=true] .Icon { flex-shrink: 0; }
@@ -2265,12 +2322,14 @@ export const PowerHelmPage = observer(() => {
         .helm-release-actions-menu .MenuItem { gap: 8px; }
         .power-helm .helm-panel-heading { flex-shrink: 0; background: var(--mainBackground); display: flex; justify-content: space-between; align-items: start; padding: 22px 22px 18px; gap: 12px; }
         .power-helm .helm-panel-heading h2 { overflow-wrap: anywhere; }
+        .power-helm .helm-native-drawer:has(.helm-revision-diff) .helm-panel-heading { padding-top: 10px; padding-bottom: 6px; }
         .power-helm .helm-panel-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
         .power-helm .helm-tabs { flex-shrink: 0; background: var(--mainBackground); display: flex; overflow-x: auto; padding: 0 18px; gap: 4px; border-bottom: 1px solid var(--borderColor); }
         :root .power-helm .Button.helm-tab { background: transparent; border: 0; border-radius: 0; padding: 12px 8px; color: var(--textColorSecondary); white-space: nowrap; box-shadow: none; border-bottom: 2px solid transparent; }
         :root .power-helm .Button.helm-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -4px; }
         :root .power-helm .Button.helm-tab-active { color: var(--textColorPrimary); border-bottom-color: var(--primary); }
         .power-helm .helm-panel-content { min-height: 0; overflow: auto; flex: 1; padding: 18px 22px 24px; }
+        .power-helm .helm-panel-content:has(> .helm-document-section > .helm-revision-diff) { padding-top: 8px; }
         .power-helm .helm-overview-card { border: 1px solid var(--borderColor); border-radius: 6px; overflow: hidden; }
         .power-helm .helm-overview-card > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 6px 12px 6px 16px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); }
         .power-helm .helm-overview-card h3 { margin: 0; font-size: 12px; font-weight: 500; }
@@ -2287,6 +2346,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-overview .helm-overview-description { grid-column: 1 / -1; }
         .power-helm .helm-overview dd { font-size: 13px; line-height: 1.5; }
         .power-helm .helm-overview dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+        .power-helm .helm-overview-version-badge { display: inline-flex; align-items: center; padding: 2px 7px; border: 1px solid var(--borderColor); border-radius: 4px; background: var(--contentColor); color: var(--textColorPrimary); font-size: 12px; line-height: 18px; }
         .power-helm .helm-edit-notice { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--borderColor); border-radius: 4px; margin-bottom: 14px; }
         .power-helm .helm-edit-notice p { margin-top: 5px; color: var(--textColorSecondary); font-size: 12px; line-height: 1.5; }
         .power-helm .helm-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -2298,15 +2358,19 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-document-section > .helm-revision-diff > :not(.helm-diff-scroll) { flex-shrink: 0; }
         .power-helm .helm-document-section, .power-helm .helm-values-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
         .power-helm .helm-document-section > :not(.helm-code-view):not(.helm-values-editor):not(.helm-revision-diff), .power-helm .helm-values-editor > :not(.helm-code-view) { flex-shrink: 0; }
-        .power-helm .helm-copy-action .Button { display: inline-flex; align-items: center; gap: 6px; }
+        .power-helm .helm-copy-action .Button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; box-sizing: border-box; padding: 0 10px; line-height: 1; }
+        .power-helm .helm-copy-action .Button > .Icon { flex-shrink: 0; margin: 0; padding: 0; }
+        .power-helm .helm-copy-action .helm-icon-button { width: 32px; height: 32px; }
         .power-helm .helm-values-editor > .helm-filter { margin: 12px 0; }
         .power-helm .helm-values-editor > .helm-toolbar { position: sticky; bottom: -24px; z-index: 4; margin: 12px -22px -24px; padding: 12px 22px; border-top: 1px solid var(--borderColor); background: var(--mainBackground); box-shadow: 0 -6px 12px color-mix(in srgb, var(--mainBackground) 70%, transparent); }
         .power-helm .helm-revision-notice, .power-helm .helm-viewing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; color: var(--textColorSecondary); font-size: 12px; padding: 10px 12px; border: 1px solid var(--borderColor); border-radius: 4px; }
-        .power-helm .helm-viewing-banner { margin: 0 22px 14px; }
-        .power-helm .helm-comparison-toolbar { align-items: flex-end; }
+        .power-helm .helm-viewing-banner { margin: 0 22px 4px; padding: 0; border: 0; }
+        .power-helm .helm-comparison-toolbar { align-items: center; gap: 8px; margin: 0 0 8px; }
         :root .power-helm .helm-comparison-toolbar .Button { height: 32px; box-sizing: border-box; }
         :root .power-helm .Button.helm-comparison-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; height: 32px; }
-        .power-helm .helm-comparison-baseline { min-width: 220px; }
+        .power-helm .helm-comparison-baseline { flex-direction: row; align-items: center; gap: 8px; min-width: 0; max-width: 360px; flex: 1; }
+        .power-helm .helm-comparison-baseline > span { white-space: nowrap; }
+        .power-helm .helm-comparison-baseline > .Select { flex: 1; min-width: 140px; }
         .power-helm .helm-current-baseline { display: block; margin-top: 4px; }
         .power-helm .helm-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
         .power-helm .helm-code-header + .helm-code-view { border: 1px solid var(--borderColor); border-top: 0; border-radius: 0 0 6px 6px; }
@@ -2322,7 +2386,9 @@ export const PowerHelmPage = observer(() => {
         .power-helm pre { margin: 0; padding: 16px; font-size: 12px; line-height: 1.65; border: 1px solid var(--borderColor); border-top: 0; border-radius: 0 0 6px 6px; max-height: 65vh; overflow: auto; }
         .power-helm .helm-panel-content:has(> .helm-history-layout) { display: flex; overflow: hidden; }
         .power-helm .helm-access-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--borderColor); border-radius: 4px; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
-        :root .power-helm .Button.helm-history-view { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; padding: 4px; }
+        .power-helm .helm-history-actions { display: flex; align-items: center; gap: 4px; }
+        .power-helm .helm-history-revision { display: flex; align-items: center; gap: 7px; min-height: 30px; }
+        .power-helm .helm-history-revision .helm-current-tag { margin-left: 0; }
         .power-helm .helm-history-layout { display: flex; flex-direction: column; min-height: 0; width: 100%; flex: 1; }
         .power-helm .helm-history-layout > :not(.helm-history-frame) { flex-shrink: 0; }
         .power-helm .helm-history-tools { margin: 0 0 12px; gap: 8px; }
@@ -2335,10 +2401,10 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-history-table th, .power-helm .helm-history-table td { padding: 8px 10px; white-space: nowrap; }
         :root .power-helm .Button.helm-rollback-button { display: inline-flex; align-items: center; gap: 6px; }
         :root .power-helm .Button.helm-rollback-button:not(:disabled) { color: var(--textColorAccent); border-color: var(--primary); }
-        :root .power-helm .Button.helm-history-view { color: var(--textColorPrimary); }
-        :root .power-helm .Button.helm-history-view:not(:disabled):hover, :root .power-helm .Button.helm-history-view:focus-visible { color: var(--primary); }
+        .power-helm .helm-history-view:not(:disabled):hover, .power-helm .helm-history-view:focus-visible { color: var(--primary); }
+        .power-helm .helm-history-view:disabled { opacity: .45; cursor: default; background: transparent; }
         .power-helm .helm-history-table .helm-inline-action { white-space: nowrap; font-size: 12px; }
-        .power-helm .helm-history-table input[type=radio] { appearance: none; width: 14px; height: 14px; border: 1px solid var(--textColorSecondary); border-radius: 50%; background: var(--mainBackground); cursor: pointer; }
+        .power-helm .helm-history-table input[type=radio] { appearance: none; flex-shrink: 0; margin: 0; width: 14px; height: 14px; border: 1px solid var(--textColorSecondary); border-radius: 50%; background: var(--mainBackground); cursor: pointer; }
         .power-helm .helm-history-table input[type=radio]:checked { background: var(--primary); border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--mainBackground); }
         .power-helm .helm-history-table input[type=radio]:disabled { opacity: .45; cursor: default; }
         .power-helm .helm-consent { position: relative; }
@@ -2350,17 +2416,19 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-consent-version { display: inline-block; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
         .power-helm .helm-current-tag { display: inline-flex; align-items: center; margin-left: 7px; padding: 2px 6px; border-radius: 3px; background: var(--contentColor); border: 1px solid var(--borderColor); color: var(--textColorSecondary); font-size: 11px; line-height: 16px; vertical-align: middle; }
         :root .power-helm .Button.helm-inline-action:not(.helm-history-view) { border-color: transparent; background: transparent; color: var(--primary); padding: 4px 6px; }
-        .power-helm .helm-history-table label { cursor: pointer; display: inline-flex; align-items: center; }
+        .power-helm .helm-history-table label { cursor: pointer; display: inline-flex; align-items: center; gap: 7px; margin: 0; }
         .power-helm .helm-rollback { margin-top: 16px; padding: 12px; min-height: 110px; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--colorWarning, var(--primary)) 35%, var(--borderColor)); border-radius: 6px; }
         .power-helm .helm-rollback-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-top: 12px; }
         .power-helm .helm-rollback-controls > .Button { min-height: 30px; white-space: nowrap; }
         .power-helm .helm-rollback-controls .helm-consent { margin: 0; min-height: 32px; }
-        .power-helm .helm-restore-revision { flex-shrink: 0; margin-bottom: 12px; }
+        .power-helm .helm-restore-revision { flex-shrink: 0; margin-bottom: 8px; }
         .power-helm .helm-restore-revision > .helm-request-status { margin-bottom: 8px; }
-        .power-helm .helm-restore-revision .helm-rollback { background: color-mix(in srgb, var(--colorWarning, var(--primary)) 5%, transparent); }
+        .power-helm .helm-restore-revision .helm-rollback { min-height: 0; margin-top: 0; padding: 8px 12px; background: color-mix(in srgb, var(--colorWarning, var(--primary)) 5%, transparent); }
         .power-helm .helm-restore-revision .helm-rollback-title { flex-wrap: wrap; }
         .power-helm .helm-restore-revision .helm-rollback-title > .helm-request-status { margin-left: auto; font-weight: 400; }
-        .power-helm .helm-restore-revision .helm-confirmation-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+        .power-helm .helm-restore-revision .helm-rollback-title > .helm-request-status > .helm-icon-button { order: 1; }
+        .power-helm .helm-restore-revision .helm-confirmation-target { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 11px; font-weight: 400; }
+        .power-helm .helm-restore-revision .helm-rollback-controls { margin-top: 6px; }
         .power-helm .helm-rollback-title { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .power-helm .helm-rollback p { color: var(--textColorSecondary); margin-top: 8px; font-size: 12px; line-height: 1.5; }
         .power-helm .helm-consent { display: flex; margin: 16px 0; font-size: 12px; }
