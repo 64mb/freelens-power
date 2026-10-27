@@ -403,7 +403,9 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .click();
   const page = frame.getByTestId("power-logs-page");
   await expect(page).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("6 sources", { timeout: 120_000 });
+  await expect(page.getByRole("status").filter({ hasText: /sources/ })).toContainText("6 sources", {
+    timeout: 120_000,
+  });
   const sourceFilter = page.getByRole("combobox", { name: "Container source", exact: true });
   await sourceFilter.click();
   const sourceMenu = frame.getByRole("listbox");
@@ -735,7 +737,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .locator(".MenuItem")
     .filter({ has: frame.locator("[data-power-logs-target]") })
     .click();
-  await expect(page.getByRole("status")).toContainText("1 sources");
+  await expect(page.getByRole("status").filter({ hasText: /sources/ })).toContainText("1 sources");
   await page.getByRole("combobox", { name: "Container source", exact: true }).click();
   await expect(
     frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · agent" }),
@@ -752,7 +754,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     .locator(".SubMenu .MenuItem")
     .filter({ hasText: /^sidecar$/ })
     .click();
-  await expect(page.getByRole("status")).toContainText("2 sources");
+  await expect(page.getByRole("status").filter({ hasText: /sources/ })).toContainText("2 sources");
   await expect(page.locator(".power-logs-filters")).toContainText("All pods / sidecar");
   await expect(page.locator(".power-log-row").first()).toContainText(samplePodName);
   const visibleOrigins = await page.locator(".power-log-row .power-log-origin").allTextContents();
