@@ -14,7 +14,18 @@ function createWelcomeContent(): HTMLDivElement {
   content.setAttribute(CONTENT_ATTRIBUTE, "");
 
   const heading = document.createElement("h2");
-  heading.textContent = "🔋 Freelens Power";
+  heading.style.display = "flex";
+  heading.style.alignItems = "center";
+  heading.style.gap = "8px";
+  const battery = document.createElement("span");
+  battery.className = "Icon material";
+  battery.setAttribute("aria-hidden", "true");
+  battery.style.setProperty("--size", "24px");
+  const glyph = document.createElement("span");
+  glyph.className = "icon";
+  glyph.textContent = "battery_full";
+  battery.append(glyph);
+  heading.append(battery, "Freelens Power");
   content.append(heading);
 
   const introduction = document.createElement("p");

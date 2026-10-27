@@ -1,5 +1,13 @@
+import { Renderer } from "@freelensapp/extensions";
+import { EXTENSION_DISPLAY_NAME, EXTENSION_ID } from "../common/extension-info";
+
+const extensionsHeader =
+  '.Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header';
+const powerTabSelector = `.Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] :is([data-preference-tab-link-test="${EXTENSION_ID}"], [data-preference-tab-link-test="preference-item-for-extension-${EXTENSION_ID}-primary-tab"])`;
+const powerTabStyle = powerTabSelector;
+
 const nativeTabs = {
-  application: "settings",
+  app: "settings",
   proxy: "swap_horiz",
   kubernetes: "cloud",
   editor: "code",
@@ -8,7 +16,7 @@ const nativeTabs = {
 
 // native [Preferences] exposes these page and tab attributes in its component hierarchy
 const page = `.Preferences.SettingLayout > .contentRegion > .content > :is(${Object.keys(nativeTabs)
-  .map((id) => `[data-preference-page-test="${id}-page"]`)
+  .map((id) => `[data-preference-page-test="${id === "app" ? "application" : id}-page"]`)
   .join(", ")})`;
 const tab = `.Preferences.SettingLayout > .sidebarRegion [data-preference-tab-link-test]:is(${Object.keys(nativeTabs)
   .map((id) => `[data-preference-tab-link-test="${id}"]`)
@@ -18,8 +26,13 @@ export function startHostPreferencesStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-preferences";
   style.textContent = `
-    ${tab} { gap: 10px; min-height: 36px; }
-    ${tab}::before {
+    .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header { gap: 8px; }
+    .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header > .Icon { margin: 0; flex-shrink: 0; }
+    ${extensionsHeader} { cursor: pointer; }
+    ${extensionsHeader}:hover, ${extensionsHeader}:focus-visible { color: var(--primary); }
+    ${extensionsHeader}:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+    ${tab}, ${powerTabStyle} { gap: 10px; min-height: 36px; }
+    ${tab}::before, ${powerTabStyle}::before {
       flex: 0 0 18px;
       width: 18px;
       font-family: "Material Icons";
@@ -34,6 +47,7 @@ export function startHostPreferencesStyles(): () => void {
       font-feature-settings: "liga";
       -webkit-font-smoothing: antialiased;
     }
+    ${powerTabStyle}::before { content: "battery_full" / ""; }
     ${Object.entries(nativeTabs)
       .map(
         ([id, icon]) =>
@@ -72,5 +86,76 @@ export function startHostPreferencesStyles(): () => void {
   `;
   document.head.append(style);
 
-  return () => style.remove();
+  let header: HTMLElement | null = null;
+  let powerTab: HTMLElement | null = null;
+  let restorePowerTab: (() => void) | undefined;
+  const connectPowerTab = () => {
+    if (powerTab?.isConnected) return;
+    restorePowerTab?.();
+    restorePowerTab = undefined;
+    powerTab = null;
+    const target = document.querySelector<HTMLElement>(powerTabSelector);
+    if (!target) return;
+    if (target.textContent?.trim() !== EXTENSION_DISPLAY_NAME) return;
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    let text = walker.nextNode();
+    while (text && text.textContent?.trim() !== EXTENSION_DISPLAY_NAME) text = walker.nextNode();
+    if (!text) return;
+    powerTab = target;
+    const originalText = text.textContent ?? "";
+    text.textContent = originalText.replace(/^(\s*)🔋 /u, "$1");
+    restorePowerTab = () => {
+      text.textContent = originalText;
+    };
+  };
+  let restoreHeader: (() => void) | undefined;
+  const connectHeader = () => {
+    if (header?.isConnected) return;
+    restoreHeader?.();
+    restoreHeader = undefined;
+    header = document.querySelector<HTMLElement>(extensionsHeader);
+    if (!header) return;
+
+    const target = header;
+    const originalRole = target.getAttribute("role");
+    const originalTabIndex = target.getAttribute("tabindex");
+    const navigate = () => Renderer.Navigation.navigate("/extensions");
+    const click = (event: MouseEvent) => {
+      if (event.button === 0) navigate();
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.repeat) return;
+      event.preventDefault();
+      navigate();
+    };
+    target.setAttribute("role", "link");
+    target.setAttribute("tabindex", "0");
+    target.addEventListener("click", click);
+    target.addEventListener("keydown", keydown);
+    restoreHeader = () => {
+      target.removeEventListener("click", click);
+      target.removeEventListener("keydown", keydown);
+      for (const [name, value] of [
+        ["role", originalRole],
+        ["tabindex", originalTabIndex],
+      ] as const) {
+        if (value === null) target.removeAttribute(name);
+        else target.setAttribute(name, value);
+      }
+    };
+  };
+  const connect = () => {
+    connectHeader();
+    connectPowerTab();
+  };
+  connect();
+  const observer = new MutationObserver(connect);
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  return () => {
+    observer.disconnect();
+    restoreHeader?.();
+    restorePowerTab?.();
+    style.remove();
+  };
 }

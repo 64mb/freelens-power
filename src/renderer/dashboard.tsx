@@ -14,6 +14,7 @@ import {
   type DashboardViewLoading,
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { AiPinIcon } from "./ai-icon";
 
 const styles = `
   .freelens-power-dashboard .power-dashboard-card-pinned .power-dashboard-embed { opacity: .65; }
@@ -24,7 +25,7 @@ const styles = `
   .freelens-power-dashboard .power-dashboard-header {
     display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px;
   }
-  .freelens-power-dashboard h1 { margin: 0; color: var(--textColorAccent); font-size: 24px; }
+  .freelens-power-dashboard h1 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--textColorAccent); font-size: 24px; }
   .freelens-power-dashboard .power-dashboard-subtitle,
   .freelens-power-dashboard .power-dashboard-hint { color: var(--textColorSecondary); line-height: 1.5; }
   .freelens-power-dashboard .power-dashboard-subtitle { margin: 6px 0 0; }
@@ -100,8 +101,23 @@ const styles = `
   }
 `;
 
-function DashboardActionIcon({ material, tooltip }: { material: string; tooltip: string }) {
+function DashboardActionIcon({ material, tooltip, pinned }: { material: string; tooltip: string; pinned?: boolean }) {
   const [anchor] = useState(() => `--power-dashboard-action-${crypto.randomUUID()}`);
+  if (pinned !== undefined)
+    return (
+      <>
+        <span id={anchor} style={{ anchorName: anchor, display: "inline-flex" } as CSSProperties}>
+          <AiPinIcon pinned={pinned} size={18} />
+        </span>
+        <Renderer.Component.Tooltip
+          targetId={anchor}
+          className="power-dashboard-right-tooltip"
+          style={{ positionAnchor: anchor } as CSSProperties}
+        >
+          {tooltip}
+        </Renderer.Component.Tooltip>
+      </>
+    );
   return (
     <Renderer.Component.Icon
       material={material}
@@ -417,7 +433,10 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
       <style>{styles}</style>
       <header className="power-dashboard-header">
         <div>
-          <h1>🔋 Power Dashboard</h1>
+          <h1>
+            <Renderer.Component.Icon material="battery_full" size={24} aria-hidden="true" />
+            Power Dashboard
+          </h1>
         </div>
         <div className="power-dashboard-actions">
           <button
@@ -495,6 +514,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
                     >
                       <DashboardActionIcon
                         material="push_pin"
+                        pinned={pinnedCards.includes(card.id)}
                         tooltip={pinnedCards.includes(card.id) ? "Unpin" : "Pin"}
                       />
                     </button>
