@@ -81,11 +81,21 @@ export function executeHelmRead(
           killSignal: "SIGKILL",
           windowsHide: true,
         },
-        (error, stdout) => {
+        (error, stdout, stderr) => {
           signal.removeEventListener("abort", abort);
-          if (error || signal.aborted)
-            reject(new HelmError("chart-unavailable", "Could not search registered Helm repositories"));
-          else resolve(String(stdout));
+          if (signal.aborted) return reject(new HelmError("cancelled", "Helm repository search cancelled"));
+          if (!error) return resolve(String(stdout));
+          const diagnostic = String(stderr ?? "").slice(0, 4096);
+          const message = /no repositories (?:found|configured)/i.test(diagnostic)
+            ? "No Helm repositories are configured. Add the chart repository in Helm settings, then refresh chart sources"
+            : /no cached repo found|failed to load.*index|index\.yaml.*no such file/i.test(diagnostic)
+              ? "Helm repository indexes are unavailable. Refresh repositories in Helm settings, then retry"
+              : error.killed
+                ? "Helm repository search timed out. Check the local repository configuration and retry"
+                : error.code === "ENOENT"
+                  ? "The Freelens Helm executable is unavailable. Check the Freelens installation and retry"
+                  : "Could not search registered Helm repositories. Check repository configuration and cached indexes in Helm settings";
+          reject(new HelmError("chart-unavailable", message));
         },
       );
       const abort = () => child.kill("SIGKILL");
