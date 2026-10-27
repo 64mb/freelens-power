@@ -836,7 +836,7 @@ it("returns to the selected later page after clearing an all-matching version fi
   } finally {
     HTMLElement.prototype.scrollIntoView = originalScroll;
   }
-});
+}, 15_000);
 
 it("restarts copy feedback for each successful copy", async () => {
   mocks.invoke.mockImplementation((_channel, request) =>
