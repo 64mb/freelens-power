@@ -355,6 +355,7 @@ function RequestStatus({
           {labeled ? (
             <Button
               className="helm-comparison-toggle"
+              aria-label={refreshLabel}
               label={
                 <>
                   <Icon material="refresh" size={18} />
@@ -489,6 +490,7 @@ function Section({
           )}
           <Button
             className="helm-comparison-toggle"
+            aria-label={compare ? "Show revision" : "Compare with current"}
             label={
               <>
                 <Icon material={compare ? "visibility" : "difference"} size={18} />
@@ -567,6 +569,7 @@ function Section({
                       {inlineRefresh && <RequestStatus state={state} refreshLabel={`Refresh ${tab}`} />}
                       {copied && <small role="status">Copied</small>}
                       <Button
+                        aria-label={copied ? "Copy again" : "Copy"}
                         label={
                           <>
                             <Icon material="content_copy" size={16} />
@@ -647,6 +650,7 @@ const ValuesEditing = observer(
     ) : actionTarget ? (
       createPortal(
         <Button
+          aria-label="Edit values"
           label={
             <>
               <Icon material="edit" size={16} />
@@ -1476,6 +1480,7 @@ const History = observer(
                 />
                 <Button
                   className="helm-rollback-button"
+                  aria-label={busy ? "Rolling back…" : restoreTarget ? "Restore revision" : "Roll back"}
                   label={
                     <>
                       <Icon material="restore" size={18} />

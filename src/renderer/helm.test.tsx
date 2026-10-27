@@ -70,7 +70,7 @@ vi.mock("@freelensapp/extensions", () => ({
           {children}
         </div>
       ),
-      Icon: () => null,
+      Icon: ({ material }: any) => <span>{material}</span>,
       Checkbox: ({ label, value, disabled, onChange }: any) => (
         <label>
           <input
