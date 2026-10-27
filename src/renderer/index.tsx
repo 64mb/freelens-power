@@ -11,6 +11,7 @@ import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { HelmPreferencesStore } from "../common/store/helm-preferences-store";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { NodeShellPreferencesStore } from "../common/store/node-shell-preferences-store";
@@ -28,6 +29,8 @@ import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details";
 import { DiagnosticsPage } from "./diagnostics";
 import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
+import { PowerHelmPage } from "./helm";
+import { startPowerHelmEntrypoints } from "./helm-entrypoints";
 import { startHostExtensionsStyles } from "./host-extensions";
 import { startHostLayoutStyles } from "./host-layout";
 import { startHostPreferencesStyles } from "./host-preferences";
@@ -78,6 +81,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
     power.loadExtension(this);
     LogsPreferencesStore.getInstanceOrCreate().loadExtension(this);
+    HelmPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AiShortcutsStore.getInstanceOrCreate().loadExtension(this);
     ReadOnlyPreferencesStore.getInstanceOrCreate().loadExtension(this);
@@ -109,6 +113,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startAiChat,
             startResourceSearch,
             startPowerLogsEntrypoints,
+            startPowerHelmEntrypoints,
           ]) {
             try {
               disposers.push(start());
@@ -166,6 +171,16 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   ];
 
   clusterPages = [
+    {
+      id: "helm",
+      components: {
+        Page: () => (
+          <PowerEnabled>
+            <PowerHelmPage />
+          </PowerEnabled>
+        ),
+      },
+    },
     {
       id: "power-logs",
       components: {
@@ -227,6 +242,24 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
       orderNumber: 7,
       components: {
         Icon: () => <Renderer.Component.Icon material="subject" tooltip="Workload logs and SQL captures" />,
+      },
+    },
+    {
+      id: "helm",
+      visible: computed(
+        () =>
+          PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled &&
+          HelmPreferencesStore.getInstanceOrCreate<HelmPreferencesStore>().enabled,
+      ),
+      target: { pageId: "helm" },
+      title: "Helm",
+      orderNumber: 90,
+      components: {
+        Icon: () => (
+          <span data-power-helm-sidebar-icon style={{ display: "contents" }}>
+            <Renderer.Component.Icon svg="helm" tooltip="Helm releases" />
+          </span>
+        ),
       },
     },
   ];

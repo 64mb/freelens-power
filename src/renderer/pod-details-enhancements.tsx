@@ -24,6 +24,7 @@ function podPath(link: HTMLAnchorElement): string | undefined {
 }
 
 export function startPodDetailsEnhancements(): () => void {
+  if (process.isMainFrame !== false) return () => {};
   const mounted = new Map<HTMLAnchorElement, Mounted>();
   const style = document.createElement("style");
   style.dataset.freelensPower = "pod-details-enhancements";

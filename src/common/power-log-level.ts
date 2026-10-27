@@ -13,6 +13,7 @@ const names: Record<string, LogLevel> = {
   dbg: "debug",
   dbug: "debug",
   info: "info",
+  access: "access",
   information: "info",
   informational: "info",
   notice: "info",

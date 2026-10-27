@@ -392,18 +392,13 @@ export function MetricChart({
           {last.resourceStatus}
         </div>
       )}
-      {(scope === "node" || status || !samples.length) && (
+      {(status || !samples.length) && (
         <div
           style={{ fontSize: 11, color: "var(--textColorSecondary)", display: "flex", alignItems: "center", gap: 4 }}
           role="status"
           aria-label={`${scope} metrics status`}
         >
-          {scope === "node" && (
-            <sup aria-hidden="true" style={{ fontSize: 12 }}>
-              *
-            </sup>
-          )}
-          <span>{status || (samples.length ? "metrics-server data" : "Waiting for metrics-server data")}</span>
+          <span>{status || "Waiting for metrics-server data"}</span>
         </div>
       )}
     </section>

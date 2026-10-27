@@ -1,9 +1,8 @@
 export const powerLogsStyles = `
-.ConfirmDialog:has(.power-logs-confirmation) > .box { background:var(--contentColor); color:var(--textColorPrimary); min-width:min(360px,calc(100vw - 32px)); max-width:min(640px,calc(100vw - 32px)); }
+.ConfirmDialog:has(.power-logs-confirmation) > .box { min-width:min(360px,calc(100vw - 32px)); max-width:min(640px,calc(100vw - 32px)); }
 .ConfirmDialog:has(.power-logs-confirmation) .confirm-content { gap:12px; }
 .ConfirmDialog:has(.power-logs-confirmation) .confirm-content > .Icon { flex-shrink:0; margin:0; }
 .ConfirmDialog .power-logs-confirmation { display:block; min-width:0; overflow-wrap:anywhere; }
-.ConfirmDialog:has(.power-logs-confirmation) .confirm-buttons { background:var(--mainBackground); color:var(--textColorPrimary); }
 .ConfirmDialog .power-logs-confirm-label { display:inline-flex; align-items:center; gap:6px; }
 .ConfirmDialog:has(.power-logs-confirmation) .Button.power-logs-confirm-delete { background:var(--colorError); color:#fff !important; }
 body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { display:none; }
@@ -14,6 +13,9 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs :is(button,input,select,textarea), .power-logs .power-logs-options > summary { font:inherit; color:inherit; }
 .power-logs :is(.power-logs-filters > input,textarea) { background:var(--contentColor); border:1px solid var(--borderColor); border-radius:5px; padding:4px 8px; min-width:0; }
 .power-logs-filters > input { flex:1; min-width:180px; }
+.power-logs .power-logs-filters > :is(input,button), .power-logs .power-logs-snapshot-bar > button, .power-logs :is(.power-logs-filters,.power-logs-snapshot-bar) .Select__control { box-sizing:border-box; height:32px; min-height:32px; }
+.power-logs :is(.power-logs-filters,.power-logs-snapshot-bar) .Select__value-container { padding-block:0; }
+.power-logs :is(.power-logs-filters,.power-logs-snapshot-bar) .Select__indicators { height:30px; }
 .power-logs label { display:flex; align-items:center; gap:8px; }
 .power-logs button, .power-logs .power-logs-options > summary { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:28px; padding:3px 8px; border:1px solid var(--borderColor); border-radius:5px; background:var(--contentColor); cursor:pointer; box-shadow:none; }
 .power-logs button::before { content:none; }
@@ -37,13 +39,14 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-source-option .power-logs-option-text { flex:1; }
 .power-logs-source-option strong, .power-logs-source-option small { white-space:normal; overflow:visible; overflow-wrap:anywhere; }
 .power-logs-source-check { display:inline-flex; width:16px; flex-shrink:0; }
-.power-logs-snapshot-option > button { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; min-width:28px; min-height:28px; padding:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; }
-.power-logs-snapshot-option > button[data-capture-delete]:not(:disabled):hover { color:var(--colorError); background:color-mix(in srgb,var(--colorError) 12%,transparent); }
-.power-logs-snapshot-option > button[data-capture-persistent]:not(:disabled):hover, .power-logs-snapshot-option > button[aria-pressed=true] { color:var(--primary); background:color-mix(in srgb,var(--primary) 12%,transparent); }
-.power-logs-snapshot-option > button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
+.power-logs-snapshot-option > button { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; min-width:28px; min-height:28px; padding:0; border:1px solid transparent; border-radius:4px; background:transparent; color:var(--textColorPrimary); cursor:pointer; }
+.power-logs-snapshot-option > button[data-capture-persistent][aria-pressed=true] { color:var(--textColorPrimary); background:color-mix(in srgb,currentColor 10%,transparent); border-color:color-mix(in srgb,currentColor 30%,transparent); }
+.power-logs-snapshot-option > button:not(:disabled):is(:hover,:active,:focus-visible) { color:var(--textColorPrimary); background:color-mix(in srgb,currentColor 15%,transparent); border-color:currentColor; }
+.power-logs-snapshot-option > button:focus-visible { outline:2px solid currentColor; outline-offset:-3px; }
+.power-logs-snapshot-option > button > .Icon, .power-logs-snapshot-option > button > .Icon > .icon { color:inherit; }
 .power-logs-snapshot-option > button:disabled { opacity:.45; cursor:default; }
 .power-logs-level-label { color:var(--textColorSecondary); }
-.power-logs-level-label[data-level=debug] { color:var(--colorInfo); }
+.power-logs-level-label[data-level=debug],.power-logs-level-label[data-level=access] { color:var(--colorInfo); }
 .power-logs-level-label[data-level=info] { color:var(--primary); }
 .power-logs-level-label[data-level=warn] { color:var(--colorWarning); }
 .power-logs-level-label[data-level=error],.power-logs-level-label[data-level=fatal] { color:var(--colorError); }
@@ -64,6 +67,7 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-log-row .power-log-level { font-size:10px; font-weight:600; text-transform:uppercase; }
 .power-log-row[data-level=warn] { border-left-color:var(--colorWarning,#d9a441)!important; }
 .power-log-row[data-level=error],.power-log-row[data-level=fatal] { border-left-color:var(--colorError,#d26860)!important; }
+.power-log-row[data-level=access] { border-left-color:var(--colorInfo)!important; }
 .power-log-row[data-level=info] { border-left-color:var(--primary)!important; }
 .power-logs-detail { position:absolute; z-index:5; top:0; bottom:0; right:0; box-sizing:border-box; box-shadow:-4px 0 18px #0004; display:flex; flex-direction:column; align-items:stretch; gap:12px; width:460px; max-width:95%; padding:16px; background:var(--contentColor); border:1px solid var(--borderColor); border-radius:6px; overflow:auto; }
 .power-logs-detail header { justify-content:flex-end; }
@@ -94,6 +98,7 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs tbody tr:hover, .power-logs tbody tr:focus-visible { background:color-mix(in srgb,var(--primary) 10%,var(--contentColor)); outline:none; }
 .power-logs td[data-column=message] { font-family:var(--font-monospace,monospace); font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .power-logs td[data-level=error], .power-logs td[data-level=fatal] { color:var(--colorError,#d26860); }
+.power-logs td[data-level=access] { color:var(--colorInfo); }
 .power-logs td[data-level=warn] { color:var(--colorWarning,#d9a441); }
 .power-logs th { position:sticky; top:0; background:var(--contentColor); }
 .power-logs dialog { position:fixed; inset:0; margin:auto; background:var(--mainBackground); color:var(--textColorPrimary); border:1px solid var(--borderColor); border-radius:8px; padding:24px; width:min(640px,85vw); max-height:80vh; overflow:auto; }
@@ -130,9 +135,8 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs .power-logs-error { white-space:normal; overflow:visible; overflow-wrap:anywhere; }
 .power-logs-snapshot-notes { max-height:100px; overflow:auto; }
 @container(max-width:760px) { .power-logs-detail { width:min(420px,86%); padding:12px; gap:10px; } .power-logs-filters .power-logs-select { flex:1 1 130px; } .power-logs-filters > input { flex-basis:100%; } .power-log-row { grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,calc(var(--power-log-level-ch,7) * .833333ch + 4px)) minmax(0,1fr); } .power-log-row .power-log-origin { display:none; } .power-logs header .power-logs-actions { gap:4px; } }
-.Select__option--is-selected .power-logs-snapshot-option > button { color:var(--freelens-power-accent-foreground,#fff); background:#0002; border:1px solid currentColor; }
-.Select__option--is-selected .power-logs-snapshot-option > button[data-capture-persistent]:not(:disabled):hover { color:var(--primary); background:var(--freelens-power-accent-foreground,#fff); border-color:var(--freelens-power-accent-foreground,#fff); }
-.Select__option--is-selected .power-logs-snapshot-option > button[data-capture-delete]:not(:disabled):hover { color:#a61b1b; background:#fff; border-color:#fff; }
+.Select__option:is(.Select__option--is-selected,:active) .power-logs-snapshot-option > button { color:var(--freelens-power-accent-foreground,#fff); background:color-mix(in srgb,var(--freelens-power-accent-foreground,#fff) 10%,transparent); border-color:color-mix(in srgb,var(--freelens-power-accent-foreground,#fff) 60%,transparent); }
+.Select__option:is(.Select__option--is-selected,:active) .power-logs-snapshot-option > button:not(:disabled):is(:hover,:active,:focus-visible) { color:var(--freelens-power-accent-foreground,#fff); background:color-mix(in srgb,var(--freelens-power-accent-foreground,#fff) 22%,transparent); border-color:var(--freelens-power-accent-foreground,#fff); }
 .power-logs-field-filters { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
 .power-logs .power-logs-field-filters button { max-width:360px; min-height:24px; padding:2px 6px; font-size:11px; }
 .power-logs-field-filters button > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

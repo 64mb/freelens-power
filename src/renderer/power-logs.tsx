@@ -53,7 +53,7 @@ const Icon = (props: { material: string; size?: number; tooltip?: string }) => (
 );
 const sourceKey = (r: Pick<LogRecord, "pod" | "container" | "previous">) =>
   `${r.pod} / ${r.container}${r.previous ? " (previous)" : ""}`;
-const levels: LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal", "unknown"];
+const levels: LogLevel[] = ["trace", "debug", "info", "access", "warn", "error", "fatal", "unknown"];
 const examples = [
   ["Recent", "SELECT timestamp, level, message, container, pod FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200"],
   [

@@ -1,0 +1,650 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { PowerHelmPage } from "./helm";
+
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  confirm: vi.fn(),
+  helmEnabled: true,
+  readOnly: false,
+  appVersions: {} as Record<string, string>,
+}));
+vi.mock("./helm-version-index", () => ({
+  useHelmVersionIndex: () => ({
+    versionFor: (release: any) => ({ appVersion: mocks.appVersions[release.name] }),
+    completed: 0,
+    total: 0,
+    errors: 0,
+  }),
+}));
+vi.mock("./helm-app-version", () => ({ HelmAppVersionCell: () => <span>—</span> }));
+vi.mock("./helm-code-view", () => ({
+  HelmCodeView: ({ value, readOnly = true, onChange, ariaLabel }: any) =>
+    readOnly ? (
+      <pre aria-label={ariaLabel}>{value}</pre>
+    ) : (
+      <textarea aria-label={ariaLabel} value={value} onChange={(event) => onChange(event.target.value)} />
+    ),
+  HelmRevisionDiff: ({ before, after, beforeLabel, afterLabel }: any) => (
+    <section aria-label="Revision comparison">
+      <h4>{beforeLabel}</h4>
+      <pre>{before}</pre>
+      <h4>{afterLabel}</h4>
+      <pre>{after}</pre>
+    </section>
+  ),
+}));
+vi.mock("../common/store/helm-preferences-store", () => ({
+  HelmPreferencesStore: { getInstanceOrCreate: () => ({ enabled: mocks.helmEnabled }) },
+}));
+vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("../common/store/read-only-preferences-store", () => ({
+  ReadOnlyPreferencesStore: { getInstanceOrCreate: () => ({ enabled: mocks.readOnly }) },
+}));
+vi.mock("../common/store/power-preferences-store", () => ({
+  PowerPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
+}));
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: {
+    Catalog: {
+      activeCluster: { get: () => ({ metadata: { uid: "test-cluster" }, spec: { accessibleNamespaces: ["sample"] } }) },
+    },
+    Navigation: { navigate: vi.fn() },
+    Component: {
+      Icon: () => null,
+      Checkbox: ({ label, value, disabled, onChange }: any) => (
+        <label>
+          <input
+            type="checkbox"
+            checked={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.checked)}
+          />
+          {label}
+        </label>
+      ),
+      Button: ({ label, onClick, disabled }: any) => (
+        <button onClick={onClick} disabled={disabled}>
+          {label}
+        </button>
+      ),
+      Select: ({ value, options, onChange, "aria-label": label }: any) => (
+        <select aria-label={label} value={value} onChange={(event) => onChange({ value: event.target.value })}>
+          {options.map((option: any) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ),
+      ConfirmDialog: { open: mocks.confirm },
+    },
+  },
+}));
+const release = {
+  name: "sample-release",
+  namespace: "sample",
+  revision: 2,
+  status: "deployed",
+  secretName: "sample-secret",
+  uid: "sample-secret-uid-2",
+};
+const listing = { ok: true, releases: [release], fetchedAt: 1000, contextId: "a".repeat(64) };
+const deferred = () => {
+  let resolve!: (value: any) => void;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+beforeEach(() => {
+  mocks.helmEnabled = true;
+  mocks.readOnly = false;
+  mocks.appVersions = {};
+  mocks.invoke.mockReset();
+  mocks.confirm.mockReset();
+  mocks.invoke.mockResolvedValue(listing);
+});
+afterEach(cleanup);
+
+it("preserves rows on refresh errors and cancels obsolete namespace requests", async () => {
+  const pending = deferred();
+  render(<PowerHelmPage />);
+  await screen.findByText("sample-release");
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "cancel" ? Promise.resolve({ ok: true }) : pending.promise,
+  );
+  fireEvent.click(screen.getByText("Refresh"));
+  expect(screen.getByText("sample-release")).toBeTruthy();
+  await act(async () => pending.resolve({ ok: false, error: { message: "Unavailable", code: "failed" } }));
+  await screen.findByText("Unavailable");
+  expect(screen.getByText("sample-release")).toBeTruthy();
+  const stale = deferred();
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "cancel"
+      ? Promise.resolve({ ok: true })
+      : request.namespace
+        ? Promise.resolve({ ok: true, releases: [] })
+        : stale.promise,
+  );
+  fireEvent.click(screen.getByText("Retry"));
+  fireEvent.change(screen.getByLabelText("Helm namespace"), { target: { value: "sample" } });
+  await screen.findByText("No releases found");
+  await act(async () => stale.resolve(listing));
+  expect(screen.queryByText("sample-release")).toBeNull();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "cancel")).toBe(true);
+});
+
+it("loads sections and history lazily and retries failed history", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "Overview content" } }
+        : request.operation === "history"
+          ? { ok: false, error: { message: "History failed" } }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  await screen.findByText("Overview content");
+  const details = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details");
+  expect(details).toHaveLength(1);
+  expect(details[0][1]).toMatchObject({
+    name: release.name,
+    namespace: release.namespace,
+    revision: release.revision,
+    section: "overview",
+    contextId: listing.contextId,
+  });
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "list")).toHaveLength(1);
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history")).toBe(false);
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByText("History failed");
+  expect(screen.queryByText("Loading…")).toBeNull();
+  mocks.invoke.mockResolvedValue({ ok: true, releases: [release], rollbackAllowed: true });
+  fireEvent.click(screen.getByText("Retry"));
+  await screen.findByLabelText("Revision 2");
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
+});
+
+it("requires both a checkbox and native confirmation before rollback", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "Overview" } }
+        : { ...listing, rollbackAllowed: true },
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  fireEvent.click(await screen.findByLabelText("Revision 2"));
+  const button = screen.getByText("Roll back") as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText("I confirm rolling back sample-release"));
+  fireEvent.click(button);
+  expect(mocks.confirm).toHaveBeenCalledOnce();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
+  await act(async () => mocks.confirm.mock.calls[0][0].ok());
+  await waitFor(() =>
+    expect(
+      mocks.invoke.mock.calls.some(
+        ([, request]) =>
+          request.operation === "rollback" &&
+          request.uid === release.uid &&
+          request.confirmed === true &&
+          request.contextId === listing.contextId,
+      ),
+    ).toBe(true),
+  );
+});
+
+it("clears rollback confirmation after an unknown result and refreshes reads", async () => {
+  let unknown = false;
+  const historyRefresh = deferred();
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "rollback") {
+      unknown = true;
+      return Promise.resolve({ ok: false, error: { code: "rollback-unknown", message: "Outcome unknown" } });
+    }
+    if (request.operation === "details") return Promise.resolve({ ok: true, detail: { content: "Overview" } });
+    if (unknown && request.operation === "history") return historyRefresh.promise;
+    if (unknown && request.operation === "list")
+      return Promise.resolve({ ...listing, releases: [{ ...release, revision: 3, uid: "sample-secret-uid-3" }] });
+    return Promise.resolve({ ...listing, rollbackAllowed: true, cached: request.operation === "history" });
+  });
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  fireEvent.click(await screen.findByLabelText("Revision 2"));
+  fireEvent.click(screen.getByLabelText("I confirm rolling back sample-release"));
+  fireEvent.click(screen.getByText("Roll back"));
+  await act(async () => mocks.confirm.mock.calls[0][0].ok());
+  await screen.findByText("Outcome unknown");
+  await screen.findByText("Revision 3");
+  expect(screen.getByText("Outcome unknown")).toBeTruthy();
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details")).toHaveLength(1);
+  expect((screen.getByLabelText("I confirm rolling back sample-release") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("Revision 2") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByText("Roll back") as HTMLButtonElement).disabled).toBe(true);
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "list")).toHaveLength(2);
+  await act(async () =>
+    historyRefresh.resolve({
+      ...listing,
+      releases: [{ ...release, revision: 3, uid: "sample-secret-uid-3" }, release],
+      rollbackAllowed: true,
+      cached: true,
+    }),
+  );
+  expect(screen.getByText("Outcome unknown")).toBeTruthy();
+  expect(screen.getByLabelText("Revision 3")).toBeTruthy();
+  expect((screen.getByText("Roll back") as HTMLButtonElement).disabled).toBe(true);
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "rollback")).toHaveLength(1);
+});
+
+it("removes cached metadata on forbidden responses", async () => {
+  render(<PowerHelmPage />);
+  await screen.findByText("sample-release");
+  mocks.invoke.mockResolvedValue({ ok: false, error: { code: "forbidden", message: "Forbidden" } });
+  fireEvent.click(screen.getByText("Refresh"));
+  await screen.findByText("Forbidden");
+  expect(screen.queryByText("sample-release")).toBeNull();
+});
+
+it("bounds history rows and finds old revisions without discarding selection", async () => {
+  const history = Array.from({ length: 1256 }, (_, index) => ({ ...release, revision: 1256 - index }));
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "Overview" } }
+        : request.operation === "history"
+          ? { ok: true, releases: history, rollbackAllowed: true }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 1256");
+  expect(screen.getAllByRole("radio")).toHaveLength(50);
+  fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2" } });
+  fireEvent.click(await screen.findByLabelText("Revision 2"));
+  fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "" } });
+  expect(screen.getAllByRole("radio")).toHaveLength(50);
+  expect(screen.getByText(/Selected revision 2/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2" } });
+  expect((screen.getByLabelText("Revision 2") as HTMLInputElement).checked).toBe(true);
+});
+
+it("does not request Helm data when enhancements are disabled", () => {
+  mocks.helmEnabled = false;
+  render(<PowerHelmPage />);
+  expect(screen.getByText("Helm enhancements are disabled")).toBeTruthy();
+  expect(screen.getByLabelText("Open native Helm")).toBeTruthy();
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("views historical values independently of rollback selection and compares against current metadata", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: `replicas: ${request.revision}` } }
+        : request.operation === "history"
+          ? {
+              ...listing,
+              releases: [{ ...release, revision: 1, status: "superseded" }, release],
+              rollbackAllowed: true,
+            }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 1");
+  fireEvent.click(screen.getAllByText("View revision")[0]);
+  await screen.findByText("replicas: 1");
+  expect(screen.getByText("Historical revision · Read only")).toBeTruthy();
+  expect(screen.queryByText("Edit values")).toBeNull();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
+  const beforeCompare = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details").length;
+  fireEvent.click(screen.getByText("Compare with current"));
+  await screen.findByLabelText("Revision comparison");
+  expect(screen.getByLabelText("Revision comparison").querySelector("h4")?.parentElement?.textContent).toContain(
+    "Latest · Revision 2",
+  );
+  const details = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details");
+  expect(details).toHaveLength(beforeCompare + 1);
+  expect(details.at(-1)?.[1]).toMatchObject({ revision: 2, section: "values", contextId: listing.contextId });
+});
+
+it("edits current values only after native diff confirmation and prevents duplicate apply", async () => {
+  const upgrade = deferred();
+  const historyRefresh = deferred();
+  let refreshAttempts = 0;
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "upgrade-values"
+      ? upgrade.promise
+      : request.operation === "history"
+        ? refreshAttempts++ === 0
+          ? historyRefresh.promise
+          : Promise.resolve(listing)
+        : Promise.resolve(
+            request.operation === "details"
+              ? { ok: true, detail: { content: "replicas: 2" } }
+              : request.operation === "edit-options"
+                ? {
+                    ok: true,
+                    upgradeAllowed: true,
+                    chartChoices: [{ ref: "sample/chart", version: "1.0.0" }],
+                    contextId: listing.contextId,
+                  }
+                : listing,
+          ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("Values"));
+  fireEvent.click(await screen.findByText("Edit values"));
+  await screen.findByLabelText("Chart source");
+  fireEvent.change(screen.getByLabelText("Edit current release values"), { target: { value: "replicas: 3" } });
+  await waitFor(() => expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByText("Review changes"));
+  expect(mocks.confirm).toHaveBeenCalledOnce();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "upgrade-values")).toBe(false);
+  await act(async () => {
+    mocks.confirm.mock.calls[0][0].ok();
+    mocks.confirm.mock.calls[0][0].ok();
+  });
+  const upgrades = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values");
+  expect(upgrades).toHaveLength(1);
+  expect(upgrades[0][1]).toMatchObject({
+    revision: 2,
+    chart: "sample/chart",
+    values: "replicas: 3",
+    confirmed: true,
+    contextId: listing.contextId,
+  });
+  await act(async () =>
+    upgrade.resolve({ ok: false, error: { message: "Upgrade outcome unknown", code: "upgrade-unknown" } }),
+  );
+  await screen.findByText("Upgrade outcome unknown");
+  expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByText("Refresh release"));
+  const reads = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "history");
+  expect(reads).toHaveLength(1);
+  expect(reads[0][1]).toMatchObject({
+    refresh: true,
+    clusterId: "test-cluster",
+    namespace: release.namespace,
+    name: release.name,
+    contextId: listing.contextId,
+  });
+  expect((screen.getByText("Refreshing…") as HTMLButtonElement).disabled).toBe(true);
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values")).toHaveLength(1);
+  await act(async () =>
+    historyRefresh.resolve({ ok: false, error: { message: "History refresh failed", code: "failed" } }),
+  );
+  await screen.findByText("History refresh failed");
+  expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByText("Refresh release"));
+  fireEvent.click(await screen.findByText("Edit values"));
+  await screen.findByLabelText("Chart source");
+  fireEvent.change(screen.getByLabelText("Edit current release values"), { target: { value: "replicas: 4" } });
+  const review = screen.getByText("Review changes") as HTMLButtonElement;
+  expect(review.disabled).toBe(true);
+  await waitFor(() => expect(review.disabled).toBe(false));
+  fireEvent.click(review);
+  expect(mocks.confirm).toHaveBeenCalledTimes(2);
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values")).toHaveLength(1);
+  await act(async () => mocks.confirm.mock.calls[1][0].ok());
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values")).toHaveLength(2);
+});
+
+it("blocks pending value confirmation when read-only mode is enabled", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "replicas: 2" } }
+        : request.operation === "edit-options"
+          ? { ok: true, upgradeAllowed: true, chartChoices: [{ ref: "sample/chart", version: "1.0.0" }] }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("Values"));
+  fireEvent.click(await screen.findByText("Edit values"));
+  await screen.findByLabelText("Chart source");
+  fireEvent.change(screen.getByLabelText("Edit current release values"), { target: { value: "replicas: 3" } });
+  await waitFor(() => expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByText("Review changes"));
+  mocks.readOnly = true;
+  await act(async () => mocks.confirm.mock.calls[0][0].ok());
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "upgrade-values")).toBe(false);
+});
+
+it("does not offer editing in read-only mode or query chart sources", async () => {
+  mocks.readOnly = true;
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(request.operation === "details" ? { ok: true, detail: { content: "replicas: 2" } } : listing),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("Values"));
+  await screen.findByText("replicas: 2");
+  expect(screen.queryByText("Edit values")).toBeNull();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "edit-options")).toBe(false);
+});
+
+it("promotes the latest fresh history revision to the current baseline without relisting namespaces", async () => {
+  const current = { ...release, revision: 3, status: "failed" };
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: `replicas: ${request.revision}` } }
+        : request.operation === "history"
+          ? { ...listing, releases: [current, { ...release, revision: 1, status: "superseded" }] }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 3");
+  fireEvent.click(screen.getAllByText("View revision")[0]);
+  await screen.findByText("replicas: 3");
+  expect(screen.queryByText("Historical revision · Read only")).toBeNull();
+  expect(screen.getByText("Edit values")).toBeTruthy();
+  expect(screen.getByText("Revision 3")).toBeTruthy();
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 1");
+  fireEvent.click(screen.getAllByText("View revision")[1]);
+  await screen.findByText("replicas: 1");
+  expect(screen.getByText("Historical revision · Read only")).toBeTruthy();
+  expect(screen.getByText("Superseded")).toBeTruthy();
+  fireEvent.click(screen.getByText("Compare with current"));
+  await screen.findByLabelText("Revision comparison");
+  expect(screen.getByText("Latest · Revision 3")).toBeTruthy();
+  const details = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details");
+  expect(details.at(-1)?.[1]).toMatchObject({ revision: 3, section: "values" });
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "list")).toHaveLength(1);
+});
+
+it("keeps invalid value drafts editable and requires a new review after definite prelaunch rejection", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: "replicas: 2" } }
+        : request.operation === "edit-options"
+          ? { ok: true, upgradeAllowed: true, chartChoices: [{ ref: "sample/chart", version: "1.0.0" }] }
+          : request.operation === "upgrade-values"
+            ? { ok: false, error: { code: "invalid-values", message: "Values rejected before launch" } }
+            : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("Values"));
+  fireEvent.click(await screen.findByText("Edit values"));
+  await screen.findByLabelText("Chart source");
+  const input = screen.getByLabelText("Edit current release values");
+  fireEvent.change(input, { target: { value: "replicas: [" } });
+  await screen.findByText(/Values must be a valid YAML mapping/);
+  expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(input, { target: { value: "- replicas" } });
+  await screen.findByText(/Values must be a valid YAML mapping/);
+  expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(true);
+  const rejectedDraft = "replicas: &count 3\nworkers: *count";
+  fireEvent.change(input, { target: { value: rejectedDraft } });
+  expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByText("Review changes"));
+  expect(mocks.confirm).not.toHaveBeenCalled();
+  await waitFor(() => expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByText("Review changes"));
+  await act(async () => mocks.confirm.mock.calls[0][0].ok());
+  await screen.findByText("Values rejected before launch");
+  const retained = screen.getByLabelText("Edit current release values") as HTMLTextAreaElement;
+  expect(retained.value).toBe(rejectedDraft);
+  expect(screen.queryByText("Refresh release")).toBeNull();
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values")).toHaveLength(1);
+  fireEvent.change(retained, { target: { value: "replicas: 4" } });
+  await waitFor(() => expect((screen.getByText("Review changes") as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByText("Review changes"));
+  expect(mocks.confirm).toHaveBeenCalledTimes(2);
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values")).toHaveLength(1);
+  await act(async () => mocks.confirm.mock.calls[1][0].ok());
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "upgrade-values")).toHaveLength(2);
+});
+
+it("drops selected metadata across successful context changes before opening another release", async () => {
+  const first = { ...listing, releases: [{ ...release, revision: 10 }] };
+  let current = first;
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: `Context ${request.contextId} revision ${request.revision}` } }
+        : current,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  await screen.findByLabelText("Release sample-release");
+  current = { ...listing, contextId: "b".repeat(64), releases: [{ ...release, revision: 1 }] };
+  fireEvent.click(screen.getAllByText("Refresh")[0]);
+  await waitFor(() => expect(screen.queryByLabelText("Release sample-release")).toBeNull());
+  expect(screen.getByText("1")).toBeTruthy();
+  expect(
+    mocks.invoke.mock.calls.some(
+      ([, request]) => request.operation === "details" && request.contextId === current.contextId,
+    ),
+  ).toBe(false);
+  current = first;
+  fireEvent.click(screen.getByText("Refresh"));
+  await screen.findByText("10");
+  expect(screen.queryByLabelText("Release sample-release")).toBeNull();
+});
+
+it("uses a later successful list as authoritative after a same-context release reinstall", async () => {
+  let current = listing;
+  let historyVersion = 10;
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: `replicas: ${request.revision}` } }
+        : request.operation === "history"
+          ? { ...listing, releases: [{ ...release, revision: historyVersion }] }
+          : current,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 10");
+  current = { ...listing, releases: [{ ...release, revision: 1 }] };
+  historyVersion = 1;
+  fireEvent.click(screen.getAllByText("Refresh")[0]);
+  await screen.findByText("Revision 1");
+  expect(screen.queryByText("Revision 10")).toBeNull();
+  fireEvent.click(screen.getByText("Values"));
+  await screen.findByText("replicas: 1");
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details").at(-1)?.[1]).toMatchObject({
+    revision: 1,
+    contextId: listing.contextId,
+  });
+});
+
+it("cancels a pending history promotion when a newer successful list supersedes its source metadata", async () => {
+  const oldHistory = deferred();
+  let current = listing;
+  let historyCalls = 0;
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "history" && ++historyCalls === 1
+      ? oldHistory.promise
+      : Promise.resolve(
+          request.operation === "details"
+            ? { ok: true, detail: { content: `replicas: ${request.revision}` } }
+            : current,
+        ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await waitFor(() => expect(historyCalls).toBe(1));
+  current = { ...listing, releases: [{ ...release, revision: 1 }] };
+  fireEvent.click(screen.getAllByText("Refresh")[0]);
+  await screen.findByLabelText("Revision 1");
+  expect(historyCalls).toBe(2);
+  await act(async () => oldHistory.resolve({ ...listing, releases: [{ ...release, revision: 10 }] }));
+  expect(screen.queryByText("Revision 10")).toBeNull();
+  expect(screen.queryByLabelText("Revision 10")).toBeNull();
+  expect(screen.getByText("Revision 1")).toBeTruthy();
+});
+
+it("dismisses the release drawer with Escape, preserves native dialogs and restores the release opener focus", async () => {
+  render(<PowerHelmPage />);
+  const opener = await screen.findByRole("button", { name: "sample-release" });
+  opener.focus();
+  fireEvent.click(opener);
+  await screen.findByLabelText("Release sample-release");
+  const dialog = document.createElement("div");
+  dialog.dataset.testid = "confirmation-dialog";
+  document.body.append(dialog);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.getByLabelText("Release sample-release")).toBeTruthy();
+  dialog.remove();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByLabelText("Release sample-release")).toBeNull();
+  expect(document.activeElement).toBe(opener);
+});
+
+it("includes known application versions in unified release search", async () => {
+  mocks.appVersions[release.name] = "2.7-demo";
+  mocks.invoke.mockResolvedValue(listing);
+  render(<PowerHelmPage />);
+  await screen.findByText("sample-release");
+  fireEvent.change(screen.getByLabelText("Search releases"), { target: { value: "2.7-demo" } });
+  expect(screen.getByText("sample-release")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Search releases"), { target: { value: "not-this-version" } });
+  expect(screen.queryByText("sample-release")).toBeNull();
+});
+
+it("searches application versions in revision history without stripping text", async () => {
+  mocks.appVersions[release.name] = "2.7-demo";
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "history" ? { ...listing, releases: [{ ...release, revision: 1 }, release] } : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 1");
+  fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2.7-demo" } });
+  expect(screen.getByLabelText("Revision 1")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "missing-version" } });
+  expect(screen.queryByLabelText("Revision 1")).toBeNull();
+  expect(screen.getByText("No matching revisions")).toBeTruthy();
+});

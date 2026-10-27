@@ -232,7 +232,8 @@ describe("metrics-server overview", () => {
     );
     view.rerender(<MetricChart metric="cpu" samples={samples} status="" scope="node" />);
     expect(view.container.querySelectorAll("[data-monitoring-series]")).toHaveLength(4);
-    expect(view.getByRole("status", { name: "node metrics status" }).textContent).toContain("*metrics-server data");
+    expect(view.queryByRole("status", { name: "node metrics status" })).toBeNull();
+    expect(view.container.querySelector("sup")).toBeNull();
   });
   it("accounts for init peaks, restartable sidecars, pod-level budgets and overhead", () => {
     const pod = {
@@ -349,7 +350,7 @@ describe("metrics-server overview", () => {
     expect(document.querySelectorAll("[data-monitoring-series]")).toHaveLength(8);
     expect(document.querySelector('[data-monitoring-series="limits"]')).toBeNull();
     expect(allocationTooltip()).not.toContain("Limits");
-    expect(document.querySelector('[aria-label="node metrics status"]')?.textContent).toContain("metrics-server data");
+    expect(document.querySelector('[aria-label="node metrics status"]')).toBeNull();
     fireEvent.focus(document.querySelector("[data-monitoring-trend]")!);
     expect(document.querySelector("[role=tooltip]")?.textContent).toContain("Requests: 5.00 cores");
     expect(document.querySelector("[role=tooltip]")?.textContent).not.toContain("Limits");

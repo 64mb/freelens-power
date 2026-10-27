@@ -104,7 +104,7 @@ export function validateLogRequest(input: unknown): LogRequest {
       !identifier(record.podUid) ||
       !identifier(record.container) ||
       (record.previous !== undefined && typeof record.previous !== "boolean") ||
-      !["trace", "debug", "info", "warn", "error", "fatal", "unknown"].includes(record.level) ||
+      !["trace", "debug", "info", "access", "warn", "error", "fatal", "unknown"].includes(record.level) ||
       !text(record.message, L.recordBytes) ||
       (record.fieldsJson !== null && !text(record.fieldsJson, L.recordBytes))
     )
