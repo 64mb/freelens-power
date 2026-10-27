@@ -565,3 +565,45 @@ it("measures newly mounted full-context editors when a shared width is already k
     mocks.props.slice(-screen.getAllByRole("textbox").length).every((props) => props.style.width === fullWidth),
   ).toBe(true);
 });
+
+it("shares either pinned footer bar with both panes and cleans up detached footer listeners", () => {
+  const view = render(<HelmRevisionDiff before="source" after="target" beforeLabel="Source" afterLabel="Target" />);
+  const sourceBar = screen.getByLabelText("Source horizontal scroll"),
+    targetBar = screen.getByLabelText("Target horizontal scroll");
+  expect(view.container.querySelectorAll(".helm-diff-horizontal-scroll")).toHaveLength(2);
+  expect(
+    view.container
+      .querySelector(".helm-diff-horizontal-footer")
+      ?.previousElementSibling?.classList.contains("helm-diff-scroll"),
+  ).toBe(true);
+  sourceBar.scrollLeft = 90;
+  fireEvent.scroll(sourceBar);
+  const roots = Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view"));
+  expect([targetBar.scrollLeft, ...roots.map((root) => root.scrollLeft)]).toEqual([90, 90, 90]);
+  targetBar.scrollLeft = 40;
+  fireEvent.scroll(targetBar);
+  expect([sourceBar.scrollLeft, ...roots.map((root) => root.scrollLeft)]).toEqual([40, 40, 40]);
+  expect(roots.every((root) => root.classList.contains("helm-code-view-horizontal"))).toBe(true);
+  view.unmount();
+  sourceBar.scrollLeft = 150;
+  fireEvent.scroll(sourceBar);
+  expect(targetBar.scrollLeft).toBe(40);
+});
+
+it("exposes keyboard footer scrolling only when its content overflows", () => {
+  render(<HelmRevisionDiff before="source" after="target" beforeLabel="Source" afterLabel="Target" />);
+  const sourceBar = screen.getByLabelText("Source horizontal scroll");
+  expect(sourceBar.tabIndex).toBe(-1);
+  expect(sourceBar.style.height).toBe("0px");
+  let width = 1000;
+  Object.defineProperties(sourceBar, { clientWidth: { value: 200 }, scrollWidth: { get: () => width } });
+  fireEvent.resize(window);
+  expect(sourceBar.tabIndex).toBe(0);
+  expect(sourceBar.getAttribute("aria-hidden")).toBe("false");
+  expect(sourceBar.style.height).toBe("16px");
+  width = 200;
+  fireEvent.resize(window);
+  expect(sourceBar.tabIndex).toBe(-1);
+  expect(sourceBar.getAttribute("aria-hidden")).toBe("true");
+  expect(sourceBar.style.height).toBe("0px");
+});

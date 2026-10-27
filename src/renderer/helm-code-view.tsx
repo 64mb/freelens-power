@@ -92,6 +92,40 @@ type HelmHorizontalScroll = {
   onWidth: (width: number) => void;
 };
 
+function HelmHorizontalBar({ horizontal, source }: { horizontal: HelmHorizontalScroll; source: boolean }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState(false);
+  useEffect(() => {
+    const root = rootRef.current;
+    return root ? horizontal.controller.register(root) : undefined;
+  }, [horizontal.controller]);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const measure = () => setOverflow(root.scrollWidth > root.clientWidth);
+    measure();
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(measure);
+      observer.observe(root);
+      return () => observer.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [horizontal.width]);
+  return (
+    <div
+      ref={rootRef}
+      className="helm-diff-horizontal-scroll"
+      tabIndex={overflow ? 0 : -1}
+      aria-hidden={!overflow}
+      aria-label={source ? "Source horizontal scroll" : "Target horizontal scroll"}
+      style={{ height: overflow ? 16 : 0 }}
+    >
+      <div style={{ width: horizontal.width || "100%", height: 1 }} />
+    </div>
+  );
+}
+
 type HelmCodeViewProps = {
   value: string;
   language?: "yaml" | "json";
@@ -261,7 +295,7 @@ export function HelmCodeView({
   return (
     <div
       ref={rootRef}
-      className={`helm-code-view ${className}`}
+      className={`helm-code-view ${horizontal ? "helm-code-view-horizontal" : ""} ${className}`}
       style={{
         height: `min(52vh, ${Math.max(readOnly ? 140 : 240, value.split("\n", 30).length * 18 + 28)}px)`,
         minHeight: readOnly ? 140 : 240,
@@ -509,11 +543,16 @@ export function HelmRevisionDiff({
       }}
     >
       <style>{`
-      .helm-revision-diff { min-width: 0; }
+      .helm-revision-diff { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
       .helm-diff-summary { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; color: var(--textColorSecondary); }
       .helm-diff-find { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; }
       .helm-diff-find input { background: var(--contentColor); color: var(--textColorPrimary); border: 1px solid var(--borderColor); padding: 5px 8px; }
       .helm-diff-scroll { position: relative; }
+      .helm-code-view-horizontal { scrollbar-width: none; }
+      .helm-code-view-horizontal::-webkit-scrollbar { height: 0; }
+      .helm-diff-horizontal-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex-shrink: 0; min-width: 0; }
+      .helm-diff-horizontal-scroll { min-width: 0; overflow-x: auto; overflow-y: hidden; }
+      .helm-diff-horizontal-scroll:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
       .helm-diff-summary .Checkbox { position: relative; }
       .helm-diff-summary .Checkbox input[type=checkbox] { display: block; position: absolute; left: 0; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); opacity: 0; margin: 0; z-index: 1; }
       .helm-diff-summary .Checkbox input:focus-visible ~ .box { outline: 2px solid var(--primary); outline-offset: 3px; }
@@ -705,6 +744,12 @@ export function HelmRevisionDiff({
               );
             })
           )}
+        </div>
+      )}
+      {(!unchanged || full || fallback) && (
+        <div className="helm-diff-horizontal-footer">
+          <HelmHorizontalBar horizontal={horizontal} source />
+          <HelmHorizontalBar horizontal={horizontal} source={false} />
         </div>
       )}
     </section>
