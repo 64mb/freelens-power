@@ -100,7 +100,7 @@ export function HelmAppVersionCell({
       {result && "value" in result ? (
         result.value.appVersion ? (
           <NativeTooltip title={result.value.chartVersion ? `Chart version: ${result.value.chartVersion}` : undefined}>
-            <span>{result.value.appVersion}</span>
+            <span className="helm-version-badge">{result.value.appVersion}</span>
           </NativeTooltip>
         ) : (
           <span aria-label="Application version unavailable">—</span>

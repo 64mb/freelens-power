@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { bindHelmDiffWheel, HelmCodeView, HelmRevisionDiff, openHelmDocumentFind } from "./helm-code-view";
+import {
+  bindHelmDiffWheel,
+  createHelmHorizontalScroll,
+  HelmCodeView,
+  HelmRevisionDiff,
+  openHelmDocumentFind,
+} from "./helm-code-view";
 
-const mocks = vi.hoisted(() => ({ models: [] as any[], props: [] as any[], copy: vi.fn() }));
+const mocks = vi.hoisted(() => ({ models: [] as any[], props: [] as any[], copy: vi.fn(), lateMeasurements: false }));
 vi.mock("electron", () => ({ clipboard: { writeText: mocks.copy } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
@@ -25,6 +31,17 @@ vi.mock("@freelensapp/extensions", () => ({
         mocks.props.push(props);
         const previous = useRef<any>();
         const field = useRef<HTMLTextAreaElement>(null);
+        const dimensions = useRef<{ value: string; width: number }>();
+        useEffect(() => {
+          const width =
+            typeof props.style.width === "number" ? props.style.width : props.style.width === "100%" ? 400 : 399;
+          const last = dimensions.current;
+          dimensions.current = { value: props.value, width };
+          if (!mocks.lateMeasurements || !last) return;
+          if (last.width !== width) props.onDidLayoutChange?.({ width, contentWidth: width - 80 });
+          if (last.value !== props.value)
+            props.onDidContentSizeChange?.({ contentWidth: Math.max(width - 80, props.value.length * 8) });
+        }, [props.value, props.style.width]);
         useEffect(() => {
           const model = { deltaDecorations: vi.fn(() => ["decoration"]), dispose: vi.fn(), isDisposed: () => false };
           mocks.models.push(model);
@@ -58,6 +75,7 @@ afterEach(() => {
   mocks.models.length = 0;
   mocks.props.length = 0;
   mocks.copy.mockReset();
+  mocks.lateMeasurements = false;
 });
 
 it("updates native editor content and enforces read-only changes", async () => {
@@ -320,7 +338,11 @@ it("uses the common vertical viewport for bounded-display and size-limit fallbac
   expect(view.container.querySelectorAll(".helm-diff-scroll")).toHaveLength(1);
   expect(screen.getAllByRole("textbox")).toHaveLength(2);
   for (const props of mocks.props) {
-    expect(props.options.scrollbar).toEqual({ vertical: "hidden", alwaysConsumeMouseWheel: false });
+    expect(props.options.scrollbar).toEqual({
+      vertical: "hidden",
+      horizontal: "hidden",
+      alwaysConsumeMouseWheel: false,
+    });
     expect(props.style.height).toBe("100%");
   }
   const editors = view.container.querySelectorAll<HTMLElement>(".helm-code-view");
@@ -429,4 +451,197 @@ it("routes vertical wheel over Monaco to the owned shared viewport and disposes 
   dispose();
   expect(wheel(100).defaultPrevented).toBe(false);
   expect(viewport.scrollTop).toBe(0);
+});
+
+it("synchronizes owned horizontal scroll in either direction across blocks without feedback and cleans up", () => {
+  const controller = createHelmHorizontalScroll();
+  const left = document.createElement("div"),
+    right = document.createElement("div"),
+    otherBlock = document.createElement("div");
+  const dispose = [left, right, otherBlock].map((viewport) => controller.register(viewport));
+  left.scrollLeft = 120;
+  fireEvent.scroll(left);
+  expect([right.scrollLeft, otherBlock.scrollLeft]).toEqual([120, 120]);
+  fireEvent.scroll(right);
+  fireEvent.scroll(otherBlock);
+  expect(left.scrollLeft).toBe(120);
+  right.scrollLeft = 45;
+  fireEvent.scroll(right);
+  expect([left.scrollLeft, otherBlock.scrollLeft]).toEqual([45, 45]);
+  const newlyMounted = document.createElement("div");
+  const removeNew = controller.register(newlyMounted);
+  expect(newlyMounted.scrollLeft).toBe(45);
+  dispose.forEach((cleanup) => cleanup());
+  removeNew();
+  left.scrollLeft = 300;
+  fireEvent.scroll(left);
+  expect(right.scrollLeft).toBe(45);
+});
+
+it("shares native public content measurements in compact, full and fallback editors", () => {
+  const source = Array.from({ length: 30 }, (_, index) => `key${index}: original`);
+  const target = [...source];
+  target[10] = "replacement";
+  const view = render(
+    <HelmRevisionDiff before={source.join("\n")} after={target.join("\n")} beforeLabel="Source" afterLabel="Target" />,
+  );
+  act(() => {
+    const props = mocks.props[mocks.props.length - 1];
+    props.onDidLayoutChange({ width: 400, contentWidth: 320 });
+    props.onDidContentSizeChange({ contentWidth: 1200 });
+  });
+  const latest = mocks.props.slice(-screen.getAllByRole("textbox").length);
+  expect(latest.every((props) => props.style.width === 1280)).toBe(true);
+  const roots = Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view"));
+  roots[0].scrollLeft = 200;
+  fireEvent.scroll(roots[0]);
+  expect(roots.every((root) => root.scrollLeft === 200)).toBe(true);
+  fireEvent.click(screen.getByLabelText("Show full documents"));
+  const fullRoots = Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view"));
+  expect(fullRoots.every((root) => root.scrollLeft === 200)).toBe(true);
+  view.rerender(
+    <HelmRevisionDiff before={"x".repeat(1024 * 1024 + 1)} after="target" beforeLabel="Source" afterLabel="Target" />,
+  );
+  const fallback = Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view"));
+  fallback[1].scrollLeft = 70;
+  fireEvent.scroll(fallback[1]);
+  expect(fallback[0].scrollLeft).toBe(70);
+  expect(mocks.props.slice(-2).every((props) => props.options.scrollbar.horizontal === "hidden")).toBe(true);
+});
+
+it("routes horizontal and shift wheel through owned panes while preserving vertical and zoom gestures", () => {
+  const controller = createHelmHorizontalScroll();
+  const left = document.createElement("div"),
+    right = document.createElement("div");
+  Object.defineProperties(left, { clientWidth: { value: 200 }, scrollWidth: { value: 1000 } });
+  const remove = controller.register(left),
+    removeRight = controller.register(right);
+  const wheel = (data: WheelEventInit) => {
+    const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...data });
+    left.dispatchEvent(event);
+    return event;
+  };
+  expect(wheel({ deltaX: 80 }).defaultPrevented).toBe(true);
+  expect(right.scrollLeft).toBe(80);
+  wheel({ deltaY: 2, deltaMode: 1, shiftKey: true });
+  expect(right.scrollLeft).toBe(116);
+  wheel({ deltaX: 1, deltaMode: 2 });
+  expect(right.scrollLeft).toBe(316);
+  for (const data of [{ deltaY: 100 }, { deltaX: 100, ctrlKey: true }, { deltaX: 100, metaKey: true }])
+    expect(wheel(data).defaultPrevented).toBe(false);
+  expect(right.scrollLeft).toBe(316);
+  remove();
+  removeRight();
+});
+
+it("obtains initial measurements when native subscriptions miss creation events", () => {
+  mocks.lateMeasurements = true;
+  const before = "x".repeat(100),
+    after = "y".repeat(100);
+  render(<HelmRevisionDiff before={before} after={after} beforeLabel="Source" afterLabel="Target" />);
+  expect(mocks.props.some((props) => props.value === "" && props.style.width === "calc(100% - 1px)")).toBe(true);
+  expect(mocks.props.slice(-2).every((props) => props.style.width === 880)).toBe(true);
+  expect((screen.getByLabelText("Source") as HTMLTextAreaElement).value).toBe(before);
+  expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).toBe(after);
+});
+
+it("measures newly mounted full-context editors when a shared width is already known", () => {
+  mocks.lateMeasurements = true;
+  const before = Array.from({ length: 30 }, (_, index) => `key${index}: same`);
+  before[0] = "hidden: " + "x".repeat(200);
+  const after = [...before];
+  after[10] = "key10: changed";
+  render(
+    <HelmRevisionDiff before={before.join("\n")} after={after.join("\n")} beforeLabel="Source" afterLabel="Target" />,
+  );
+  const compactWidth = mocks.props[mocks.props.length - 1].style.width;
+  expect(typeof compactWidth).toBe("number");
+  mocks.props.length = 0;
+  fireEvent.click(screen.getByLabelText("Show full documents"));
+  expect(mocks.props.some((props) => props.value === "" && props.style.width === compactWidth - 1)).toBe(true);
+  const fullWidth = mocks.props[mocks.props.length - 1].style.width;
+  expect(fullWidth).toBeGreaterThan(compactWidth);
+  expect(
+    mocks.props.slice(-screen.getAllByRole("textbox").length).every((props) => props.style.width === fullWidth),
+  ).toBe(true);
+});
+
+it("shares either pinned footer bar with both panes and cleans up detached footer listeners", () => {
+  const view = render(<HelmRevisionDiff before="source" after="target" beforeLabel="Source" afterLabel="Target" />);
+  const sourceBar = screen.getByLabelText("Source horizontal scroll"),
+    targetBar = screen.getByLabelText("Target horizontal scroll");
+  expect(view.container.querySelectorAll(".helm-diff-horizontal-scroll")).toHaveLength(2);
+  expect(
+    view.container
+      .querySelector(".helm-diff-horizontal-footer")
+      ?.previousElementSibling?.classList.contains("helm-diff-scroll"),
+  ).toBe(true);
+  sourceBar.scrollLeft = 90;
+  fireEvent.scroll(sourceBar);
+  const roots = Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view"));
+  expect([targetBar.scrollLeft, ...roots.map((root) => root.scrollLeft)]).toEqual([90, 90, 90]);
+  targetBar.scrollLeft = 40;
+  fireEvent.scroll(targetBar);
+  expect([sourceBar.scrollLeft, ...roots.map((root) => root.scrollLeft)]).toEqual([40, 40, 40]);
+  expect(roots.every((root) => root.classList.contains("helm-code-view-horizontal"))).toBe(true);
+  view.unmount();
+  sourceBar.scrollLeft = 150;
+  fireEvent.scroll(sourceBar);
+  expect(targetBar.scrollLeft).toBe(40);
+});
+
+it("exposes keyboard footer scrolling only when its content overflows", () => {
+  render(<HelmRevisionDiff before="source" after="target" beforeLabel="Source" afterLabel="Target" />);
+  const sourceBar = screen.getByLabelText("Source horizontal scroll");
+  expect(sourceBar.tabIndex).toBe(-1);
+  expect(sourceBar.style.height).toBe("0px");
+  let width = 1000;
+  Object.defineProperties(sourceBar, { clientWidth: { value: 200 }, scrollWidth: { get: () => width } });
+  fireEvent.resize(window);
+  expect(sourceBar.tabIndex).toBe(0);
+  expect(sourceBar.getAttribute("aria-hidden")).toBe("false");
+  expect(sourceBar.style.height).toBe("16px");
+  width = 200;
+  fireEvent.resize(window);
+  expect(sourceBar.tabIndex).toBe(-1);
+  expect(sourceBar.getAttribute("aria-hidden")).toBe("true");
+  expect(sourceBar.style.height).toBe("0px");
+});
+
+it("keeps both captions in the same stretching sticky header row when one caption wraps", () => {
+  const view = render(
+    <HelmRevisionDiff
+      before="source"
+      after="target"
+      beforeLabel={<span>Revision 1</span>}
+      afterLabel={
+        <>
+          <span>Latest revision 2</span>
+          <span>Failed</span>
+          <span>App version 1.0</span>
+        </>
+      }
+    />,
+  );
+  const source = screen.getByRole("heading", { name: "Revision 1" });
+  const target = screen.getByRole("heading", { name: /Latest revision 2/ });
+  expect(source.parentElement).toBe(target.parentElement);
+  expect(source.parentElement?.classList.contains("helm-diff-headers")).toBe(true);
+  expect(Array.from(source.parentElement!.children)).toEqual([source, target]);
+  expect(source.parentElement?.nextElementSibling?.querySelectorAll(".helm-code-view")).toHaveLength(2);
+  expect(view.container.querySelectorAll(".helm-diff-headers")).toHaveLength(1);
+});
+
+it("reveals a find match below the measured wrapped sticky header", () => {
+  const view = render(<HelmRevisionDiff before="old" after="find this" beforeLabel="Source" afterLabel="Target" />);
+  const viewport = screen.getByLabelText("Comparison documents");
+  const header = view.container.querySelector<HTMLElement>(".helm-diff-headers")!;
+  const block = view.container.querySelector<HTMLElement>("[data-helm-after-start]")!;
+  vi.spyOn(header, "getBoundingClientRect").mockReturnValue({ height: 74 } as DOMRect);
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect);
+  vi.spyOn(block, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+  fireEvent.keyDown(screen.getByLabelText("Source"), { key: "f", ctrlKey: true });
+  fireEvent.change(screen.getByLabelText("Find in both documents"), { target: { value: "find this" } });
+  expect(viewport.scrollTop).toBe(318);
+  expect(500 - viewport.scrollTop).toBeGreaterThan(100 + 74);
 });

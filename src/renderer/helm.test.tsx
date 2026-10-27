@@ -873,7 +873,7 @@ it("restarts copy feedback for each successful copy", async () => {
     act(() => {
       vi.advanceTimersByTime(1900);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Copy again", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy", exact: true }));
     act(() => {
       vi.advanceTimersByTime(150);
     });
@@ -1021,4 +1021,78 @@ it("keeps current revision comparisons current when returning to the revision", 
   fireEvent.click(screen.getByRole("button", { name: "Show revision" }));
   await screen.findByRole("button", { name: "Edit values" });
   expect(screen.queryByLabelText("Revision comparison")).toBeNull();
+});
+
+it("keeps cached document refresh progress in the toolbar and preserves Copy", async () => {
+  const pending = deferred();
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "details"
+      ? request.refresh
+        ? pending.promise
+        : Promise.resolve({ ok: true, detail: { content: "replicas: 2" } })
+      : Promise.resolve(listing),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "Values" }));
+  await screen.findByText("replicas: 2");
+  const copy = screen.getByRole("button", { name: "Copy", exact: true });
+  const header = copy.closest(".helm-code-header")!;
+  fireEvent.click(screen.getByRole("button", { name: "Refresh values", exact: true }));
+  await waitFor(() => expect(header.querySelector('[aria-busy="true"]')).toBeTruthy());
+  expect(screen.getByRole("button", { name: "Cancel loading" }).closest(".helm-code-header")).toBe(header);
+  expect(screen.getByRole("button", { name: "Copy", exact: true })).toBe(copy);
+  expect(screen.getByText("replicas: 2")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel loading" }));
+  await act(async () => pending.resolve({ ok: true, detail: { content: "ignored late document" } }));
+  expect(screen.queryByText("ignored late document")).toBeNull();
+});
+
+it.each([
+  "click",
+  "Enter",
+  " ",
+])("opens revision preview from its row using %s without turning radio selection into navigation", async (activation) => {
+  const previous = { ...release, revision: 1, uid: "sample-secret-uid-1", status: "superseded" };
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "history"
+        ? { ...listing, releases: [release, previous], rollbackAllowed: true }
+        : request.operation === "details"
+          ? { ok: true, detail: { content: request.revision === 1 ? "historical values" : "current values" } }
+          : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  const radio = await screen.findByRole("radio", { name: "Revision 1" });
+  fireEvent.click(radio);
+  expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.queryByText("historical values")).toBeNull();
+  const row = radio.closest("tr")!;
+  if (activation === "click") {
+    const badge = row.querySelector(".helm-version-badge")!;
+    const selection = window.getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(badge);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    try {
+      fireEvent.click(row);
+      expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    } finally {
+      selection.removeAllRanges();
+    }
+    for (const modifier of ["ctrlKey", "metaKey", "shiftKey", "altKey"]) {
+      fireEvent.click(row, { [modifier]: true });
+      expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    }
+    fireEvent.click(badge);
+  } else fireEvent.keyDown(row, { key: activation });
+  await screen.findByText("historical values");
+  expect(screen.getByRole("tab", { name: "Values" }).getAttribute("aria-selected")).toBe("true");
+  expect(mocks.invoke.mock.calls.some(([, r]) => r.operation === "rollback" || r.operation === "uninstall")).toBe(
+    false,
+  );
 });
