@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateTime } from "../common/date-time";
 import {
   HELM_CHANNEL,
+  type HelmOverview,
   type HelmReleaseMetadata,
   type HelmRequest,
   type HelmResponse,
@@ -19,20 +20,79 @@ import { HelmCodeView, HelmRevisionDiff } from "./helm-code-view";
 import { useHelmVersionIndex } from "./helm-version-index";
 import { NativeTooltip } from "./native-tooltip";
 
+function ReleaseOverview({ overview, actions }: { overview: HelmOverview; actions: ReactNode }) {
+  const fields = [
+    ["Name", overview.name],
+    ["Namespace", overview.namespace],
+    ["Revision", overview.revision],
+    ["Status", overview.status],
+    ["Chart", overview.chartName || overview.chart],
+    ["App version", overview.appVersion],
+    ["Chart version", overview.chartVersion],
+    ["Updated", overview.updatedAt],
+    ["Description", overview.description],
+  ] as const;
+  return (
+    <section className="helm-overview-card" aria-label="Release details">
+      <header>
+        <h3>Release details</h3>
+        {actions}
+      </header>
+      <dl className="helm-overview">
+        {fields
+          .filter(([, value]) => value !== undefined && value !== "")
+          .map(([label, value]) => (
+            <div key={label} className={label === "Description" ? "helm-overview-description" : undefined}>
+              <dt>{label}</dt>
+              <dd>
+                {label === "Status" ? (
+                  <StatusBadge status={String(value)} />
+                ) : label === "Updated" ? (
+                  formatDateTime(String(value))
+                ) : (
+                  String(value)
+                )}
+              </dd>
+            </div>
+          ))}
+      </dl>
+    </section>
+  );
+}
+
+function InlineAlert({ children }: { children: ReactNode }) {
+  return (
+    <div className="helm-inline-alert" role="alert">
+      <Icon material="error_outline" size={18} />
+      <span>{children}</span>
+    </div>
+  );
+}
+
 function VersionSearchProgress({
   index,
   paused,
   onToggle,
+  onRefresh,
 }: {
   index: ReturnType<typeof useHelmVersionIndex>;
   paused: boolean;
   onToggle: () => void;
+  onRefresh: () => void;
 }) {
   if (!index.total) return null;
   return (
     <div className="helm-version-progress" aria-label="App version search progress">
       <Icon
-        material={index.completed >= index.total ? "check_circle" : paused ? "pause_circle_outline" : "search"}
+        material={
+          index.errors || index.truncated
+            ? "info_outline"
+            : index.completed >= index.total
+              ? "check_circle"
+              : paused
+                ? "pause_circle_outline"
+                : "search"
+        }
         size={16}
       />
       <span>
@@ -41,7 +101,11 @@ function VersionSearchProgress({
       </span>
       <progress aria-label="App versions checked" value={index.completed} max={index.total} />
       {index.completed < index.total && <Button label={paused ? "Resume" : "Stop"} onClick={onToggle} />}
-      {index.errors > 0 && <small>{index.errors} unavailable</small>}
+      {index.errors > 0 && <small className="helm-version-unavailable">{index.errors} unavailable</small>}
+      {index.truncated && (
+        <small className="helm-version-unavailable">Only the first {index.total} entries are checked</small>
+      )}
+      {(index.errors > 0 || index.truncated) && <Button label="Refresh versions" onClick={onRefresh} />}
     </div>
   );
 }
@@ -153,7 +217,13 @@ export function useHelmRequest(request: Omit<HelmRequest, "requestId">, cacheKey
   return { ...state, refresh: () => setAttempt((value) => value + 1), cancel: () => cancelRef.current?.() };
 }
 
-function RequestStatus({ state }: { state: ReturnType<typeof useHelmRequest> }) {
+function RequestStatus({
+  state,
+  refreshLabel = "Refresh",
+}: {
+  state: ReturnType<typeof useHelmRequest>;
+  refreshLabel?: string;
+}) {
   return (
     <div role="status" className="helm-request-status">
       {state.loading && (
@@ -177,10 +247,10 @@ function RequestStatus({ state }: { state: ReturnType<typeof useHelmRequest> }) 
         </>
       )}
       {!state.loading && !state.error && (
-        <NativeTooltip title="Refresh">
-          <button type="button" className="helm-icon-button" aria-label="Refresh" onClick={state.refresh}>
+        <NativeTooltip title={refreshLabel}>
+          <button type="button" className="helm-icon-button" aria-label={refreshLabel} onClick={state.refresh}>
             <Icon material="refresh" size={18} />
-            <span className="helm-sr-only">Refresh</span>
+            <span className="helm-sr-only">{refreshLabel}</span>
           </button>
         </NativeTooltip>
       )}
@@ -235,7 +305,9 @@ function Section({
   }, [detail?.content]);
   return (
     <>
-      {(!compare || state.loading || state.error || state.stale) && <RequestStatus state={state} />}
+      {!(tab === "overview" && detail?.overview) && (!compare || state.loading || state.error || state.stale) && (
+        <RequestStatus state={state} />
+      )}
       {historical && (tab === "values" || tab === "manifest") && detail && (
         <div className="helm-toolbar">
           {compare && deployedRelease && (
@@ -293,38 +365,10 @@ function Section({
         ) : (
           <>
             {detail && tab === "overview" && detail.overview && (
-              <dl className="helm-overview">
-                {Object.entries(detail.overview)
-                  .filter(([, value]) => value !== undefined)
-                  .map(([key, value]) => (
-                    <div key={key} className={key === "description" ? "helm-overview-description" : undefined}>
-                      <dt>
-                        {(
-                          {
-                            appVersion: "App version",
-                            chartVersion: "Chart version",
-                            updatedAt: "Updated",
-                            name: "Name",
-                            namespace: "Namespace",
-                            revision: "Revision",
-                            status: "Status",
-                            chart: "Chart",
-                            description: "Description",
-                          } as Record<string, string>
-                        )[key] ?? key}
-                      </dt>
-                      <dd>
-                        {key === "status" ? (
-                          <StatusBadge status={String(value)} />
-                        ) : key === "updatedAt" ? (
-                          formatDateTime(String(value))
-                        ) : (
-                          String(value)
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-              </dl>
+              <ReleaseOverview
+                overview={detail.overview}
+                actions={<RequestStatus state={state} refreshLabel="Refresh overview" />}
+              />
             )}
             {detail && (tab !== "overview" || !detail.overview) && (
               <>
@@ -644,8 +688,8 @@ const ValuesEditor = observer(
             Checking YAML…
           </small>
         )}
-        {validationError && <p role="alert">{validationError}</p>}
-        {error && <p role="alert">{error}</p>}
+        {validationError && <InlineAlert>{validationError}</InlineAlert>}
+        {error && <InlineAlert>{error}</InlineAlert>}
         <div className="helm-toolbar">
           <Button
             label={refreshing ? "Refreshing…" : busy ? "Applying…" : "Review changes"}
@@ -750,6 +794,10 @@ const History = observer(
     const [versionGeneration, setVersionGeneration] = useState(0);
     const [revisionFilter, setRevisionFilter] = useState("");
     const [page, setPage] = useState(0);
+    const historyFrame = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+      if (historyFrame.current) historyFrame.current.scrollTop = 0;
+    }, [page, revisionFilter, state.result]);
     useEffect(() => setPage(0), [state.result, revisionFilter]);
     const [versionsPaused, setVersionsPaused] = useState(false);
     const versionIndex = useHelmVersionIndex({
@@ -810,11 +858,18 @@ const History = observer(
       },
       [],
     );
+    const readOnly = ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>().enabled;
     const allowed =
       state.result?.ok &&
       state.result.rollbackAllowed &&
-      !ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>().enabled &&
+      !readOnly &&
       PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled;
+    useEffect(() => {
+      if (!allowed) {
+        setConfirmed(false);
+        setRevision(undefined);
+      }
+    }, [allowed]);
     const historyCurrent = !state.loading && !state.error && !state.stale;
     const eligible = useRef(false);
     eligible.current = Boolean(allowed && historyCurrent);
@@ -844,6 +899,7 @@ const History = observer(
                     clusterId={clusterId}
                     contextId={contextId}
                     release={target}
+                    knownVersion={versionIndex.versionFor(target)}
                     refreshToken={versionGeneration}
                   />
                 ) : (
@@ -907,7 +963,7 @@ const History = observer(
       });
     };
     return (
-      <>
+      <div className="helm-history-layout">
         <RequestStatus
           state={{
             ...state,
@@ -929,6 +985,14 @@ const History = observer(
             <small>
               {history.length} revisions{revision ? ` · Selected revision ${revision}` : ""}
             </small>
+            {readOnly && (
+              <NativeTooltip title="Read-only mode is enabled. Revision contents and comparisons remain available">
+                <span className="helm-access-badge" role="status" aria-label="Read only">
+                  <Icon material="lock_outline" size={14} />
+                  Read only
+                </span>
+              </NativeTooltip>
+            )}
           </div>
         )}
         {revisionFilter && (
@@ -936,77 +1000,96 @@ const History = observer(
             index={versionIndex}
             paused={versionsPaused}
             onToggle={() => setVersionsPaused((value) => !value)}
+            onRefresh={() => {
+              setVersionsPaused(false);
+              setVersionGeneration((value) => value + 1);
+            }}
           />
         )}
         {state.result?.ok && (
-          <table className="helm-table helm-history-table">
-            <thead>
-              <tr>
-                <th>Revision</th>
-                <th>App version</th>
-                <th>Status</th>
-                <th>Updated</th>
-                <th>
-                  <span className="helm-sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {!history.length && (
+          <div
+            ref={historyFrame}
+            className="helm-history-frame"
+            role="region"
+            aria-label="Revision history table"
+            tabIndex={0}
+          >
+            <table className="helm-table helm-history-table">
+              <thead>
                 <tr>
-                  <td colSpan={5} className="helm-history-empty">
-                    {versionIndex.completed < versionIndex.total ? "No known matches yet" : "No matching revisions"}
-                  </td>
+                  <th>Revision</th>
+                  <th>App version</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                  <th>
+                    <span className="helm-sr-only">Actions</span>
+                  </th>
                 </tr>
-              )}
-              {historyPage.map((item) => (
-                <tr key={item.revision} data-selected={revision === item.revision}>
-                  <td>
-                    <label>
-                      <input
-                        aria-label={`Revision ${item.revision}`}
-                        type="radio"
-                        name="helm-revision"
-                        checked={revision === item.revision}
-                        disabled={busy || !historyCurrent}
-                        onChange={() => {
-                          setRevision(item.revision);
-                          setConfirmed(false);
-                        }}
-                      />{" "}
-                      {item.revision}
-                    </label>
-                    {item.revision === release.revision && <span className="helm-current-tag">Current</span>}
-                  </td>
-                  <td>
-                    {contextId ? (
-                      <HelmAppVersionCell
-                        clusterId={clusterId}
-                        contextId={contextId}
-                        release={item}
-                        active={historyCurrent && !busy}
-                        refreshToken={versionGeneration}
+              </thead>
+              <tbody>
+                {!history.length && (
+                  <tr>
+                    <td colSpan={5} className="helm-history-empty">
+                      {versionIndex.completed < versionIndex.total || versionIndex.errors > 0 || versionIndex.truncated
+                        ? "No known matches yet"
+                        : "No matching revisions"}
+                    </td>
+                  </tr>
+                )}
+                {historyPage.map((item) => (
+                  <tr key={item.revision} data-selected={revision === item.revision}>
+                    <td>
+                      {allowed ? (
+                        <label>
+                          <input
+                            aria-label={`Revision ${item.revision}`}
+                            type="radio"
+                            name="helm-revision"
+                            checked={revision === item.revision}
+                            disabled={busy || !historyCurrent}
+                            onChange={() => {
+                              setRevision(item.revision);
+                              setConfirmed(false);
+                            }}
+                          />{" "}
+                          {item.revision}
+                        </label>
+                      ) : (
+                        <span aria-label={`Revision ${item.revision}`}>{item.revision}</span>
+                      )}
+                      {item.revision === release.revision && <span className="helm-current-tag">Current</span>}
+                    </td>
+                    <td>
+                      {contextId ? (
+                        <HelmAppVersionCell
+                          clusterId={clusterId}
+                          contextId={contextId}
+                          release={item}
+                          knownVersion={versionIndex.versionFor(item)}
+                          active={historyCurrent && !busy}
+                          refreshToken={versionGeneration}
+                        />
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
+                      <StatusBadge status={item.status} />
+                    </td>
+                    <td>{item.updatedAt ? formatDateTime(item.updatedAt) : "—"}</td>
+                    <td>
+                      <Button
+                        className="helm-inline-action"
+                        label="View revision"
+                        disabled={!historyCurrent || busy}
+                        onClick={() => onView(item)}
                       />
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge status={item.status} />
-                  </td>
-                  <td>{item.updatedAt ? formatDateTime(item.updatedAt) : "—"}</td>
-                  <td>
-                    <Button
-                      className="helm-inline-action"
-                      label="View revision"
-                      disabled={!historyCurrent || busy}
-                      onClick={() => onView(item)}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {history.length > 50 && (
           <div className="helm-toolbar">
@@ -1028,24 +1111,39 @@ const History = observer(
                 <Icon material="restore" size={18} />
                 Roll back release
               </div>
-              <p>Select a revision and confirm to restore this release.</p>
-              <Checkbox
-                className="helm-consent"
-                label={`I confirm rolling back ${release.name}`}
-                value={confirmed}
-                disabled={busy || !revision || !historyCurrent}
-                onChange={(value) => setConfirmed(value)}
-              />
-              <Button
-                label={busy ? "Rolling back…" : "Roll back"}
-                disabled={!revision || !confirmed || busy || !historyCurrent}
-                onClick={rollback}
-              />
+              {!revision && <p>Select a revision to restore this release.</p>}
+              <div className="helm-rollback-controls">
+                <Checkbox
+                  className="helm-consent"
+                  label={
+                    <span className="helm-consent-target">
+                      I confirm rolling back <strong>{release.name}</strong>
+                      {target && (
+                        <>
+                          {" "}
+                          to <span className="helm-consent-revision">revision {target.revision}</span>
+                          <span className="helm-consent-version">
+                            App version {versionIndex.versionFor(target)?.appVersion ?? "—"}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  }
+                  value={confirmed}
+                  disabled={busy || !revision || !historyCurrent}
+                  onChange={(value) => setConfirmed(value)}
+                />
+                <Button
+                  label={busy ? "Rolling back…" : "Roll back"}
+                  disabled={!revision || !confirmed || busy || !historyCurrent}
+                  onClick={rollback}
+                />
+              </div>
             </div>
           </>
         )}
-        {error && <p role="alert">{error}</p>}
-      </>
+        {error && <InlineAlert>{error}</InlineAlert>}
+      </div>
     );
   },
 );
@@ -1342,6 +1440,15 @@ function Releases({
           <Select
             aria-label="Release status"
             value={status}
+            formatOptionLabel={(option) =>
+              option.value ? (
+                <span className="helm-status-menu">
+                  <StatusBadge status={String(option.value)} />
+                </span>
+              ) : (
+                option.label
+              )
+            }
             options={[
               { value: "", label: "All statuses" },
               ...[...new Set(releases.map((release) => release.status))]
@@ -1371,6 +1478,10 @@ function Releases({
           index={versionIndex}
           paused={versionsPaused}
           onToggle={() => setVersionsPaused((value) => !value)}
+          onRefresh={() => {
+            setVersionsPaused(false);
+            setVersionGeneration((value) => value + 1);
+          }}
         />
       )}
       {(filtered.length > 0 || state.loading || state.error) && (
@@ -1402,6 +1513,7 @@ function Releases({
                         clusterId={clusterId}
                         contextId={result.contextId}
                         release={release}
+                        knownVersion={versionIndex.versionFor(release)}
                         active={!selectedRelease && !state.loading}
                         refreshToken={versionGeneration}
                       />
@@ -1436,12 +1548,20 @@ function Releases({
       {!state.loading && !state.error && !filtered.length && (
         <div className="helm-empty">
           <Icon material="search" size={28} />
-          <p>{search && versionIndex.completed < versionIndex.total ? "No known matches" : "No releases found"}</p>
+          <p>
+            {search &&
+            (versionIndex.completed < versionIndex.total || versionIndex.errors > 0 || versionIndex.truncated)
+              ? "No known matches"
+              : "No releases found"}
+          </p>
           <span>
-            {search && versionIndex.completed < versionIndex.total
-              ? versionsPaused
-                ? "Resume App version checks to find more matches"
-                : "More matches may appear as App versions are checked"
+            {search &&
+            (versionIndex.completed < versionIndex.total || versionIndex.errors > 0 || versionIndex.truncated)
+              ? versionIndex.errors > 0 || versionIndex.truncated
+                ? "Some App versions are unavailable. Refresh versions to check again"
+                : versionsPaused
+                  ? "Resume App version checks to find more matches"
+                  : "More matches may appear as App versions are checked"
               : search || status
                 ? "No releases match your filters"
                 : "This namespace has no Helm releases"}
@@ -1517,7 +1637,19 @@ export const PowerHelmPage = observer(() => {
   const clusterId = cluster?.metadata.uid;
   const partition = JSON.stringify([clusterId, cluster?.spec]);
   return (
-    <div className="power-helm" style={{ position: "relative", height: "100%", overflow: "auto", padding: 20 }}>
+    <div
+      className="power-helm"
+      style={{
+        position: "relative",
+        height: "100%",
+        minHeight: 0,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        padding: 20,
+      }}
+    >
       <style>{`
         .power-helm { color: var(--textColorPrimary); font-size: 13px; }
         .power-helm h2, .power-helm p { margin: 0; }
@@ -1528,7 +1660,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
         .power-helm .helm-filter { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
         .power-helm .helm-namespace { width: 230px; }
-        .power-helm .helm-filters { display: grid; grid-template-columns: 200px minmax(160px, 1fr) 160px; align-items: end; margin-top: 14px; }
+        .power-helm .helm-filters { display: grid; grid-template-columns: 200px minmax(160px, 1fr) 160px; align-items: end; margin-top: 0; }
         .power-helm .helm-filters .helm-filter { width: auto; min-width: 0; max-width: none; }
         .power-helm .helm-filter .Select { width: 100%; min-width: 0; }
         .power-helm .helm-filter .Select__control { box-sizing: border-box; min-height: 32px; height: 32px; font-size: 12px; }
@@ -1536,16 +1668,18 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-filter .Select__input-container { margin: 0; padding: 0; }
         .power-helm .helm-filter .Select__indicator { padding: 4px 8px; }
         @media (max-width: 760px) { .power-helm .helm-filters { grid-template-columns: minmax(0, 1fr); } }
-        .power-helm .helm-filters .helm-filter:nth-child(2) { flex: 1; max-width: 420px; }
         .power-helm .helm-text-input { box-sizing: border-box; height: 32px; color: var(--textColorPrimary); background: var(--inputControlBackground, var(--mainBackground)); border: 1px solid var(--borderColor); border-radius: 4px; padding: 6px 10px; font: inherit; }
         .power-helm .helm-text-input:focus-visible, .power-helm input[type=radio]:focus-visible, .power-helm button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .power-helm input[type=checkbox], .power-helm input[type=radio] { accent-color: var(--primary); margin: 0 7px 0 0; vertical-align: middle; }
         .power-helm .helm-native-button, .power-helm .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
         .power-helm .helm-native-button:hover, .power-helm .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
-        .power-helm .helm-list-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin: 18px 0 10px; }
+        .power-helm .helm-list-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin: 6px 0 10px; }
         .power-helm .helm-request-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; }
         .power-helm .helm-panel-content > .helm-request-status { justify-content: flex-end; margin-bottom: 12px; }
         .power-helm .helm-loading, .power-helm .helm-error { display: inline-flex; gap: 6px; align-items: center; }
+        .power-helm .helm-inline-alert { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--colorError) 30%, var(--borderColor)); border-radius: 5px; background: color-mix(in srgb, var(--colorError) 7%, var(--mainBackground)); color: var(--textColorPrimary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+        .power-helm .helm-inline-alert > .Icon { color: var(--colorError); flex-shrink: 0; margin-top: 1px; }
+        .power-helm .helm-validation-pending { display: block; margin-top: 8px; color: var(--textColorSecondary); }
         .power-helm .helm-error { color: var(--colorError); overflow-wrap: anywhere; }
         .power-helm .helm-spinner { display: inline-flex; animation: power-helm-spin 1s linear infinite; }
         :root .power-helm .Button:not(.helm-tab):not(.helm-release-link):not(.helm-inline-action):not(.primary) { color: var(--textColorPrimary); background: var(--mainBackground); border: 1px solid var(--borderColor); border-radius: 4px; min-height: 30px; padding: 5px 10px; font-size: 12px; }
@@ -1557,28 +1691,33 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-version-progress progress::-webkit-progress-bar { background: var(--borderColor); }
         .power-helm .helm-version-progress progress::-webkit-progress-value { background: var(--primary); }
         .power-helm .helm-history-empty { text-align: center; padding: 24px 12px; color: var(--textColorSecondary); }
+        .power-helm .helm-version-unavailable { color: var(--colorWarning, var(--textColorSecondary)); }
         .power-helm .helm-version-progress .Button { font-size: 12px; padding: 2px 6px; }
         .power-helm .helm-app-version-cell { display: inline-flex; align-items: center; min-width: 24px; }
         .power-helm .helm-app-version-placeholder { color: var(--textColorSecondary); opacity: .55; }
         .power-helm .helm-app-version-retry { display: inline-flex; padding: 0; background: transparent; border: 0; color: var(--textColorSecondary); cursor: pointer; }
         .power-helm .helm-app-version-retry:hover, .power-helm .helm-app-version-retry:focus-visible { color: var(--primary); }
-        .power-helm .helm-table-frame { border: 1px solid var(--borderColor); border-radius: 6px; overflow: auto; }
-        .power-helm .helm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .power-helm .helm-table th { position: sticky; top: 0; background: var(--contentColor); font-weight: 500; color: var(--textColorSecondary); white-space: nowrap; }
+        .power-helm .helm-table-frame { flex: 0 1 auto; min-height: 0; border: 1px solid var(--borderColor); border-radius: 6px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+        .power-helm > header, .power-helm > .helm-toolbar, .power-helm > .helm-list-summary, .power-helm > .helm-version-progress { flex-shrink: 0; }
+        .power-helm .helm-table { --helm-row-highlight: var(--tableBgcSelected, color-mix(in srgb, var(--primary) 6%, var(--mainBackground))); width: 100%; border-collapse: collapse; font-size: 13px; }
+        .power-helm .helm-table th { position: sticky; top: 0; z-index: 1; background: var(--contentColor); font-weight: 500; color: var(--textColorSecondary); white-space: nowrap; }
         .power-helm .helm-table th, .power-helm .helm-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--borderColor); }
         .power-helm .helm-table-frame .helm-table td:not(:first-child) { white-space: nowrap; }
         .power-helm .helm-table-frame .helm-table td:first-child { min-width: 240px; }
+        .power-helm .helm-table-frame .helm-table :is(th, td):first-child { position: sticky; left: 0; z-index: 2; background: var(--mainBackground); box-shadow: 1px 0 var(--borderColor); }
+        .power-helm .helm-table-frame .helm-table th:first-child { z-index: 3; background: var(--contentColor); }
+        .power-helm .helm-table-frame .helm-table :is(tr:hover, tr[data-selected=true]) td:first-child { background: var(--helm-row-highlight); }
         .power-helm .helm-table-frame:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .power-helm .helm-table tbody tr:last-child td { border-bottom: 0; }
-        .power-helm .helm-table tbody tr:hover, .power-helm .helm-table tr[data-selected=true] { background: var(--tableBgcSelected, color-mix(in srgb, var(--primary) 6%, var(--mainBackground))); }
+        .power-helm .helm-table tbody tr:hover, .power-helm .helm-table tr[data-selected=true] { background: var(--helm-row-highlight); }
         :root .power-helm .Button.helm-release-link { display: block; max-width: min(32vw, 460px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; padding: 0; min-height: 0; color: var(--textColorAccent); font-size: 13px; text-align: left; box-shadow: none; }
         :root .power-helm .Button.helm-release-link:hover { color: var(--primary); }
-        :is(.power-helm, .power-helm-confirmation) .helm-status { display: inline-flex; white-space: nowrap; font-size: 11px; line-height: 18px; padding: 1px 7px; border-radius: 4px; color: var(--textColorSecondary); background: var(--contentColor); border: 1px solid var(--borderColor); }
-        :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=deployed] { color: var(--colorOk, var(--textColorAccent)); background: color-mix(in srgb, var(--colorOk, var(--primary)) 9%, var(--mainBackground)); border-color: color-mix(in srgb, var(--colorOk, var(--primary)) 25%, var(--borderColor)); }
-        :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=failed] { color: var(--colorError); border-color: color-mix(in srgb, var(--colorError) 30%, var(--borderColor)); }
-        :is(.power-helm, .power-helm-confirmation) .helm-status[data-status^=pending-], :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=uninstalling] { color: var(--colorWarning, var(--textColorAccent)); background: color-mix(in srgb, var(--colorWarning, var(--primary)) 9%, var(--mainBackground)); border-color: color-mix(in srgb, var(--colorWarning, var(--primary)) 30%, var(--borderColor)); }
-        :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=superseded], :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=uninstalled], :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=unknown] { color: var(--textColorSecondary); background: var(--contentColor); }
-        :is(.power-helm, .power-helm-confirmation) .helm-status[data-status=uninstalled] { border-style: dashed; }
+        :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status { display: inline-flex; white-space: nowrap; font-size: 11px; line-height: 18px; padding: 1px 7px; border-radius: 4px; color: var(--textColorSecondary); background: var(--contentColor); border: 1px solid var(--borderColor); }
+        :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=deployed] { color: var(--colorOk, var(--textColorAccent)); background: color-mix(in srgb, var(--colorOk, var(--primary)) 9%, var(--mainBackground)); border-color: color-mix(in srgb, var(--colorOk, var(--primary)) 25%, var(--borderColor)); }
+        :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=failed] { color: var(--colorError); border-color: color-mix(in srgb, var(--colorError) 30%, var(--borderColor)); }
+        :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status^=pending-], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalling] { color: var(--colorWarning, var(--textColorAccent)); background: color-mix(in srgb, var(--colorWarning, var(--primary)) 9%, var(--mainBackground)); border-color: color-mix(in srgb, var(--colorWarning, var(--primary)) 30%, var(--borderColor)); }
+        :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=superseded], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalled], :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=unknown] { color: var(--textColorSecondary); background: var(--contentColor); }
+        :is(.power-helm, .power-helm-confirmation, .helm-status-menu) .helm-status[data-status=uninstalled] { border-style: dashed; }
         .power-helm .helm-panel { display: flex; flex-direction: column; position: absolute; inset: 0 0 0 auto; width: min(640px, 90%); box-sizing: border-box; background: var(--mainBackground); border-left: 1px solid var(--borderColor); box-shadow: -12px 0 30px color-mix(in srgb, var(--textColorPrimary) 8%, transparent); overflow: hidden; z-index: 5; }
         .power-helm .helm-panel:has(.helm-revision-diff) { width: min(1100px, calc(100% - 24px)); }
         .power-helm .helm-panel-actions { display: flex; align-items: center; gap: 4px; }
@@ -1591,7 +1730,10 @@ export const PowerHelmPage = observer(() => {
         :root .power-helm .Button.helm-tab { background: transparent; border: 0; border-radius: 0; padding: 12px 8px; color: var(--textColorSecondary); white-space: nowrap; box-shadow: none; border-bottom: 2px solid transparent; }
         :root .power-helm .Button.helm-tab-active { color: var(--textColorPrimary); border-bottom-color: var(--primary); }
         .power-helm .helm-panel-content { min-height: 0; overflow: auto; flex: 1; padding: 18px 22px 24px; }
-        .power-helm .helm-overview { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; border: 1px solid var(--borderColor); border-radius: 6px; padding: 0 16px; }
+        .power-helm .helm-overview-card { border: 1px solid var(--borderColor); border-radius: 6px; overflow: hidden; }
+        .power-helm .helm-overview-card > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 6px 12px 6px 16px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); }
+        .power-helm .helm-overview-card h3 { margin: 0; font-size: 12px; font-weight: 500; }
+        .power-helm .helm-overview { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; padding: 0 16px; }
         .power-helm .helm-overview > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 15px 0; border-bottom: 1px solid var(--borderColor); }
         .power-helm .helm-overview > div:last-child { border: 0; }
         .power-helm .helm-overview dt { color: var(--textColorSecondary); font-size: 11px; }
@@ -1601,6 +1743,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-edit-notice { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--borderColor); border-radius: 4px; margin-bottom: 14px; }
         .power-helm .helm-edit-notice p { margin-top: 5px; color: var(--textColorSecondary); font-size: 12px; line-height: 1.5; }
         .power-helm .helm-values-editor > .helm-filter { margin: 12px 0; }
+        .power-helm .helm-values-editor > .helm-toolbar { position: sticky; bottom: -24px; z-index: 4; margin: 12px -22px -24px; padding: 12px 22px; border-top: 1px solid var(--borderColor); background: var(--mainBackground); box-shadow: 0 -6px 12px color-mix(in srgb, var(--mainBackground) 70%, transparent); }
         .power-helm .helm-revision-notice, .power-helm .helm-viewing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; color: var(--textColorSecondary); font-size: 12px; padding: 10px 12px; border: 1px solid var(--borderColor); border-radius: 4px; }
         .power-helm .helm-viewing-banner { margin: 0 22px 14px; }
         .power-helm .helm-comparison-baseline { min-width: 220px; }
@@ -1610,14 +1753,33 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-code-view { overscroll-behavior: contain; }
         .power-helm .helm-code-header { display: flex; justify-content: space-between; align-items: center; background: var(--contentColor); border: 1px solid var(--borderColor); border-radius: 6px 6px 0 0; padding: 8px 12px; color: var(--textColorSecondary); font-size: 12px; }
         .power-helm pre { margin: 0; padding: 16px; font-size: 12px; line-height: 1.65; border: 1px solid var(--borderColor); border-top: 0; border-radius: 0 0 6px 6px; max-height: 65vh; overflow: auto; }
-        .power-helm .helm-history-table { border: 1px solid var(--borderColor); }
+        .power-helm .helm-panel-content:has(> .helm-history-layout) { display: flex; overflow: hidden; }
+        .power-helm .helm-access-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--borderColor); border-radius: 4px; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
+        .power-helm .helm-history-layout { display: flex; flex-direction: column; min-height: 0; width: 100%; flex: 1; }
+        .power-helm .helm-history-layout > :not(.helm-history-frame) { flex-shrink: 0; }
+        .power-helm .helm-history-layout > .helm-request-status { justify-content: flex-end; margin-bottom: 12px; }
+        .power-helm .helm-history-frame { flex: 0 1 auto; min-height: 80px; overflow: auto; border: 1px solid var(--borderColor); border-radius: 6px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+        .power-helm .helm-history-frame:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+        .power-helm .helm-history-table { font-size: 12px; }
+        .power-helm .helm-history-table th, .power-helm .helm-history-table td { padding: 8px 10px; white-space: nowrap; }
+        .power-helm .helm-history-table .helm-inline-action { white-space: nowrap; font-size: 12px; }
         .power-helm .helm-history-table input[type=radio] { appearance: none; width: 14px; height: 14px; border: 1px solid var(--textColorSecondary); border-radius: 50%; background: var(--mainBackground); cursor: pointer; }
         .power-helm .helm-history-table input[type=radio]:checked { background: var(--primary); border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--mainBackground); }
         .power-helm .helm-history-table input[type=radio]:disabled { opacity: .45; cursor: default; }
+        .power-helm .helm-consent { position: relative; }
+        .power-helm .helm-consent input[type=checkbox] { display: block; position: absolute; left: 0; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); opacity: 0; margin: 0; z-index: 1; }
+        .power-helm .helm-consent input:focus-visible ~ .box { outline: 2px solid var(--primary); outline-offset: 3px; }
+        .power-helm .helm-consent-target { display: inline; line-height: 1.8; overflow-wrap: anywhere; }
+        .power-helm .helm-consent-target strong { font-weight: 500; }
+        .power-helm .helm-consent-revision { display: inline-block; margin: 0 4px; padding: 0 6px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--borderColor)); border-radius: 4px; font-weight: 600; white-space: nowrap; }
+        .power-helm .helm-consent-version { display: inline-block; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
         .power-helm .helm-current-tag { margin-left: 7px; color: var(--textColorSecondary); font-size: 10px; }
         :root .power-helm .Button.helm-inline-action { border-color: transparent; background: transparent; color: var(--primary); padding: 4px 6px; }
         .power-helm .helm-history-table label { cursor: pointer; display: inline-flex; align-items: center; }
-        .power-helm .helm-rollback { margin-top: 22px; padding: 16px; border: 1px solid color-mix(in srgb, var(--colorWarning, var(--primary)) 35%, var(--borderColor)); border-radius: 6px; }
+        .power-helm .helm-rollback { margin-top: 16px; padding: 12px; min-height: 110px; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--colorWarning, var(--primary)) 35%, var(--borderColor)); border-radius: 6px; }
+        .power-helm .helm-rollback-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-top: 12px; }
+        .power-helm .helm-rollback-controls > .Button { min-height: 30px; white-space: nowrap; }
+        .power-helm .helm-rollback-controls .helm-consent { margin: 0; min-height: 32px; }
         .power-helm .helm-rollback-title { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .power-helm .helm-rollback p { color: var(--textColorSecondary); margin-top: 8px; font-size: 12px; line-height: 1.5; }
         .power-helm .helm-consent { display: flex; margin: 16px 0; font-size: 12px; }

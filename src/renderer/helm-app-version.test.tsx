@@ -264,3 +264,84 @@ it("observes against the viewport inside a tall auto-overflow wrapper", async ()
   act(() => observers[0].visible(true));
   await screen.findByText("1.2.3");
 });
+
+it("uses a retained index summary after its shared cache entry was evicted", async () => {
+  const firstRelease = { ...release, uid: "retained-uid" };
+  let retained: import("./helm-version-index").HelmVersion | undefined;
+  const { helmVersionIdentity, subscribeHelmVersion } = await import("./helm-version-index");
+  for (let index = 0; index <= 1000; index++) {
+    const item = index ? { ...release, name: `eviction-${index}`, uid: `uid-${index}` } : firstRelease;
+    await new Promise<void>((resolve) =>
+      subscribeHelmVersion(
+        helmVersionIdentity("cluster", `context-${context}`, item),
+        {
+          requestId: `prime-${index}`,
+          clusterId: "cluster",
+          contextId: `context-${context}`,
+          namespace: item.namespace,
+          name: item.name,
+          revision: item.revision,
+          uid: item.uid,
+          operation: "app-version",
+        },
+        false,
+        (result) => {
+          if (!index && "value" in result) retained = result.value;
+          resolve();
+        },
+      ),
+    );
+  }
+  await act(async () => {});
+  const count = requests().length;
+  render(cell({ release: firstRelease, knownVersion: retained }));
+  expect(screen.getByText("1.2.3")).toBeTruthy();
+  expect(observers).toHaveLength(0);
+  expect(requests()).toHaveLength(count);
+});
+
+it("renders a known missing version without observation or additional reads", () => {
+  render(cell({ knownVersion: {} }));
+  expect(screen.getByLabelText("Application version unavailable")).toBeTruthy();
+  expect(observers).toHaveLength(0);
+  expect(requests()).toHaveLength(0);
+});
+
+it("updates supplied summaries immediately and hides them on context or UID replacement", () => {
+  const view = render(cell({ knownVersion: { appVersion: "known-old" } }));
+  view.rerender(cell({ knownVersion: { appVersion: "known-new" } }));
+  expect(screen.queryByText("known-old")).toBeNull();
+  expect(screen.getByText("known-new")).toBeTruthy();
+  view.rerender(cell({ contextId: "changed-context", release: { ...release, uid: "replaced-secret" } }));
+  expect(screen.queryByText("known-new")).toBeNull();
+  expect(screen.getByLabelText("Application version pending")).toBeTruthy();
+  expect(requests()).toHaveLength(0);
+});
+
+it("cancels a cell-owned read when an index summary arrives and ignores its late response", async () => {
+  const pending = deferred();
+  mocks.invoke.mockImplementation((_channel, request) =>
+    request.operation === "cancel" ? Promise.resolve({ ok: true }) : pending.promise,
+  );
+  const view = render(cell());
+  act(() => observers[0].visible());
+  await waitFor(() => expect(requests()).toHaveLength(1));
+  view.rerender(cell({ knownVersion: { appVersion: "indexed" } }));
+  expect(screen.getByText("indexed")).toBeTruthy();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "cancel")).toBe(true);
+  await act(async () => pending.resolve({ ok: true, contextId: `context-${context}`, appVersion: "late-owned" }));
+  expect(screen.queryByText("late-owned")).toBeNull();
+  expect(screen.getByText("indexed")).toBeTruthy();
+});
+
+it("does not flash an older owned value when an explicit refresh clears a supplied summary", async () => {
+  const view = render(cell({ refreshToken: 1 }));
+  act(() => observers[0].visible());
+  await screen.findByText("1.2.3");
+  view.rerender(cell({ refreshToken: 1, knownVersion: { appVersion: "indexed" } }));
+  expect(screen.getByText("indexed")).toBeTruthy();
+  view.rerender(cell({ refreshToken: 2 }));
+  expect(screen.queryByText("indexed")).toBeNull();
+  expect(screen.queryByText("1.2.3")).toBeNull();
+  expect(screen.getByLabelText("Application version pending")).toBeTruthy();
+});

@@ -1,6 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useRef, useState } from "react";
 import {
+  type HelmVersion,
   type HelmVersionResult,
   helmVersionIdentity,
   nextHelmVersionRequestId,
@@ -16,12 +17,14 @@ export function HelmAppVersionCell({
   release,
   active = true,
   refreshToken,
+  knownVersion,
 }: {
   clusterId: string;
   contextId: string;
   release: HelmReleaseMetadata;
   active?: boolean;
   refreshToken?: string | number;
+  knownVersion?: HelmVersion;
 }) {
   const target = useRef<HTMLSpanElement>(null);
   const [visibility, setVisibility] = useState({ key: "", visible: false });
@@ -29,11 +32,13 @@ export function HelmAppVersionCell({
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{ key: string; result: HelmVersionResult }>();
   const key = helmVersionIdentity(clusterId, contextId, release);
+  const stateKey = JSON.stringify([key, refreshToken]);
+  const hasKnownVersion = knownVersion !== undefined;
   const visible = visibility.key === key && visibility.visible;
   const priorRefresh = useRef(refreshToken);
   const priorAttempt = useRef(attempt);
   useEffect(() => {
-    if (!active) {
+    if (!active || hasKnownVersion) {
       setVisibility({ key, visible: false });
       return;
     }
@@ -50,8 +55,13 @@ export function HelmAppVersionCell({
       observed = false;
       observer.disconnect();
     };
-  }, [active, key]);
+  }, [active, key, hasKnownVersion]);
   useEffect(() => {
+    if (hasKnownVersion) {
+      setState(undefined);
+      priorRefresh.current = refreshToken;
+      return;
+    }
     if (!active || (!visible && manual !== key)) return;
     let current = true;
     const refresh = priorRefresh.current !== refreshToken || priorAttempt.current !== attempt;
@@ -72,7 +82,7 @@ export function HelmAppVersionCell({
       },
       refresh,
       (result) => {
-        if (current) setState({ key, result });
+        if (current) setState({ key: stateKey, result });
       },
       "visible",
       JSON.stringify([clusterId, contextId, refreshToken]) + (attempt ? `:retry:${attempt}` : ""),
@@ -81,8 +91,9 @@ export function HelmAppVersionCell({
       current = false;
       unsubscribe();
     };
-  }, [key, active, visible, manual, refreshToken, attempt]);
-  const result = state?.key === key ? state.result : undefined;
+  }, [key, active, visible, manual, refreshToken, attempt, hasKnownVersion]);
+  const result =
+    knownVersion !== undefined ? { value: knownVersion } : state?.key === stateKey ? state.result : undefined;
   const { Icon } = Renderer.Component;
   return (
     <span ref={target} className="helm-app-version-cell">

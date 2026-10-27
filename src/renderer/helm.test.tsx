@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PowerHelmPage } from "./helm";
 
@@ -8,14 +9,14 @@ const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   helmEnabled: true,
   readOnly: false,
+  readOnlyStore: undefined as { enabled: boolean } | undefined,
   appVersions: {} as Record<string, string>,
+  indexState: { completed: 0, total: 0, errors: 0, truncated: false },
 }));
 vi.mock("./helm-version-index", () => ({
   useHelmVersionIndex: () => ({
     versionFor: (release: any) => ({ appVersion: mocks.appVersions[release.name] }),
-    completed: 0,
-    total: 0,
-    errors: 0,
+    ...mocks.indexState,
   }),
 }));
 vi.mock("./helm-app-version", () => ({ HelmAppVersionCell: () => <span>—</span> }));
@@ -40,7 +41,7 @@ vi.mock("../common/store/helm-preferences-store", () => ({
 }));
 vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("../common/store/read-only-preferences-store", () => ({
-  ReadOnlyPreferencesStore: { getInstanceOrCreate: () => ({ enabled: mocks.readOnly }) },
+  ReadOnlyPreferencesStore: { getInstanceOrCreate: () => mocks.readOnlyStore ?? { enabled: mocks.readOnly } },
 }));
 vi.mock("../common/store/power-preferences-store", () => ({
   PowerPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
@@ -101,7 +102,9 @@ const deferred = () => {
 beforeEach(() => {
   mocks.helmEnabled = true;
   mocks.readOnly = false;
+  mocks.readOnlyStore = undefined;
   mocks.appVersions = {};
+  mocks.indexState = { completed: 0, total: 0, errors: 0, truncated: false };
   mocks.invoke.mockReset();
   mocks.confirm.mockReset();
   mocks.invoke.mockResolvedValue(listing);
@@ -183,7 +186,8 @@ it("requires both a checkbox and native confirmation before rollback", async () 
   fireEvent.click(await screen.findByLabelText("Revision 2"));
   const button = screen.getByText("Roll back") as HTMLButtonElement;
   expect(button.disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText("I confirm rolling back sample-release"));
+  expect(screen.getByRole("checkbox", { name: /to revision 2 App version/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release/ }));
   fireEvent.click(button);
   expect(mocks.confirm).toHaveBeenCalledOnce();
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "rollback")).toBe(false);
@@ -219,14 +223,16 @@ it("clears rollback confirmation after an unknown result and refreshes reads", a
   fireEvent.click(await screen.findByText("sample-release"));
   fireEvent.click(screen.getByText("History"));
   fireEvent.click(await screen.findByLabelText("Revision 2"));
-  fireEvent.click(screen.getByLabelText("I confirm rolling back sample-release"));
+  fireEvent.click(screen.getByRole("checkbox", { name: /I confirm rolling back sample-release/ }));
   fireEvent.click(screen.getByText("Roll back"));
   await act(async () => mocks.confirm.mock.calls[0][0].ok());
   await screen.findByText("Outcome unknown");
   await screen.findByText("Revision 3");
   expect(screen.getByText("Outcome unknown")).toBeTruthy();
   expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details")).toHaveLength(1);
-  expect((screen.getByLabelText("I confirm rolling back sample-release") as HTMLInputElement).checked).toBe(false);
+  expect(
+    (screen.getByRole("checkbox", { name: /I confirm rolling back sample-release/ }) as HTMLInputElement).checked,
+  ).toBe(false);
   expect((screen.getByLabelText("Revision 2") as HTMLInputElement).checked).toBe(false);
   expect((screen.getByText("Roll back") as HTMLButtonElement).disabled).toBe(true);
   expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "list")).toHaveLength(2);
@@ -647,4 +653,120 @@ it("searches application versions in revision history without stripping text", a
   fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "missing-version" } });
   expect(screen.queryByLabelText("Revision 1")).toBeNull();
   expect(screen.getByText("No matching revisions")).toBeTruthy();
+});
+
+it.each([
+  { errors: 1, truncated: false },
+  { errors: 0, truncated: true },
+])("keeps version search results incomplete after failures or truncation: %j", async (partial) => {
+  mocks.indexState = { completed: 1, total: 1, ...partial };
+  mocks.invoke.mockResolvedValue(listing);
+  render(<PowerHelmPage />);
+  await screen.findByText("sample-release");
+  fireEvent.change(screen.getByLabelText("Search releases"), { target: { value: "unavailable-version" } });
+  expect(screen.getByText("No known matches")).toBeTruthy();
+  expect(screen.queryByText("No releases found")).toBeNull();
+  expect(screen.getByText("Refresh versions")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Search releases"), { target: { value: "" } });
+  fireEvent.click(screen.getByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  await screen.findByLabelText("Revision 2");
+  fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "unavailable-version" } });
+  expect(screen.getByText("No known matches yet")).toBeTruthy();
+  expect(screen.queryByText("No matching revisions")).toBeNull();
+  expect(screen.getByText("Refresh versions")).toBeTruthy();
+});
+
+it("shows chart name and version separately without raw or duplicate metadata fields", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? {
+            ok: true,
+            detail: {
+              content: "",
+              overview: {
+                name: release.name,
+                namespace: release.namespace,
+                revision: release.revision,
+                status: release.status,
+                chart: "demo-chart-1.2.3",
+                chartName: "demo-chart",
+                chartVersion: "1.2.3",
+                appVersion: "4.5",
+                description: "A sample release",
+                updatedAt: "2026-01-01T12:00:00Z",
+              },
+            },
+          }
+        : listing,
+    ),
+  );
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  await screen.findByText("demo-chart");
+  expect(screen.queryByText("demo-chart-1.2.3")).toBeNull();
+  expect(screen.queryByText("chartName")).toBeNull();
+  expect(screen.getByText("Chart version")).toBeTruthy();
+  expect(screen.getByText("1.2.3")).toBeTruthy();
+  expect(screen.getByText("A sample release")).toBeTruthy();
+  const listReads = mocks.invoke.mock.calls.filter(([, request]) => request.operation === "list").length;
+  fireEvent.click(screen.getByRole("button", { name: "Refresh overview" }));
+  await waitFor(() =>
+    expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "details")).toHaveLength(2),
+  );
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "list")).toHaveLength(listReads);
+});
+
+it("uses inspection-only history in read-only mode and clears old rollback consent before controls return", async () => {
+  mocks.invoke.mockImplementation((_channel, request) =>
+    Promise.resolve(
+      request.operation === "details"
+        ? { ok: true, detail: { content: `replicas: ${request.revision}` } }
+        : request.operation === "history"
+          ? { ...listing, releases: [release, { ...release, revision: 1 }], rollbackAllowed: true }
+          : listing,
+    ),
+  );
+  const preferences = observable({ enabled: false });
+  mocks.readOnlyStore = preferences;
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  fireEvent.click(await screen.findByRole("radio", { name: "Revision 1" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /to revision 1/ }));
+  expect((screen.getByText("Roll back") as HTMLButtonElement).disabled).toBe(false);
+  act(() =>
+    runInAction(() => {
+      preferences.enabled = true;
+    }),
+  );
+  await waitFor(() => expect(screen.queryAllByRole("radio")).toHaveLength(0));
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.queryByText("Roll back")).toBeNull();
+  expect(screen.getByText("Read only")).toBeTruthy();
+  act(() =>
+    runInAction(() => {
+      preferences.enabled = false;
+    }),
+  );
+  await screen.findByRole("radio", { name: "Revision 1" });
+  expect((screen.getByRole("radio", { name: "Revision 1" }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByText("Roll back") as HTMLButtonElement).disabled).toBe(true);
+  act(() =>
+    runInAction(() => {
+      preferences.enabled = true;
+    }),
+  );
+  fireEvent.click(screen.getAllByText("View revision")[1]);
+  await screen.findByText("replicas: 1");
+  expect(screen.queryByText("Edit values")).toBeNull();
+  fireEvent.click(screen.getByText("Compare with current"));
+  await screen.findByLabelText("Revision comparison");
+  expect(
+    mocks.invoke.mock.calls.some(
+      ([, request]) => request.operation === "rollback" || request.operation === "upgrade-values",
+    ),
+  ).toBe(false);
 });
