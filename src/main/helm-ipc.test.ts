@@ -383,6 +383,73 @@ describe("Helm IPC", () => {
       stop();
     }
   });
+  it("blocks queued and repeated rollbacks after an unknown outcome until fresh history is observed", async () => {
+    const stop = startPowerHelm();
+    const invoke = mocks.handle.mock.calls[0][1];
+    mocks.response.mockImplementation(async () => ({
+      ok: true,
+      headers: new Map(),
+      body: Readable.from([
+        JSON.stringify({
+          kind: "PartialObjectMetadataList",
+          apiVersion: "meta.k8s.io/v1",
+          items: [
+            {
+              metadata: {
+                uid: "release-one",
+                name: "sh.helm.release.v1.example.v1",
+                namespace: "default",
+                labels: { owner: "helm", name: "example", version: "1", status: "deployed" },
+              },
+            },
+          ],
+        }),
+      ]),
+    }));
+    const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
+    Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });
+    const callbacks: ((error: Error | null) => void)[] = [];
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      callbacks.push(callback);
+      return { kill: vi.fn() };
+    });
+    try {
+      const history = { ...request, operation: "history", name: "example" };
+      const listed = await invoke(event(), history);
+      const rollback = {
+        ...history,
+        contextId: listed.contextId,
+        operation: "rollback",
+        uid: "release-one",
+        revision: 1,
+        confirmed: true,
+      };
+      const first = invoke(event(), { ...rollback, requestId: "first-rollback" });
+      await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+      const queued = invoke(event(), { ...rollback, requestId: "queued-rollback" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(callbacks).toHaveLength(1);
+      callbacks[0](new Error("unknown outcome"));
+      expect(await first).toMatchObject({ ok: false, error: { code: "rollback-unknown" } });
+      expect(await queued).toMatchObject({ ok: false, error: { code: "rollback-unknown" } });
+      expect(callbacks).toHaveLength(1);
+      await invoke(event(), { ...history, requestId: "cached-history" });
+      expect(await invoke(event(), { ...rollback, requestId: "blocked-rollback" })).toMatchObject({
+        ok: false,
+        error: { code: "rollback-unknown" },
+      });
+      expect(callbacks).toHaveLength(1);
+      await invoke(event(), { ...history, refresh: true, requestId: "fresh-history" });
+      const retry = invoke(event(), { ...rollback, requestId: "observed-rollback" });
+      await vi.waitFor(() => expect(callbacks).toHaveLength(2));
+      callbacks[1](null);
+      expect(await retry).toMatchObject({ ok: true });
+    } finally {
+      stop();
+      if (resources) Object.defineProperty(process, "resourcesPath", resources);
+      else Reflect.deleteProperty(process, "resourcesPath");
+    }
+  });
   it("uninstalls only a confirmed current release and requires refresh after an unknown outcome", async () => {
     const stop = startPowerHelm();
     const invoke = mocks.handle.mock.calls[0][1];
@@ -783,6 +850,63 @@ describe("Helm IPC", () => {
     callbacks[1](null);
     callbacks[2](null, "[]");
     await Promise.all([write, next]);
+  });
+  it.each([
+    ["ENOENT", "Helm executable or one of its required programs is unavailable"],
+    ["EACCES", "could not start"],
+    ["ENOEXEC", "could not start"],
+  ])("distinguishes a command launch failure from an unknown mutation: %s", async (code, message) => {
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      queueMicrotask(() =>
+        callback(Object.assign(new Error("private local path"), { code }), "", "private credentials"),
+      );
+      return { kill: vi.fn() };
+    });
+    const result = executeHelmRollback("neutral", ["rollback"], new AbortController().signal);
+    await expect(result).rejects.toMatchObject({ code: "helm-unavailable", message: expect.stringContaining(message) });
+    await expect(result).rejects.not.toThrow("private");
+  });
+  it.each([
+    ["Error: secrets is forbidden: cannot patch resource", "Kubernetes denied access"],
+    [
+      "Error: Kubernetes cluster unreachable: the server has asked for the client to provide credentials",
+      "authentication failed",
+    ],
+    ["Error: getting credentials: exec: executable example not found", "authentication failed"],
+    ["Error: x509: certificate signed by unknown authority", "TLS verification failed"],
+    ["Error: Kubernetes cluster unreachable: dial tcp: connection refused", "could not be reached"],
+    ["Error: conflict with field manager", "resource conflict"],
+    ["Error: post-rollback hooks failed: timed out waiting", "Helm hook or resource operation failed"],
+    ["Error: unknown flag: --unsupported", "incompatible with this Helm version"],
+    ["sensitive https://user:secret@example.invalid private-path", "Review release history and Kubernetes events"],
+  ])("explains a failed started command without exposing diagnostics: %s", async (diagnostic, message) => {
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      queueMicrotask(() =>
+        callback(Object.assign(new Error("secret command details"), { code: 1 }), "secret stdout", diagnostic),
+      );
+      return { kill: vi.fn() };
+    });
+    const result = executeHelmRollback("neutral", ["rollback"], new AbortController().signal);
+    await expect(result).rejects.toMatchObject({ code: "rollback-unknown", message: expect.stringContaining(message) });
+    await expect(result).rejects.toThrow("refresh release history before retrying");
+    await expect(result).rejects.not.toThrow("secret");
+    await expect(result).rejects.not.toThrow("example.invalid");
+  });
+  it.each([
+    "rollback",
+    "upgrade",
+    "uninstall",
+  ] as const)("keeps the uncertainty code for a timed out %s", async (operation) => {
+    mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+      queueMicrotask(() => callback(Object.assign(new Error("timeout"), { killed: true, signal: "SIGKILL" }), "", ""));
+      return { kill: vi.fn() };
+    });
+    await expect(
+      executeHelmRollback("neutral", [operation], new AbortController().signal, operation),
+    ).rejects.toMatchObject({
+      code: `${operation}-unknown`,
+      message: expect.stringContaining("exceeded its time limit"),
+    });
   });
   it("kills a started rollback on abort and reports unknown outcome", async () => {
     let callback!: (error: Error) => void;
