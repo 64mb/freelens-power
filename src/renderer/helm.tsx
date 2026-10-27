@@ -2661,8 +2661,8 @@ export const PowerHelmPage = observer(() => {
         .ConfirmDialog:has(.power-helm-confirmation) .power-helm-confirmation { display: block; line-height: 1.6; overflow-wrap: anywhere; color: var(--textColorPrimary); }
         .ConfirmDialog:has(.power-helm-confirmation) .power-helm-confirm { background: var(--colorError, #c64b4b); color: white; }
         .ConfirmDialog:has(.helm-rollback-confirmation) .confirm-content { align-items: flex-start; }
-        .ConfirmDialog:has(.helm-rollback-confirmation) .confirm-content > .Icon { color: var(--primary); margin-top: 2px; }
-        .ConfirmDialog:has(.helm-rollback-confirmation) .power-helm-confirm-rollback { display: inline-flex; align-items: center; gap: 6px; background: var(--primary); border-color: var(--primary); color: var(--buttonPrimaryColor, white); }
+        .ConfirmDialog:has(.helm-rollback-confirmation) .confirm-content > .Icon { color: var(--colorError); margin-top: 2px; }
+        .ConfirmDialog:has(.helm-rollback-confirmation) .power-helm-confirm-rollback { display: inline-flex; align-items: center; gap: 6px; background: var(--colorError); border-color: var(--colorError); color: white; }
         .ConfirmDialog:has(.helm-rollback-confirmation) .power-helm-confirm-rollback > .Icon { margin: 0; padding: 0; }
         @keyframes power-helm-spin { to { transform: rotate(360deg); } }
         @media (prefers-reduced-motion: reduce) { .power-helm .helm-spinner { animation: none; } }
