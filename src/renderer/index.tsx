@@ -30,6 +30,7 @@ import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details
 import { DiagnosticsPage } from "./diagnostics";
 import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
 import { startExtensionUpdate } from "./extension-update";
+import { startExtensionUpdateNotifications } from "./extension-update-notifications";
 import { PowerHelmPage } from "./helm";
 import { startPowerHelmEntrypoints } from "./helm-entrypoints";
 import { startHostExtensionsStyles } from "./host-extensions";
@@ -110,6 +111,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startHostPreferencesStyles,
             startHostExtensionsStyles,
             startExtensionUpdate,
+            startExtensionUpdateNotifications,
             startAppearanceOverride,
             startWelcomeOverride,
             startAiChat,

@@ -3,6 +3,12 @@ import { Renderer } from "@freelensapp/extensions";
 const packageName = "@64mb/freelens-power";
 const installTarget = `${packageName}@latest`;
 const pageSelector = '[data-testid="extensions-page"]';
+export const EXTENSION_UPDATE_STARTED = "freelens-power-extension-update-started";
+const updateRequested = "freelens-power-extension-update-requested";
+
+export function requestExtensionUpdate() {
+  document.dispatchEvent(new Event(updateRequested));
+}
 
 function installControls() {
   const page = document.querySelector(pageSelector);
@@ -24,6 +30,8 @@ export function startExtensionUpdate(): () => void {
   let stopped = false;
   let scheduled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let navigationTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingNavigation = false;
   let draft: { input: HTMLInputElement; previous: string } | undefined;
   let mounted:
     | {
@@ -61,6 +69,7 @@ export function startExtensionUpdate(): () => void {
         !button.disabled
       ) {
         try {
+          document.dispatchEvent(new Event(EXTENSION_UPDATE_STARTED));
           button.click();
           if (previous && previous !== installTarget && input.isConnected && input.value === installTarget)
             setInput(input, previous);
@@ -78,6 +87,15 @@ export function startExtensionUpdate(): () => void {
   const sync = () => {
     scheduled = false;
     if (stopped) return;
+    if (pendingNavigation) {
+      const { input, button } = installControls();
+      if (input && button && !input.disabled && !button.disabled) {
+        pendingNavigation = false;
+        clearTimeout(navigationTimer);
+        navigationTimer = undefined;
+        update();
+      }
+    }
     const table = document.querySelector(`${pageSelector} [data-testid="extensions-table"]`);
     const row = [...(table?.querySelectorAll<HTMLElement>(".tr") ?? [])].find(
       (element) =>
@@ -156,10 +174,33 @@ export function startExtensionUpdate(): () => void {
     queueMicrotask(sync);
   });
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+  const openAndUpdate = () => {
+    if (stopped || pendingNavigation || timer) return;
+    pendingNavigation = true;
+    navigationTimer = setTimeout(() => {
+      pendingNavigation = false;
+      navigationTimer = undefined;
+      Renderer.Component.Notifications.error(
+        "Could not open the native extension installer. Open Extensions and retry",
+      );
+    }, 10_000);
+    try {
+      if (!document.querySelector(pageSelector)) Renderer.Navigation.navigate("/extensions");
+      sync();
+    } catch {
+      clearTimeout(navigationTimer);
+      navigationTimer = undefined;
+      pendingNavigation = false;
+      Renderer.Component.Notifications.error("Could not open Extensions. Open it manually and retry");
+    }
+  };
+  document.addEventListener(updateRequested, openAndUpdate);
   sync();
   return () => {
     stopped = true;
     observer.disconnect();
+    document.removeEventListener(updateRequested, openAndUpdate);
+    clearTimeout(navigationTimer);
     if (timer) clearTimeout(timer);
     if (draft?.input.isConnected && draft.input.value === installTarget) setInput(draft.input, draft.previous);
     draft = undefined;

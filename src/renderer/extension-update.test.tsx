@@ -4,12 +4,12 @@ import { useState } from "react";
 import ReactDOM from "react-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ install: vi.fn(), error: vi.fn(), close: vi.fn() }));
+const mocks = vi.hoisted(() => ({ install: vi.fn(), error: vi.fn(), close: vi.fn(), navigate: vi.fn() }));
 vi.mock("@freelensapp/extensions", () => ({
-  Renderer: { Component: { Notifications: { error: mocks.error } } },
+  Renderer: { Navigation: { navigate: mocks.navigate }, Component: { Notifications: { error: mocks.error } } },
 }));
 
-import { startExtensionUpdate } from "./extension-update";
+import { requestExtensionUpdate, startExtensionUpdate } from "./extension-update";
 
 let stop: (() => void) | undefined;
 let form: HTMLElement;
@@ -189,9 +189,57 @@ it("does not install while the native installer is busy or inside a cluster fram
   act(() => {
     stop?.();
   });
-  vi.stubGlobal("process", { isMainFrame: false });
+  vi.stubGlobal("process", { ...process, isMainFrame: false });
   await act(async () => {
     stop = startExtensionUpdate();
   });
   expect(screen.queryByLabelText("Update Freelens Power")).toBeNull();
+});
+
+it("navigates to Extensions and waits for native installation controls without accepting confirmation", async () => {
+  vi.useFakeTimers();
+  const page = document.querySelector('[data-testid="extensions-page"]')!;
+  page.remove();
+  await act(async () => {
+    stop = startExtensionUpdate();
+  });
+  requestExtensionUpdate();
+  requestExtensionUpdate();
+  expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith("/extensions");
+  expect(mocks.install).not.toHaveBeenCalled();
+  await act(async () => {
+    document.body.append(page);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(mocks.install).toHaveBeenCalledExactlyOnceWith("@64mb/freelens-power@latest");
+  expect(screen.getByText("Confirm replacement")).toBeTruthy();
+  expect(mocks.install).not.toHaveBeenCalledWith("confirmed");
+  stop?.();
+  expect(vi.getTimerCount()).toBe(0);
+  vi.useRealTimers();
+});
+it("reports an unavailable installer after navigation and cancels a pending request on teardown", async () => {
+  vi.useFakeTimers();
+  document.querySelector('[data-testid="extensions-page"]')!.remove();
+  await act(async () => {
+    stop = startExtensionUpdate();
+  });
+  requestExtensionUpdate();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
+  expect(mocks.error).toHaveBeenCalledExactlyOnceWith(
+    "Could not open the native extension installer. Open Extensions and retry",
+  );
+  expect(mocks.install).not.toHaveBeenCalled();
+  requestExtensionUpdate();
+  stop?.();
+  expect(vi.getTimerCount()).toBe(0);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
+  expect(mocks.error).toHaveBeenCalledOnce();
+  vi.useRealTimers();
 });
