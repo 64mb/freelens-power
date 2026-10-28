@@ -328,6 +328,7 @@ export function HelmCodeView({
         onModelChange={onModelChange}
         style={{
           height: "100%",
+          minWidth: horizontal && ready ? "100%" : undefined,
           width:
             horizontal && !ready
               ? horizontal.width

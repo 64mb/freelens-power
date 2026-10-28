@@ -13,6 +13,32 @@ export function accentForeground(color: string): "#000000" | "#ffffff" {
 
 export function startAppearanceOverride(): () => void {
   const preferences = AppearancePreferencesStore.getInstanceOrCreate<AppearancePreferencesStore>();
+  const editorStyle = document.createElement("style");
+  editorStyle.dataset.freelensPower = "editor-controls";
+  editorStyle.textContent = `
+    :root .monaco-editor .monaco-scrollable-element > .scrollbar > .slider {
+      box-sizing: border-box;
+      background: var(--scrollBarColor) !important;
+      background-clip: padding-box !important;
+      border: 4px solid transparent;
+      border-right-width: 5px;
+      border-radius: 16px;
+    }
+    :root textarea::-webkit-scrollbar { width: 16px; height: 15px; background: transparent; }
+    :root textarea::-webkit-scrollbar-thumb {
+      background: var(--scrollBarColor);
+      background-clip: padding-box;
+      border: 4px solid transparent;
+      border-right-width: 5px;
+      border-radius: 16px;
+    }
+    :root textarea::-webkit-scrollbar-corner { background: transparent; }
+    :root textarea::-webkit-resizer {
+      border: 0;
+      background: linear-gradient(135deg, transparent 45%, var(--borderColor) 46% 53%, transparent 54% 70%, var(--borderColor) 71% 78%, transparent 79%) center/10px 10px no-repeat;
+    }
+  `;
+  document.head.append(editorStyle);
   const style = document.createElement("style");
   style.dataset.freelensPower = "accent-color";
 
@@ -64,5 +90,6 @@ export function startAppearanceOverride(): () => void {
   return () => {
     stop();
     style.remove();
+    editorStyle.remove();
   };
 }

@@ -1208,25 +1208,33 @@ const History = observer(
     const revision = restoreTarget?.revision ?? selectedRevision;
     const [versionGeneration, setVersionGeneration] = useState(0);
     const [revisionFilter, setRevisionFilter] = useState("");
+    const historyIdentity = JSON.stringify([clusterId, contextId, release.namespace, release.name]);
+    const [removedRevisions, setRemovedRevisions] = useState<{ identity: string; uids: string[] }>();
+    const revisions = useMemo(() => {
+      const removedUids = removedRevisions?.identity === historyIdentity ? removedRevisions.uids : [];
+      return state.result?.ok
+        ? (state.result.releases ?? []).filter((item) => !item.uid || !removedUids.includes(item.uid))
+        : [];
+    }, [state.result, removedRevisions, historyIdentity]);
     const [page, setPage] = useState(0);
     const historyFrame = useRef<HTMLDivElement>(null);
     const [revealRevision, setRevealRevision] = useState<{ revision: number; result: HelmResponse }>();
     useEffect(() => {
       if (historyFrame.current) historyFrame.current.scrollTop = 0;
     }, [page, revisionFilter, state.result]);
-    useEffect(() => setPage(0), [state.result, revisionFilter]);
+    useEffect(() => setPage(0), [state.result, revisionFilter, removedRevisions]);
     const [versionsPaused, setVersionsPaused] = useState(false);
     const versionIndex = useHelmVersionIndex({
       clusterId,
       contextId: contextId ?? "",
-      releases: state.result?.ok ? (state.result.releases ?? []) : [],
+      releases: revisions,
       active: Boolean(
         contextId && state.result?.ok && !state.loading && !state.error && !state.stale && !versionsPaused,
       ),
       refreshToken: versionGeneration,
     });
     const history = state.result?.ok
-      ? (state.result.releases ?? []).filter(
+      ? revisions.filter(
           (item) =>
             !revisionFilter ||
             String(item.revision) === revisionFilter ||
@@ -1245,7 +1253,7 @@ const History = observer(
         setPage(0);
         return;
       }
-      const entries = state.result?.ok ? (state.result.releases ?? []) : [];
+      const entries = revisions;
       const index = entries.findIndex((item) => item.revision === revealRevision.revision);
       if (index < 0) {
         setRevealRevision(undefined);
@@ -1263,7 +1271,7 @@ const History = observer(
       row.scrollIntoView({ block: "nearest" });
       row.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
       setRevealRevision(undefined);
-    }, [revealRevision, revisionFilter, page, state.result]);
+    }, [revealRevision, revisionFilter, page, state.result, revisions]);
     useEffect(() => {
       if (
         !state.result?.ok ||
@@ -1454,8 +1462,8 @@ const History = observer(
               clearLabel="Clear revision search"
             />
             <small>
-              {history.length !== (state.result.releases?.length ?? 0)
-                ? `${history.length} of ${state.result.releases?.length ?? 0} revisions`
+              {history.length !== revisions.length
+                ? `${history.length} of ${revisions.length} revisions`
                 : `${history.length} ${history.length === 1 ? "revision" : "revisions"}`}
             </small>
             {revision && (
@@ -1646,6 +1654,11 @@ const History = observer(
                           allowed={Boolean(allowed && historyCurrent)}
                           busy={busy}
                           onDeleted={() => {
+                            if (item.uid)
+                              setRemovedRevisions((current) => ({
+                                identity: historyIdentity,
+                                uids: [...(current?.identity === historyIdentity ? current.uids : []), item.uid!],
+                              }));
                             setRevision(undefined);
                             setConfirmed(false);
                             setError("");

@@ -49,6 +49,45 @@ describe("application accent override", () => {
     return Array.from(style?.sheet?.cssRules ?? []) as CSSStyleRule[];
   }
 
+  it("shares editor controls across native and extension editors without depending on accent preferences", () => {
+    runInAction(() => preferences.fromStore({ enabled: false, accentColor: "default" }));
+    document.body.innerHTML = `
+      <div class="monaco-editor"><div class="monaco-scrollable-element"><div class="scrollbar"><div class="slider"></div></div></div></div>
+      <div class="helm-code-view"><div class="monaco-editor"><div class="monaco-scrollable-element"><div class="scrollbar"><div class="slider"></div></div></div></div></div>
+      <div class="xterm"><div class="monaco-scrollable-element"><div class="scrollbar"><div class="slider"></div></div></div></div>
+      <textarea style="resize: horizontal"></textarea><div class="power-logs"><textarea></textarea></div>
+    `;
+    try {
+      dispose = startAppearanceOverride();
+      const editorStyle = () =>
+        document.querySelector<HTMLStyleElement>('style[data-freelens-power="editor-controls"]');
+      const editorRules = Array.from(editorStyle()?.sheet?.cssRules ?? []) as CSSStyleRule[];
+      const slider = editorRules.find((rule) => rule.selectorText.includes(".slider"))!;
+      expect(document.querySelectorAll(slider.selectorText)).toHaveLength(2);
+      expect(slider.style.getPropertyValue("background")).toBe("var(--scrollBarColor)");
+      expect(slider.style.getPropertyValue("border-radius")).toBe("16px");
+      const grip = editorRules.find((rule) => rule.selectorText.includes("::-webkit-resizer"))!;
+      expect(grip.selectorText).toBe(":root textarea::-webkit-resizer");
+      expect(grip.style.getPropertyValue("background")).toContain("var(--borderColor)");
+      expect(document.querySelector("textarea")?.style.resize).toBe("horizontal");
+      expect(accentRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.enabled = true;
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+      });
+      expect(editorStyle()).toBeDefined();
+      runInAction(() => {
+        preferences.enabled = false;
+      });
+      expect(editorStyle()).toBeDefined();
+      dispose();
+      expect(editorStyle()).toBeNull();
+      expect(document.querySelector("textarea")?.style.resize).toBe("horizontal");
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
   it.each(ACCENT_COLOR_OPTIONS)("chooses readable text for the $label accent", ({ color }) => {
     const linear = [1, 3, 5].map((offset) => {
       const channel = Number.parseInt(color.slice(offset, offset + 2), 16) / 255;

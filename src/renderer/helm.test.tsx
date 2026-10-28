@@ -1434,7 +1434,7 @@ it("labels the embedded chart source without exposing its internal sentinel", as
   expect(select.textContent).not.toContain("@installed");
 });
 
-it("automatically reloads history after deleting an inactive revision", async () => {
+it.each([false, true])("reloads history after deleting a revision, stale first read: %s", async (stale) => {
   const inactive = { ...release, revision: 1, uid: "old-secret", status: "superseded" };
   let deleted = false;
   mocks.invoke.mockImplementation((_channel, request) => {
@@ -1446,7 +1446,7 @@ it("automatically reloads history after deleting an inactive revision", async ()
       return Promise.resolve({
         ...listing,
         rollbackAllowed: true,
-        releases: deleted ? [release] : [release, inactive],
+        releases: deleted && !stale ? [release] : [release, inactive],
       });
     if (request.operation === "details") return Promise.resolve({ ok: true, detail: { content: "Overview" } });
     return Promise.resolve(listing);
@@ -1459,4 +1459,40 @@ it("automatically reloads history after deleting an inactive revision", async ()
   await waitFor(() => expect(screen.queryByRole("button", { name: "Delete revision 1", exact: true })).toBeNull());
   expect(screen.getByRole("button", { name: "Delete revision 2", exact: true })).toBeTruthy();
   expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history" && request.refresh)).toBe(true);
+});
+
+it("returns from an emptied last history page after confirmed deletion even when refresh fails", async () => {
+  const revisions = Array.from({ length: 51 }, (_, index) => ({
+    ...release,
+    revision: 51 - index,
+    uid: `sample-secret-${51 - index}`,
+    status: index === 0 ? "deployed" : "superseded",
+  }));
+  let deleted = false;
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "delete-revision") {
+      deleted = true;
+      return Promise.resolve({ ok: true });
+    }
+    if (request.operation === "history")
+      return Promise.resolve(
+        deleted
+          ? { ok: false, error: { message: "History temporarily unavailable", code: "unavailable" } }
+          : { ...listing, releases: revisions, rollbackAllowed: true },
+      );
+    if (request.operation === "details") return Promise.resolve({ ok: true, detail: { content: "Overview" } });
+    return Promise.resolve({ ...listing, releases: [revisions[0]] });
+  });
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  await screen.findByLabelText("Revision 51");
+  fireEvent.click(screen.getByLabelText("Next revisions"));
+  fireEvent.click(screen.getByRole("button", { name: "Delete revision 1", exact: true }));
+  await act(async () => mocks.confirm.mock.calls.at(-1)![0].ok());
+  await screen.findByText("History temporarily unavailable");
+  expect(screen.queryByRole("button", { name: "Delete revision 1", exact: true })).toBeNull();
+  expect(screen.getByLabelText("Revision 51")).toBeTruthy();
+  expect(screen.getByText("50 revisions")).toBeTruthy();
+  expect(screen.queryByLabelText("Next revisions")).toBeNull();
 });
