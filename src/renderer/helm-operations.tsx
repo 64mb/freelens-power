@@ -507,6 +507,7 @@ export const HelmOperationsPanel = observer(
       <div className="power-helm-operations">
         <style>{`
       .power-helm-operations .power-helm-operation-card { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px; margin:8px 0; border:1px solid var(--borderColor); border-radius:6px; background:var(--contentColor); }
+      .power-helm-operation-card > .power-helm-operation-progress-button { margin-left:auto; }
       .power-helm-operation-dialog { z-index:12000; background:rgb(0 0 0 / 55%); }
       :root .Dialog.power-helm-operation-dialog > .box { background:var(--contentColor); border:1px solid var(--borderColor); border-radius:12px; overflow:hidden; box-shadow:0 20px 70px rgb(0 0 0 / 35%); }
       .power-helm-operation-content { display:flex; flex-direction:column; gap:20px; box-sizing:border-box; padding:28px; width:min(680px,calc(100vw - 48px)); max-height:calc(100vh - 64px); overflow:auto; outline:none; }
@@ -564,7 +565,10 @@ export const HelmOperationsPanel = observer(
             <span>
               {phaseLabels[operation.phase]} · {elapsed(operation, now)}
             </span>
-            <Button onClick={() => helmOperations.open(operation.requestId)}>
+            <Button
+              className="power-helm-operation-progress-button"
+              onClick={() => helmOperations.open(operation.requestId)}
+            >
               <Icon material="open_in_new" />
               <span>View progress</span>
             </Button>
