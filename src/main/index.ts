@@ -21,6 +21,7 @@ import { startDashboardPicker } from "./dashboard-picker";
 import { startDashboardViews } from "./dashboard-views";
 import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
+import { startExtensionUpdates } from "./extension-updates";
 import { startPowerHelm } from "./helm-ipc";
 import { startMonitoringHistory } from "./monitoring-history";
 import { startPowerLogs } from "./power-logs-ipc";
@@ -63,6 +64,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
         for (const dispose of disposers) dispose();
         disposers = enabled
           ? [
+              startExtensionUpdates(this),
               startMonitoringHistory(this),
               startResourceSearchIndex(),
               startPowerLogs(),

@@ -57,21 +57,35 @@ vi.mock("./power-logs-collector", () => ({
   startLiveLogs: () => ({ coverage: {}, done: new Promise(() => {}) }),
 }));
 vi.mock("@freelensapp/extensions", () => {
-  const store = { getItems: () => mocks.objects };
   return {
     Renderer: {
       Catalog: { activeCluster: { get: () => ({ metadata: { uid: "cluster-a" } }) } },
-      K8sApi: Object.fromEntries(
-        [
-          "podsStore",
-          "deploymentStore",
-          "daemonSetStore",
-          "statefulSetStore",
-          "replicaSetStore",
-          "jobStore",
-          "cronJobStore",
-        ].map((key) => [key, store]),
-      ),
+      K8sApi: {
+        namespaceStore: { onContextChange: () => () => {}, loadAll: async () => {} },
+        ...Object.fromEntries(
+          [
+            "podsStore",
+            "deploymentStore",
+            "daemonSetStore",
+            "statefulSetStore",
+            "replicaSetStore",
+            "jobStore",
+            "cronJobStore",
+          ].map((key) => [
+            key,
+            {
+              get contextItems() {
+                return mocks.objects.filter(
+                  (object) =>
+                    object.kind.toLowerCase() === key.replace("Store", "").replace("pods", "pod").toLowerCase(),
+                );
+              },
+              loadAll: async () => {},
+              subscribe: () => () => {},
+            },
+          ]),
+        ),
+      },
       Component: {
         ConfirmDialog: { open: (...args: any[]) => mocks.confirm(...args) },
         Icon: ({ material, svg }: any) => <span aria-hidden="true" data-icon={material ?? svg} />,
@@ -193,6 +207,42 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("lists workloads before pods across namespaces when opened without a resource", async () => {
+  window.history.replaceState({}, "", "/");
+  mocks.objects = [
+    { kind: "Pod", metadata: { namespace: "alpha", name: "worker", uid: "pod-a" } },
+    ...["StatefulSet", "ReplicaSet", "Job", "Deployment", "DaemonSet", "CronJob"].map((kind) => ({
+      kind,
+      metadata: { namespace: "zeta", name: "worker", uid: kind },
+    })),
+    { kind: "Deployment", metadata: { namespace: "beta", name: "z-worker", uid: "deployment-z" } },
+    { kind: "Deployment", metadata: { namespace: "beta", name: "a-worker", uid: "deployment-a" } },
+  ];
+  await mount();
+  expect(
+    within(screen.getByLabelText("Resource"))
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual([
+    "Choose a pod or workload",
+    "beta / Deployment / a-worker",
+    "beta / Deployment / z-worker",
+    "zeta / CronJob / worker",
+    "zeta / DaemonSet / worker",
+    "zeta / Deployment / worker",
+    "zeta / Job / worker",
+    "zeta / ReplicaSet / worker",
+    "zeta / StatefulSet / worker",
+    "alpha / Pod / worker",
+  ]);
+});
+
+it("retains the workload target when opened from a resource", async () => {
+  await mount();
+  expect(screen.queryByLabelText("Resource")).toBeNull();
+  expect(mocks.resolve.mock.calls[0][0]).toEqual(target);
 });
 
 it.each([false, true])("shows loading until discovery and history finish (has logs: %s)", async (hasLogs) => {

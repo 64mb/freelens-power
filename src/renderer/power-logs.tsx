@@ -41,6 +41,7 @@ import { powerLogsStyles } from "./power-logs.css";
 import { createPowerLogsClient } from "./power-logs-client";
 import { collectHistoricalLogs, type LiveLogCoverage, resolveLogSources, startLiveLogs } from "./power-logs-collector";
 import { openPowerLogs, parsePowerLogsTarget } from "./power-logs-entrypoints";
+import { subscribeLogResourceStores } from "./power-logs-resource-stores";
 import { CaptureSqlDrafts } from "./power-logs-sql-drafts";
 import { sqlRowDetails } from "./power-logs-sql-row";
 import { createPowerLogsTransport } from "./power-logs-transport";
@@ -150,24 +151,38 @@ function LogSelect({
 }
 
 const SourcePicker = observer(() => {
-  const stores = [
-    Renderer.K8sApi.podsStore,
-    Renderer.K8sApi.deploymentStore,
-    Renderer.K8sApi.daemonSetStore,
-    Renderer.K8sApi.statefulSetStore,
-    Renderer.K8sApi.replicaSetStore,
-    Renderer.K8sApi.jobStore,
-    Renderer.K8sApi.cronJobStore,
-  ];
+  const stores = useMemo(
+    () => [
+      Renderer.K8sApi.podsStore,
+      Renderer.K8sApi.deploymentStore,
+      Renderer.K8sApi.daemonSetStore,
+      Renderer.K8sApi.statefulSetStore,
+      Renderer.K8sApi.replicaSetStore,
+      Renderer.K8sApi.jobStore,
+      Renderer.K8sApi.cronJobStore,
+    ],
+    [],
+  );
+  useEffect(
+    () =>
+      subscribeLogResourceStores(
+        stores,
+        (callback) => Renderer.K8sApi.namespaceStore.onContextChange(callback),
+        Renderer.K8sApi.namespaceStore,
+      ),
+    [stores],
+  );
   const targets = stores.flatMap((store) =>
-    store.getItems().flatMap((object) => {
+    store.contextItems.flatMap((object) => {
       const target = parsePowerLogsTarget({ kind: object.kind, ...object.metadata });
       return target ? [target] : [];
     }),
   );
   const [value, setValue] = useState("");
-  const sorted = [...targets].sort((a, b) =>
-    `${a.namespace}/${a.kind}/${a.name}`.localeCompare(`${b.namespace}/${b.kind}/${b.name}`),
+  const sorted = [...targets].sort(
+    (a, b) =>
+      Number(a.kind === "Pod") - Number(b.kind === "Pod") ||
+      `${a.namespace}/${a.kind}/${a.name}`.localeCompare(`${b.namespace}/${b.kind}/${b.name}`),
   );
   return (
     <div className="power-logs-source">
@@ -177,7 +192,7 @@ const SourcePicker = observer(() => {
         value={value}
         onChange={setValue}
         options={[
-          { value: "", label: "Choose a loaded pod or workload" },
+          { value: "", label: "Choose a pod or workload" },
           ...sorted.map((target) => ({
             value: target.uid,
             label: `${target.namespace} / ${target.kind} / ${target.name}`,
