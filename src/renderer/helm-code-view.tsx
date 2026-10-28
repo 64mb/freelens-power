@@ -571,6 +571,9 @@ export function HelmRevisionDiff({
       <style>{`
       .helm-revision-diff { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
       .helm-diff-summary { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; color: var(--textColorSecondary); }
+      .helm-full-comparison-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-left: auto; }
+      .helm-full-comparison-actions > .Button, .helm-full-comparison-open { display: inline-flex; align-items: center; gap: 6px; }
+      .helm-full-comparison-actions > .Button > .Icon, .helm-full-comparison-open > .Icon { margin: 0; padding: 0; }
       .helm-diff-find { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; }
       .helm-diff-find input { background: var(--contentColor); color: var(--textColorPrimary); border: 1px solid var(--borderColor); padding: 5px 8px; }
       .helm-diff-scroll { position: relative; }
@@ -627,14 +630,16 @@ export function HelmRevisionDiff({
           {displayLimited && <span>Document display exceeds the safe rendering limit.</span>}
           {previews && (previews.before.limited || previews.after.limited) && (
             <>
-              <span>
-                Only the first 1000 lines and 262144 characters of each original document are previewed. Copy a full
-                document to read all of it.
-              </span>
+              <span>Only the first 1000 lines and 262144 characters of each original document are previewed.</span>
               {copyStatus && <span>{copyStatus}</span>}
             </>
           )}
-          {fallback && <Button label="Compare full documents" onClick={() => setComplete({ before, after })} />}
+          {fallback && (
+            <Button className="helm-full-comparison-open" onClick={() => setComplete({ before, after })}>
+              <Icon material="compare_arrows" size={16} aria-hidden="true" />
+              <span>Compare full documents</span>
+            </Button>
+          )}
           {diff.available && blocks && <Checkbox label="Show full documents" value={full} onChange={setFull} />}
           {(!unchanged || full || fallback) && <small>Both panes share vertical scrolling</small>}
         </div>
