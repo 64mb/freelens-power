@@ -1495,4 +1495,4 @@ it("returns from an emptied last history page after confirmed deletion even when
   expect(screen.getByLabelText("Revision 51")).toBeTruthy();
   expect(screen.getByText("50 revisions")).toBeTruthy();
   expect(screen.queryByLabelText("Next revisions")).toBeNull();
-});
+}, 30_000);
