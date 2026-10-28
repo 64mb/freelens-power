@@ -617,6 +617,13 @@ export function startPowerHelm(): () => void {
       const resolveChoices = async (row: import("../common/helm").HelmReleaseMetadata, preferInstalled = true) => {
         const metadata = await service!.chartMetadata(context, row, signal);
         check();
+        const detail = await service!.detail(context, row, "overview", signal);
+        check();
+        if (detail.overview.namespace !== row.namespace)
+          throw new HelmError(
+            "unsupported-release-namespace",
+            "Values editing is unavailable when the release target namespace differs from its storage namespace. Use the release's original deployment tool to edit values",
+          );
         try {
           if (!preferInstalled) throw new HelmError("installed-chart-unavailable", "Repository chart requested");
           const stored = await service!.installedChart(context, row, signal);

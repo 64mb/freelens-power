@@ -1041,6 +1041,63 @@ describe("Helm IPC", () => {
       stop();
     }
   });
+  it("blocks values editing across target and storage namespaces before launching Helm", async () => {
+    const stop = startPowerHelm();
+    const invoke = mocks.handle.mock.calls[0][1];
+    const metadata = {
+      metadata: {
+        uid: "release-one",
+        name: "sh.helm.release.v1.example.v1",
+        namespace: "default",
+        labels: { owner: "helm", name: "example", version: "1", status: "deployed" },
+      },
+    };
+    const release = {
+      name: "example",
+      namespace: "application",
+      version: 1,
+      chart: { metadata: { name: "example", version: "1.2.3" } },
+    };
+    mocks.response.mockImplementation(async (path) => {
+      const body = path.endsWith("/secrets")
+        ? { kind: "PartialObjectMetadataList", apiVersion: "meta.k8s.io/v1", items: [metadata] }
+        : {
+            ...metadata,
+            type: "helm.sh/release.v1",
+            data: {
+              release: Buffer.from(gzipSync(Buffer.from(JSON.stringify(release))).toString("base64")).toString(
+                "base64",
+              ),
+            },
+          };
+      return { ok: true, headers: new Map(), body: Readable.from([JSON.stringify(body)]) };
+    });
+    try {
+      const history = await invoke(event(), { ...request, operation: "history", name: "example" });
+      const edit = { ...request, contextId: history.contextId, name: "example", revision: 1, uid: "release-one" };
+      expect(await invoke(event(), { ...edit, operation: "details", section: "overview" })).toMatchObject({
+        ok: true,
+        detail: { overview: { namespace: "application" } },
+      });
+      expect(await invoke(event(), { ...edit, operation: "edit-options" })).toMatchObject({
+        ok: false,
+        error: { code: "unsupported-release-namespace" },
+      });
+      for (const chart of ["@installed", "stable/example"])
+        expect(
+          await invoke(event(), {
+            ...edit,
+            operation: "upgrade-values",
+            values: "replicas: 2",
+            chart,
+            confirmed: true,
+          }),
+        ).toMatchObject({ ok: false, error: { code: "unsupported-release-namespace" } });
+      expect(mocks.exec).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
   it("uses the complete installed chart without repository access and retains stale UID guards", async () => {
     const resources = Object.getOwnPropertyDescriptor(process, "resourcesPath");
     Object.defineProperty(process, "resourcesPath", { value: "/neutral/resources", configurable: true });
