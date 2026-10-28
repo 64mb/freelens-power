@@ -2,7 +2,7 @@ import { Common } from "@freelensapp/extensions";
 import { action, makeObservable, observable } from "mobx";
 import { type AiAttachmentReceipt, normalizeAiAttachmentReceipts } from "../ai-attachments";
 import { type AiResourceReference, normalizeAiReferences } from "../ai-extras";
-import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../ai-models";
+import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS, PI_REASONING_EFFORTS } from "../ai-models";
 import { DEFAULT_AI_CLUSTER_PROMPT, DEFAULT_AI_SYSTEM_PROMPT, upgradeBundledAiPrompt } from "../ai-prompts";
 
 import type { AiProvider } from "../ai";
@@ -17,6 +17,8 @@ export interface AiMessage {
 export interface AiPreferencesModel {
   enabled: boolean;
   provider: AiProvider;
+  piModel: string;
+  piReasoningEffort: string;
   claudeModel: string;
   claudeReasoningEffort: string;
   claudeSpeed: "default" | "fast";
@@ -33,6 +35,8 @@ export interface AiPreferencesModel {
 export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreferencesModel> {
   enabled = false;
   provider: AiProvider = "codex";
+  piModel = "";
+  piReasoningEffort = "";
   claudeModel = "";
   claudeReasoningEffort = "";
   claudeSpeed: "default" | "fast" = "default";
@@ -51,6 +55,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
       defaults: {
         enabled: false,
         provider: "codex",
+        piModel: "",
+        piReasoningEffort: "",
         claudeModel: "",
         claudeReasoningEffort: "",
         claudeSpeed: "default",
@@ -67,6 +73,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     makeObservable(this, {
       enabled: observable,
       provider: observable,
+      piModel: observable,
+      piReasoningEffort: observable,
       claudeModel: observable,
       claudeReasoningEffort: observable,
       claudeSpeed: observable,
@@ -86,7 +94,10 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
 
   fromStore(data: Partial<AiPreferencesModel>): void {
     this.enabled = data?.enabled === true;
-    this.provider = data?.provider === "claude" ? "claude" : "codex";
+    this.provider = data?.provider === "pi" ? "pi" : data?.provider === "claude" ? "claude" : "codex";
+    this.piModel = typeof data?.piModel === "string" ? data.piModel : "";
+    const piReasoningEffort = data?.piReasoningEffort ?? "";
+    this.piReasoningEffort = PI_REASONING_EFFORTS.includes(piReasoningEffort) ? piReasoningEffort : "";
     this.claudeModel = typeof data?.claudeModel === "string" ? data.claudeModel : "";
     const claudeReasoningEffort = data?.claudeReasoningEffort ?? "";
     this.claudeReasoningEffort = CLAUDE_REASONING_EFFORTS.includes(claudeReasoningEffort) ? claudeReasoningEffort : "";
@@ -140,7 +151,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
         ...(role === "user" && normalizeAiAttachmentReceipts(attachments).length
           ? { attachments: normalizeAiAttachmentReceipts(attachments) }
           : {}),
-        ...(provider === "claude" ? { provider } : {}),
+        ...(provider === "claude" || provider === "pi" ? { provider } : {}),
         ...(role === "assistant" && normalizeAiReferences(references).length
           ? { references: normalizeAiReferences(references) }
           : {}),
@@ -152,6 +163,8 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     return {
       enabled: this.enabled,
       provider: this.provider,
+      piModel: this.piModel,
+      piReasoningEffort: this.piReasoningEffort,
       claudeModel: this.claudeModel,
       claudeReasoningEffort: this.claudeReasoningEffort,
       claudeSpeed: this.claudeSpeed,

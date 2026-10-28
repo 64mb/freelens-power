@@ -21,6 +21,10 @@ it("uses distinct bundled brand assets and native tooltips without browser title
   expect(claude?.getAttribute("height")).toBe("20");
   expect(claude?.hasAttribute("title")).toBe(false);
   expect(tooltipText(claude)).toBe("Claude");
+  view.rerender(<AiProviderIcon provider="pi" />);
+  const pi = view.getByRole("img", { name: "Pi" });
+  expect(pi.getAttribute("data-provider")).toBe("pi");
+  expect(tooltipText(pi)).toBe("Pi");
   view.unmount();
 });
 

@@ -8,6 +8,7 @@ import {
   CLAUDE_REASONING_EFFORTS,
   CODEX_REASONING_EFFORTS,
 } from "../common/ai-models";
+import { readPiAiModels } from "./ai-pi-models";
 
 const MAX_CACHE_BYTES = 2 * 1024 * 1024;
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/;
@@ -72,6 +73,7 @@ export async function readAiModels(
 }
 
 export function startAiModels(): () => void {
+  let piModels: Promise<AiModel[]> | undefined;
   ipcMain.handle(AI_MODELS_CHANNEL, async (event, provider: unknown = "codex") => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window || window.isDestroyed()) return [];
@@ -89,6 +91,12 @@ export function startAiModels(): () => void {
           reasoningEfforts: CLAUDE_REASONING_EFFORTS,
           defaultReasoningEffort: "",
         }));
+      if (provider === "pi") {
+        piModels ??= readPiAiModels().finally(() => {
+          piModels = undefined;
+        });
+        return piModels;
+      }
       if (provider !== "codex") return [];
       return readAiModels();
     } catch {

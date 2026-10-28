@@ -1,5 +1,8 @@
+import { PiResponseRelay } from "./ai-pi";
+
 // only an explicit [tool: null] permits exposing answer text from a model response
 export function createAiAnswerStream(provider: string, onText: (text: string) => void): (chunk: string) => void {
+  const relay = provider === "pi" ? new PiResponseRelay() : undefined;
   let lines = "";
   let response = "";
   let emitted = "";
@@ -77,6 +80,30 @@ export function createAiAnswerStream(provider: string, onText: (text: string) =>
             typeof event.item.text === "string"
           )
             publish(event.item.text);
+        } else if (provider === "pi") {
+          const submitted = relay?.accept(event);
+          if (submitted !== undefined) publish(JSON.stringify(submitted));
+          const item = event.assistantMessageEvent;
+          if (event.type === "message_start" && event.message?.role === "assistant") response = "";
+          if (event.type === "message_update" && item?.type === "text_delta" && typeof item.delta === "string") {
+            response += item.delta;
+            publish(response);
+          } else if (
+            event.type === "message_end" &&
+            event.message?.role === "assistant" &&
+            event.message.stopReason === "stop" &&
+            Array.isArray(event.message.content) &&
+            event.message.content.every(
+              (block: { type?: string }) => block?.type === "text" || block?.type === "thinking",
+            )
+          ) {
+            publish(
+              event.message.content
+                .filter((block: { type: string }) => block.type === "text")
+                .map((block: { text: string }) => block.text)
+                .join(""),
+            );
+          }
         } else if (event.type === "stream_event") {
           const item = event.event;
           if (item?.type === "content_block_start" && item.content_block?.type === "text") {

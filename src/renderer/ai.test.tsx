@@ -86,6 +86,23 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 describe("AI chat", () => {
+  it("keeps the draft and avoids IPC until a Pi model is configured", async () => {
+    const previous = mocks.preferences;
+    mocks.preferences = Object.assign({}, previous, { provider: "pi", piModel: "" });
+    try {
+      stop = startAiChat(() => true);
+      fireEvent.click(screen.getByLabelText("Open AI assistant"));
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Inspect" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      expect(screen.getByText("Choose a Pi model in AI preferences before sending a message.")).toBeTruthy();
+      expect(mocks.invoke).not.toHaveBeenCalled();
+      expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Inspect");
+    } finally {
+      stop?.();
+      stop = undefined;
+      mocks.preferences = previous;
+    }
+  });
   it("does not refresh screen context for native tooltip mutations but still reacts to drawers", async () => {
     stop = startAiChat(() => true);
     await act(async () => {});

@@ -10,9 +10,11 @@ import {
   validAiRequestId,
 } from "../common/ai";
 import { AI_CANCEL_CHANNEL } from "../common/ai-extras";
+import { piModelEfforts } from "../common/ai-models";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { aiFailureCode, runAiChat } from "./ai";
 import { discoverAiResources } from "./ai-discovery";
+import { PiAiResponseError } from "./ai-pi";
 import { aiReadPath } from "./ai-resources";
 import {
   acquirePowerLogStream,
@@ -65,10 +67,26 @@ export function startAiIpc(): () => void {
         {
           ...request,
           provider: preferences.provider ?? "codex",
-          model: preferences.provider === "claude" ? preferences.claudeModel : preferences.model,
-          speed: preferences.provider === "claude" ? preferences.claudeSpeed : preferences.speed,
+          model:
+            preferences.provider === "pi"
+              ? preferences.piModel
+              : preferences.provider === "claude"
+                ? preferences.claudeModel
+                : preferences.model,
+          speed:
+            preferences.provider === "pi"
+              ? "default"
+              : preferences.provider === "claude"
+                ? preferences.claudeSpeed
+                : preferences.speed,
           reasoningEffort:
-            preferences.provider === "claude" ? preferences.claudeReasoningEffort : preferences.reasoningEffort,
+            preferences.provider === "pi"
+              ? piModelEfforts(preferences.piModel).includes(preferences.piReasoningEffort)
+                ? preferences.piReasoningEffort
+                : ""
+              : preferences.provider === "claude"
+                ? preferences.claudeReasoningEffort
+                : preferences.reasoningEffort,
           systemPrompt: [preferences.systemPrompt, request?.context?.clusterId ? preferences.clusterPrompt : ""]
             .filter(Boolean)
             .join("\n\n"),
@@ -169,7 +187,10 @@ export function startAiIpc(): () => void {
       return response;
     } catch (failure) {
       const code = aiFailureCode(failure);
-      Common.logger.warn("[Freelens Power AI] request failed", { code });
+      Common.logger.warn("[Freelens Power AI] request failed", {
+        code,
+        ...(failure instanceof PiAiResponseError ? { pi: failure.diagnostics } : {}),
+      });
       throw new Error(`FREELENS_AI_${code}`);
     } finally {
       event.sender.removeListener("destroyed", abort);
