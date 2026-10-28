@@ -49,6 +49,45 @@ describe("application accent override", () => {
     return Array.from(style?.sheet?.cssRules ?? []) as CSSStyleRule[];
   }
 
+  it("shares editor controls across native and extension editors without depending on accent preferences", () => {
+    runInAction(() => preferences.fromStore({ enabled: false, accentColor: "default" }));
+    document.body.innerHTML = `
+      <div class="monaco-editor"><div class="monaco-scrollable-element"><div class="scrollbar"><div class="slider"></div></div></div></div>
+      <div class="helm-code-view"><div class="monaco-editor"><div class="monaco-scrollable-element"><div class="scrollbar"><div class="slider"></div></div></div></div></div>
+      <div class="xterm"><div class="monaco-scrollable-element"><div class="scrollbar"><div class="slider"></div></div></div></div>
+      <textarea style="resize: horizontal"></textarea><div class="power-logs"><textarea></textarea></div>
+    `;
+    try {
+      dispose = startAppearanceOverride();
+      const editorStyle = () =>
+        document.querySelector<HTMLStyleElement>('style[data-freelens-power="editor-controls"]');
+      const editorRules = Array.from(editorStyle()?.sheet?.cssRules ?? []) as CSSStyleRule[];
+      const slider = editorRules.find((rule) => rule.selectorText.includes(".slider"))!;
+      expect(document.querySelectorAll(slider.selectorText)).toHaveLength(2);
+      expect(slider.style.getPropertyValue("background")).toBe("var(--scrollBarColor)");
+      expect(slider.style.getPropertyValue("border-radius")).toBe("16px");
+      const grip = editorRules.find((rule) => rule.selectorText.includes("::-webkit-resizer"))!;
+      expect(grip.selectorText).toBe(":root textarea::-webkit-resizer");
+      expect(grip.style.getPropertyValue("background")).toContain("var(--borderColor)");
+      expect(document.querySelector("textarea")?.style.resize).toBe("horizontal");
+      expect(accentRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.enabled = true;
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+      });
+      expect(editorStyle()).toBeDefined();
+      runInAction(() => {
+        preferences.enabled = false;
+      });
+      expect(editorStyle()).toBeDefined();
+      dispose();
+      expect(editorStyle()).toBeNull();
+      expect(document.querySelector("textarea")?.style.resize).toBe("horizontal");
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
   it.each(ACCENT_COLOR_OPTIONS)("chooses readable text for the $label accent", ({ color }) => {
     const linear = [1, 3, 5].map((offset) => {
       const channel = Number.parseInt(color.slice(offset, offset + 2), 16) / 255;
@@ -134,6 +173,39 @@ describe("application accent override", () => {
       });
       expect(sidebarRule()).toBeUndefined();
       expect(dockRule()).toBeUndefined();
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("accents informational notifications and restores native colors for default, disable and disposal", () => {
+    document.body.innerHTML = `<div class="Notifications"><div class="notification info"></div><div class="notification ok"></div><div class="notification error"></div><div class="notification warning"></div></div><div class="notification info"></div>`;
+    try {
+      dispose = startAppearanceOverride();
+      const notificationRule = () => rules().find((rule) => rule.selectorText.includes(".notification.info"));
+      expect(document.querySelectorAll(notificationRule()!.selectorText)).toHaveLength(1);
+      expect(notificationRule()?.style.getPropertyValue("background")).toBe("var(--primary)");
+      expect(notificationRule()?.style.getPropertyValue("color")).toBe("var(--freelens-power-accent-foreground)");
+      expect(accentRule()?.style.getPropertyValue("--colorInfo")).toBe("");
+      runInAction(() => {
+        preferences.accentColor = "#edc927";
+      });
+      expect(accentRule()?.style.getPropertyValue("--freelens-power-accent-foreground")).toBe("#000000");
+      runInAction(() => {
+        preferences.accentColor = "default";
+      });
+      expect(notificationRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+        preferences.enabled = false;
+      });
+      expect(notificationRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.enabled = true;
+      });
+      expect(notificationRule()).toBeDefined();
+      dispose();
+      expect(notificationRule()).toBeUndefined();
     } finally {
       document.body.innerHTML = "";
     }

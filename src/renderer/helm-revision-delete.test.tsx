@@ -61,7 +61,9 @@ afterEach(cleanup);
 it("describes history-only deletion and sends nothing until confirmed", () => {
   render(<HelmRevisionDelete {...props()} />);
   const dialog = open();
-  expect(dialog.labelOk).toBe("Delete revision 2");
+  const label = render(dialog.labelOk);
+  expect(label.getByText("Delete revision 2")).toBeTruthy();
+  expect(label.container.querySelector('[aria-hidden="true"]')?.textContent).toBe("delete");
   const message = render(dialog.message);
   expect(message.getByText("Delete revision 2 from history?")).toBeTruthy();
   expect(message.container.textContent).toContain("active release and its Kubernetes resources are preserved");

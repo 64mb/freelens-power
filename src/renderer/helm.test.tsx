@@ -864,13 +864,13 @@ it("names an empty namespace without implying all namespaces are one namespace",
 });
 
 it("returns to the selected later page after clearing an all-matching version filter", async () => {
-  const revisions = Array.from({ length: 250 }, (_, index) => ({
+  const revisions = Array.from({ length: 101 }, (_, index) => ({
     ...release,
-    revision: 250 - index,
-    uid: `sample-secret-uid-${250 - index}`,
+    revision: 101 - index,
+    uid: `sample-secret-uid-${101 - index}`,
   }));
   mocks.appVersions[release.name] = "2.7";
-  mocks.indexState = { completed: 250, total: 250, errors: 0, truncated: false };
+  mocks.indexState = { completed: 101, total: 101, errors: 0, truncated: false };
   mocks.invoke.mockImplementation((_channel, request) =>
     Promise.resolve(
       request.operation === "history"
@@ -886,17 +886,17 @@ it("returns to the selected later page after clearing an all-matching version fi
     render(<PowerHelmPage />);
     fireEvent.click(await screen.findByRole("button", { name: release.name }));
     fireEvent.click(screen.getByRole("tab", { name: "History" }));
-    await screen.findByLabelText("Revision 250");
+    await screen.findByLabelText("Revision 101");
     fireEvent.click(screen.getByLabelText("Next revisions"));
     fireEvent.click(screen.getByLabelText("Next revisions"));
-    fireEvent.click(screen.getByRole("radio", { name: "Revision 125" }));
+    fireEvent.click(screen.getByLabelText("Revision 1"));
     fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2.7" } });
-    await screen.findByText("Page 1 / 5");
+    await screen.findByText("Page 1 / 3");
     fireEvent.click(screen.getByLabelText("Next revisions"));
     fireEvent.click(screen.getByLabelText("Next revisions"));
-    fireEvent.click(screen.getByRole("button", { name: "Show selected revision" }));
-    await screen.findByText("Page 3 / 5");
-    const selected = screen.getByRole("radio", { name: "Revision 125" }) as HTMLInputElement;
+    fireEvent.click(screen.getByLabelText("Show selected revision"));
+    await screen.findByText("Page 3 / 3");
+    const selected = screen.getByLabelText("Revision 1") as HTMLInputElement;
     expect(selected.checked).toBe(true);
     expect(document.activeElement).toBe(selected);
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
@@ -1433,3 +1433,66 @@ it("labels the embedded chart source without exposing its internal sentinel", as
   expect(select.textContent).toContain("Installed release chart · 1.0.0");
   expect(select.textContent).not.toContain("@installed");
 });
+
+it.each([false, true])("reloads history after deleting a revision, stale first read: %s", async (stale) => {
+  const inactive = { ...release, revision: 1, uid: "old-secret", status: "superseded" };
+  let deleted = false;
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "delete-revision") {
+      deleted = true;
+      return Promise.resolve({ ok: true });
+    }
+    if (request.operation === "history")
+      return Promise.resolve({
+        ...listing,
+        rollbackAllowed: true,
+        releases: deleted && !stale ? [release] : [release, inactive],
+      });
+    if (request.operation === "details") return Promise.resolve({ ok: true, detail: { content: "Overview" } });
+    return Promise.resolve(listing);
+  });
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  fireEvent.click(await screen.findByLabelText("Delete revision 1"));
+  await act(async () => mocks.confirm.mock.calls.at(-1)![0].ok());
+  await waitFor(() => expect(screen.queryByLabelText("Delete revision 1")).toBeNull());
+  expect(screen.getByLabelText("Delete revision 2")).toBeTruthy();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history" && request.refresh)).toBe(true);
+});
+
+it("returns from an emptied last history page after confirmed deletion even when refresh fails", async () => {
+  const revisions = Array.from({ length: 51 }, (_, index) => ({
+    ...release,
+    revision: 51 - index,
+    uid: `sample-secret-${51 - index}`,
+    status: index === 0 ? "deployed" : "superseded",
+  }));
+  let deleted = false;
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "delete-revision") {
+      deleted = true;
+      return Promise.resolve({ ok: true });
+    }
+    if (request.operation === "history")
+      return Promise.resolve(
+        deleted
+          ? { ok: false, error: { message: "History temporarily unavailable", code: "unavailable" } }
+          : { ...listing, releases: revisions, rollbackAllowed: true },
+      );
+    if (request.operation === "details") return Promise.resolve({ ok: true, detail: { content: "Overview" } });
+    return Promise.resolve({ ...listing, releases: [revisions[0]] });
+  });
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByRole("button", { name: release.name }));
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  await screen.findByLabelText("Revision 51");
+  fireEvent.click(screen.getByLabelText("Next revisions"));
+  fireEvent.click(screen.getByLabelText("Delete revision 1"));
+  await act(async () => mocks.confirm.mock.calls.at(-1)![0].ok());
+  await screen.findByText("History temporarily unavailable");
+  expect(screen.queryByLabelText("Delete revision 1")).toBeNull();
+  expect(screen.getByLabelText("Revision 51")).toBeTruthy();
+  expect(screen.getByText("50 revisions")).toBeTruthy();
+  expect(screen.queryByLabelText("Next revisions")).toBeNull();
+}, 30_000);
