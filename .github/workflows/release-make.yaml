@@ -59,4 +59,5 @@ jobs:
           EOF
           gh pr create --base main --head "${branch}" \
             --title "chore(release): ${version}" \
+            --label release \
             --body-file "${RUNNER_TEMP}/release-pr.md"

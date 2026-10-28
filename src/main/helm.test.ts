@@ -102,6 +102,66 @@ describe("Helm metadata", () => {
 describe("Helm payload", () => {
   const encode = (value: unknown) =>
     Buffer.from(gzipSync(Buffer.from(JSON.stringify(value))).toString("base64")).toString("base64");
+  it("reads releases from their storage namespace and displays their target namespace", async () => {
+    const stored = {
+      ...item(),
+      metadata: { ...item().metadata, namespace: "release-storage", uid: "release-uid" },
+    };
+    const row = metadataRelease(stored)!;
+    const release = {
+      name: "example",
+      namespace: "application",
+      version: 1,
+      chart: { metadata: { name: "example", version: "1.0.0", appVersion: "2.0.0" } },
+      manifest: "kind: ConfigMap",
+    };
+    const read = vi.fn().mockResolvedValue({
+      ...stored,
+      type: "helm.sh/release.v1",
+      data: { release: encode(release) },
+    });
+    const service = new HelmService(read);
+    const detail = await service.detail("context", row, "overview", signal());
+    expect(detail.overview.namespace).toBe("application");
+    expect(await service.appVersion("context", row, signal())).toEqual({
+      appVersion: "2.0.0",
+      chartVersion: "1.0.0",
+    });
+    expect(await service.installedChart("context", row, signal())).toMatchObject({
+      chart: release.chart,
+      manifest: release.manifest,
+    });
+    expect(row.namespace).toBe("release-storage");
+    expect(read).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/namespaces/release-storage/secrets/sh.helm.release.v1.example.v1",
+      {},
+      false,
+      expect.any(AbortSignal),
+    );
+    read.mockResolvedValue({
+      ...stored,
+      metadata: { ...stored.metadata, namespace: "application" },
+      type: "helm.sh/release.v1",
+      data: { release: encode(release) },
+    });
+    await expect(service.detail("context", row, "overview", signal(), true)).rejects.toMatchObject({
+      code: "invalid-data",
+    });
+  });
+  it.each([
+    undefined,
+    null,
+    1,
+    "",
+    "UPPERCASE",
+    "invalid.namespace",
+    "-invalid",
+    "invalid-",
+    "a".repeat(64),
+  ])("rejects invalid target namespace %j", (namespace) => {
+    const row = metadataRelease(item())!;
+    expect(() => decodeRelease(encode({ name: row.name, namespace, version: 1 }), row)).toThrow("invalid");
+  });
   it("caches bounded string summaries by context and revision with refresh, expiry and invalidation", async () => {
     let now = 0;
     const row = metadataRelease(item())!;
@@ -178,6 +238,9 @@ describe("Helm payload", () => {
     const row = metadataRelease(item())!;
     expect(decodeRelease(encode({ name: row.name, namespace: row.namespace, version: 1 }), row).version).toBe(1);
     expect(() => decodeRelease(encode({ name: "other", namespace: row.namespace, version: 1 }), row)).toThrow(
+      "invalid",
+    );
+    expect(() => decodeRelease(encode({ name: row.name, namespace: "application", version: 2 }), row)).toThrow(
       "invalid",
     );
   });

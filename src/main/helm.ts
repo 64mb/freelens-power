@@ -112,7 +112,9 @@ export function decodeRelease(encoded: unknown, expected: HelmReleaseMetadata): 
     if (
       !release ||
       release.name !== expected.name ||
-      release.namespace !== expected.namespace ||
+      // the release target namespace can differ from the storage Secret namespace
+      typeof release.namespace !== "string" ||
+      !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(release.namespace) ||
       release.version !== expected.revision
     )
       throw invalid();
