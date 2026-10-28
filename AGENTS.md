@@ -12,6 +12,13 @@
 - Build, pack, reinstall locally, restart Freelens and verify loading after each completed task
 - Preserve user settings during updates and restore host behavior when the extension is disabled
 
+## Pull request descriptions
+
+- Write all pull request descriptions in English, including release pull requests
+- Use concise bullets describing concrete changes and important verification results
+- Read the current description before updating it and preserve manual edits
+- Translate existing descriptions when requested without dropping details or links
+
 ## Pull request titles
 
 - Use Conventional Commits for pull request titles: `type(scope): description`
