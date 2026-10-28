@@ -176,19 +176,30 @@ export function HelmFullComparison({
             {result.diff.approximate && (
               <span>Some changed regions are grouped because exact line matching is too complex.</span>
             )}
-            {!!changes.length && (
-              <>
-                <Button label="Previous change" onClick={() => jump(-1)} />
-                <Button label="Next change" onClick={() => jump(1)} />
-                <span>
-                  {change < 0 ? `${changes.length} change regions` : `Change ${change + 1} of ${changes.length}`}
-                </span>
-              </>
-            )}
           </>
         )}
-        <Button label="Back to compact comparison" onClick={onClose} />
         {copyStatus && <span role="status">{copyStatus}</span>}
+        <div className="helm-full-comparison-actions">
+          {!!changes.length && (
+            <>
+              <Button onClick={() => jump(-1)}>
+                <Icon material="arrow_upward" size={16} aria-hidden="true" />
+                <span>Previous change</span>
+              </Button>
+              <Button onClick={() => jump(1)}>
+                <Icon material="arrow_downward" size={16} aria-hidden="true" />
+                <span>Next change</span>
+              </Button>
+              <span>
+                {change < 0 ? `${changes.length} change regions` : `Change ${change + 1} of ${changes.length}`}
+              </span>
+            </>
+          )}
+          <Button onClick={onClose}>
+            <Icon material="arrow_back" size={16} aria-hidden="true" />
+            <span>Back to compact comparison</span>
+          </Button>
+        </div>
       </div>
       <div
         ref={viewport}

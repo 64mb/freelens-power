@@ -18,7 +18,7 @@ vi.mock("@freelensapp/extensions", () => ({
       Icon: () => <span aria-hidden="true">copy</span>,
       Button: (props: any) => (
         <button disabled={props.disabled} onClick={props.onClick}>
-          {props.label}
+          {props.label ?? props.children}
         </button>
       ),
       Checkbox: (props: any) => (
