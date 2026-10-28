@@ -108,6 +108,8 @@ export function startExtensionUpdate(): () => void {
     const container = template.cloneNode(false) as HTMLElement;
     container.removeAttribute("id");
     container.dataset.powerExtensionUpdate = "";
+    container.style.setProperty("--bgc-active", "var(--primary)");
+    container.style.setProperty("--color-active", "var(--freelens-power-accent-foreground, white)");
     container.classList.toggle("disabled", disabled);
     container.setAttribute("aria-label", "Update Freelens Power");
     container.setAttribute("aria-disabled", String(disabled));

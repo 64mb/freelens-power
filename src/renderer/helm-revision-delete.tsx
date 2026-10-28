@@ -77,8 +77,13 @@ export const HelmRevisionDelete = observer((props: HelmRevisionDeleteProps) => {
           </p>
         </div>
       ),
-      labelOk: `Delete revision ${revision.revision}`,
-      okButtonProps: { className: "power-helm-confirm" },
+      labelOk: (
+        <>
+          <Icon material="delete" size={18} aria-hidden="true" />
+          <span>Delete revision {revision.revision}</span>
+        </>
+      ),
+      okButtonProps: { className: "power-helm-confirm power-helm-confirm-delete-revision" },
       ok: () => {
         if (
           submitted ||

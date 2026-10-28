@@ -1433,3 +1433,30 @@ it("labels the embedded chart source without exposing its internal sentinel", as
   expect(select.textContent).toContain("Installed release chart · 1.0.0");
   expect(select.textContent).not.toContain("@installed");
 });
+
+it("automatically reloads history after deleting an inactive revision", async () => {
+  const inactive = { ...release, revision: 1, uid: "old-secret", status: "superseded" };
+  let deleted = false;
+  mocks.invoke.mockImplementation((_channel, request) => {
+    if (request.operation === "delete-revision") {
+      deleted = true;
+      return Promise.resolve({ ok: true });
+    }
+    if (request.operation === "history")
+      return Promise.resolve({
+        ...listing,
+        rollbackAllowed: true,
+        releases: deleted ? [release] : [release, inactive],
+      });
+    if (request.operation === "details") return Promise.resolve({ ok: true, detail: { content: "Overview" } });
+    return Promise.resolve(listing);
+  });
+  render(<PowerHelmPage />);
+  fireEvent.click(await screen.findByText("sample-release"));
+  fireEvent.click(screen.getByText("History"));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete revision 1", exact: true }));
+  await act(async () => mocks.confirm.mock.calls.at(-1)![0].ok());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Delete revision 1", exact: true })).toBeNull());
+  expect(screen.getByRole("button", { name: "Delete revision 2", exact: true })).toBeTruthy();
+  expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history" && request.refresh)).toBe(true);
+});

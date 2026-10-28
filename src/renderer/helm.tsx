@@ -2592,6 +2592,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-access-badge { box-sizing: border-box; height: 22px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--borderColor); border-radius: 4px; color: var(--textColorSecondary); font-size: 11px; white-space: nowrap; }
         .power-helm .helm-history-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
         .power-helm .helm-history-delete:not(:disabled):is(:hover, :focus-visible) { color: var(--colorError); background: color-mix(in srgb, var(--colorError) 12%, transparent); }
+        .power-helm .helm-history-delete:disabled { opacity: .35; cursor: default; }
         .power-helm .helm-history-revision { display: flex; align-items: center; gap: 7px; min-height: 30px; }
         .power-helm .helm-revision-cell { position: relative; }
         .power-helm .helm-history-revision:has(.helm-revision-select) { padding-left: 24px; }
@@ -2661,6 +2662,8 @@ export const PowerHelmPage = observer(() => {
         .ConfirmDialog:has(.power-helm-confirmation) .confirm-content > .Icon { flex-shrink: 0; margin: 0; }
         .ConfirmDialog:has(.power-helm-confirmation) .power-helm-confirmation { display: block; line-height: 1.6; overflow-wrap: anywhere; color: var(--textColorPrimary); }
         .ConfirmDialog:has(.power-helm-confirmation) .power-helm-confirm { background: var(--colorError, #c64b4b); color: white; }
+        .ConfirmDialog .power-helm-confirm-delete-revision { display: inline-flex; align-items: center; gap: 6px; }
+        .ConfirmDialog .power-helm-confirm-delete-revision > .Icon { margin: 0; padding: 0; }
         .ConfirmDialog:has(.helm-rollback-confirmation) .confirm-content { align-items: flex-start; }
         .ConfirmDialog:has(.helm-rollback-confirmation) .confirm-content > .Icon { color: var(--colorError); margin-top: 2px; }
         .ConfirmDialog:has(.helm-rollback-confirmation) .power-helm-confirm-rollback { display: inline-flex; align-items: center; gap: 6px; background: var(--colorError); border-color: var(--colorError); color: white; }

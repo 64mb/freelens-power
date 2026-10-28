@@ -369,6 +369,13 @@ it("bounds huge fallback rendering and copies the full original with retry after
   const before = Array.from({ length: 25000 }, (_, index) => `key${index}: value`).join("\n");
   const view = render(<HelmRevisionDiff before={before} after="target" beforeLabel="Source" afterLabel="Target" />);
   expect(screen.getByText(/Only the first 1000 lines and 262144 characters/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Copy full source document" }).closest("h4")?.textContent).toContain(
+    "Source",
+  );
+  expect(screen.getByRole("button", { name: "Copy full target document" }).closest("h4")?.textContent).toContain(
+    "Target",
+  );
+  expect(view.container.querySelector(".helm-diff-summary .helm-icon-button")).toBeNull();
   const source = screen.getByLabelText("Source") as HTMLTextAreaElement;
   expect(source.value.split("\n")).toHaveLength(1000);
   expect(source.value).toBe(before.split("\n").slice(0, 1000).join("\n"));
@@ -646,4 +653,60 @@ it("reveals a find match below the measured wrapped sticky header", () => {
   fireEvent.change(screen.getByLabelText("Find in both documents"), { target: { value: "find this" } });
   expect(viewport.scrollTop).toBe(318);
   expect(500 - viewport.scrollTop).toBeGreaterThan(100 + 74);
+});
+
+it("compares all original lines on demand and navigates to changes beyond the preview", async () => {
+  const before = Array.from({ length: 25000 }, (_, index) => `key${index}: original`).join("\n");
+  const after = before.replace("key23000: original", "key23000: changed");
+  const view = render(<HelmRevisionDiff before={before} after={after} beforeLabel="Source" afterLabel="Target" />);
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("Full comparison · 1 added · 1 removed");
+  fireEvent.click(screen.getByRole("button", { name: "Next change" }));
+  expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).toContain("key23000: changed");
+  expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value.split("\n").length).toBeLessThan(300);
+  expect(view.container.querySelectorAll(".helm-code-view")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Copy full target document" }));
+  expect(mocks.copy).toHaveBeenLastCalledWith(after);
+  fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
+  expect(screen.getByRole("button", { name: "Compare full documents" })).toBeTruthy();
+});
+
+it("explicitly confirms unchanged documents after full comparison beyond preview limits", async () => {
+  const value = "unchanged\n".repeat(25000);
+  render(<HelmRevisionDiff before={value} after={value} beforeLabel="Source" afterLabel="Target" />);
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("No changes in full documents");
+  expect(screen.queryByRole("button", { name: "Next change" })).toBeNull();
+});
+
+it("expands the virtual window when the full comparison viewport grows", async () => {
+  const observers = new Map<Element, () => void>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) {
+        observers.set(element, this.callback);
+      }
+      disconnect() {}
+    },
+  );
+  const value = Array.from({ length: 25000 }, (_, index) => `key${index}: same`).join("\n");
+  const view = render(<HelmRevisionDiff before={value} after={value} beforeLabel="Source" afterLabel="Target" />);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+    await screen.findByText("No changes in full documents");
+    const viewport = screen.getByLabelText("Full comparison documents");
+    let height = 300;
+    Object.defineProperty(viewport, "clientHeight", { get: () => height });
+    act(() => observers.get(viewport)!());
+    fireEvent.scroll(viewport, { target: { scrollTop: 199 * 18 } });
+    expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).not.toContain("key232:");
+    height = 600;
+    act(() => observers.get(viewport)!());
+    expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).toContain("key232:");
+  } finally {
+    view.unmount();
+    vi.unstubAllGlobals();
+  }
 });

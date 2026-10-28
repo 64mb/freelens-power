@@ -182,3 +182,74 @@ it("bounds document previews by lines and characters while preserving the exact 
   expect(helmDocumentPreview(singleLine)).toEqual({ value: singleLine.slice(0, 256 * 1024), lines: 1, limited: true });
   expect(helmDocumentPreview("one\ntwo")).toEqual({ value: "one\ntwo", lines: 2, limited: false });
 });
+
+describe("opt-in full Helm comparison", () => {
+  function reconstruct(before: string, after: string) {
+    const diff = compareHelmLines(before, after, true);
+    if (!diff.available) throw new Error(diff.reason);
+    expect(
+      diff.lines
+        .filter((line) => line.kind !== "added")
+        .map((line) => line.text)
+        .join("\n"),
+    ).toBe(before);
+    expect(
+      diff.lines
+        .filter((line) => line.kind !== "removed")
+        .map((line) => line.text)
+        .join("\n"),
+    ).toBe(after);
+    return diff;
+  }
+
+  it("finds a localized edit past the preview and default document limits", () => {
+    const before = Array.from({ length: 25_000 }, (_, index) => `key${index}: value`);
+    const after = [...before];
+    after[23_000] = "changed";
+    expect(compareHelmLines(before.join("\n"), after.join("\n")).available).toBe(false);
+    expect(reconstruct(before.join("\n"), after.join("\n"))).toMatchObject({
+      added: 1,
+      removed: 1,
+      beforeRanges: [{ start: 23_001, end: 23_001 }],
+      afterRanges: [{ start: 23_001, end: 23_001 }],
+    });
+  });
+
+  it("partitions dispersed edits separated by thousands of common lines", () => {
+    const before = Array.from({ length: 25_000 }, (_, index) => `key${index}: value`);
+    const after = [...before];
+    for (const index of [1500, 12_000, 23_000]) after[index] = `changed${index}`;
+    const diff = reconstruct(before.join("\n"), after.join("\n"));
+    expect(diff).toMatchObject({ added: 3, removed: 3 });
+    expect(diff.approximate).toBeUndefined();
+    expect(diff.beforeRanges).toEqual([1501, 12_001, 23_001].map((line) => ({ start: line, end: line })));
+  });
+
+  it("reports huge identical documents as explicitly unchanged without a spread overflow", () => {
+    const source = Array.from({ length: 150_000 }, (_, index) => `line${index}`).join("\n");
+    expect(reconstruct(source, source)).toMatchObject({ added: 0, removed: 0, beforeRanges: [], afterRanges: [] });
+  });
+
+  it("bounds work for unrelated documents and preserves every line in approximate output", () => {
+    const before = Array.from({ length: 30_000 }, (_, index) => `old${index}`).join("\n");
+    const after = Array.from({ length: 30_000 }, (_, index) => `new${index}`).join("\n");
+    expect(reconstruct(before, after)).toMatchObject({ approximate: true, added: 30_000, removed: 30_000 });
+  });
+
+  it("keeps common boundaries around an unmatched repetitive region", () => {
+    const before = `header\n${"old\n".repeat(3000)}footer`;
+    const after = `header\n${"new\n".repeat(3000)}footer`;
+    const diff = reconstruct(before, after);
+    expect(diff).toMatchObject({ approximate: true, added: 3000, removed: 3000 });
+    expect(diff.lines[0]).toEqual({ kind: "equal", text: "header" });
+    expect(diff.lines.at(-1)).toEqual({ kind: "equal", text: "footer" });
+  });
+
+  it("rejects full documents beyond the explicit character and line bounds", () => {
+    expect(compareHelmLines("x".repeat(16 * 1024 * 1024 + 1), "", true)).toMatchObject({
+      available: false,
+      reason: expect.any(String),
+    });
+    expect(compareHelmLines("\n".repeat(200_000), "", true)).toMatchObject({ available: false });
+  });
+});

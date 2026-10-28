@@ -4,6 +4,7 @@ export type HelmDiff =
   | { available: false; reason: string }
   | {
       available: true;
+      approximate?: true;
       lines: HelmDiffLine[];
       added: number;
       removed: number;
@@ -15,15 +16,18 @@ const MAX_CHARACTERS = 1024 * 1024;
 const MAX_LINES = 20_000;
 const MAX_CELLS = 1_000_000;
 
-export function compareHelmLines(before: string, after: string): HelmDiff {
+export function compareHelmLines(before: string, after: string, fullComparison = false): HelmDiff {
   const unavailable = {
     available: false as const,
     reason: "Detailed comparison exceeds the size limit. Documents are shown below without change highlighting.",
   };
-  if (before.length > MAX_CHARACTERS || after.length > MAX_CHARACTERS) return unavailable;
+  const characterLimit = fullComparison ? 16 * 1024 * 1024 : MAX_CHARACTERS;
+  if (before.length > characterLimit || after.length > characterLimit) return unavailable;
   const oldLines = before === "" ? [] : before.split("\n");
   const newLines = after === "" ? [] : after.split("\n");
-  if (oldLines.length > MAX_LINES || newLines.length > MAX_LINES) return unavailable;
+  const lineLimit = fullComparison ? 200_000 : MAX_LINES;
+  if (oldLines.length > lineLimit || newLines.length > lineLimit) return unavailable;
+  if (fullComparison) return compareFullHelmLines(oldLines, newLines);
   let prefix = 0;
   while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
   let suffix = 0;
@@ -62,7 +66,13 @@ export function compareHelmLines(before: string, after: string): HelmDiff {
       lines.push({ kind: "added", text: newLines[prefix + next++] });
     }
   }
-  lines.push(...oldLines.slice(oldLines.length - suffix).map((text) => ({ kind: "equal" as const, text })));
+  for (let index = oldLines.length - suffix; index < oldLines.length; index++) {
+    lines.push({ kind: "equal", text: oldLines[index] });
+  }
+  return summarizeHelmLines(lines);
+}
+
+function summarizeHelmLines(lines: HelmDiffLine[], approximate = false): HelmDiff {
   const beforeRanges: HelmLineRange[] = [];
   const afterRanges: HelmLineRange[] = [];
   let oldLine = 1;
@@ -86,7 +96,124 @@ export function compareHelmLines(before: string, after: string): HelmDiff {
       newLine++;
     }
   }
-  return { available: true, lines, added, removed, beforeRanges, afterRanges };
+  return {
+    available: true,
+    lines,
+    added,
+    removed,
+    beforeRanges,
+    afterRanges,
+    ...(approximate ? { approximate: true as const } : {}),
+  };
+}
+
+function compareFullHelmLines(before: string[], after: string[]): HelmDiff {
+  const lines: HelmDiffLine[] = [];
+  let cellsRemaining = 8_000_000;
+  let approximate = false;
+  function emit(kind: HelmDiffLine["kind"], source: string[], start: number, end: number) {
+    for (let index = start; index < end; index++) lines.push({ kind, text: source[index] });
+  }
+  function compare(oldStart: number, oldEnd: number, newStart: number, newEnd: number, depth: number) {
+    while (oldStart < oldEnd && newStart < newEnd && before[oldStart] === after[newStart]) {
+      lines.push({ kind: "equal", text: before[oldStart++] });
+      newStart++;
+    }
+    let suffix = 0;
+    while (
+      oldStart < oldEnd - suffix &&
+      newStart < newEnd - suffix &&
+      before[oldEnd - suffix - 1] === after[newEnd - suffix - 1]
+    )
+      suffix++;
+    const oldStop = oldEnd - suffix;
+    const newStop = newEnd - suffix;
+    const oldCount = oldStop - oldStart;
+    const newCount = newStop - newStart;
+    const cells = (oldCount + 1) * (newCount + 1);
+    if (!oldCount || !newCount) {
+      emit("removed", before, oldStart, oldStop);
+      emit("added", after, newStart, newStop);
+    } else if (cells <= MAX_CELLS && cells <= cellsRemaining) {
+      cellsRemaining -= cells;
+      const width = newCount + 1;
+      const lengths = new Uint32Array(cells);
+      for (let old = oldCount - 1; old >= 0; old--) {
+        for (let next = newCount - 1; next >= 0; next--) {
+          lengths[old * width + next] =
+            before[oldStart + old] === after[newStart + next]
+              ? lengths[(old + 1) * width + next + 1] + 1
+              : Math.max(lengths[(old + 1) * width + next], lengths[old * width + next + 1]);
+        }
+      }
+      let old = 0;
+      let next = 0;
+      while (old < oldCount || next < newCount) {
+        if (old < oldCount && next < newCount && before[oldStart + old] === after[newStart + next]) {
+          lines.push({ kind: "equal", text: before[oldStart + old++] });
+          next++;
+        } else if (
+          old < oldCount &&
+          (next === newCount || lengths[(old + 1) * width + next] >= lengths[old * width + next + 1])
+        ) {
+          lines.push({ kind: "removed", text: before[oldStart + old++] });
+        } else lines.push({ kind: "added", text: after[newStart + next++] });
+      }
+    } else {
+      const anchors: { old: number; next: number }[] = [];
+      if (depth < 32) {
+        const oldPositions = new Map<string, number>();
+        const newPositions = new Map<string, number>();
+        for (let index = oldStart; index < oldStop; index++)
+          oldPositions.set(before[index], oldPositions.has(before[index]) ? -1 : index);
+        for (let index = newStart; index < newStop; index++)
+          newPositions.set(after[index], newPositions.has(after[index]) ? -1 : index);
+        const candidates: { old: number; next: number }[] = [];
+        for (let index = oldStart; index < oldStop; index++) {
+          const next = newPositions.get(before[index]);
+          if (oldPositions.get(before[index]) === index && next !== undefined && next >= 0)
+            candidates.push({ old: index, next });
+        }
+        const tails: number[] = [];
+        const previous = new Int32Array(candidates.length).fill(-1);
+        for (let index = 0; index < candidates.length; index++) {
+          let low = 0;
+          let high = tails.length;
+          while (low < high) {
+            const middle = (low + high) >>> 1;
+            if (candidates[tails[middle]].next < candidates[index].next) low = middle + 1;
+            else high = middle;
+          }
+          if (low) previous[index] = tails[low - 1];
+          tails[low] = index;
+        }
+        let index = tails.length ? tails[tails.length - 1] : -1;
+        while (index >= 0) {
+          anchors.push(candidates[index]);
+          index = previous[index];
+        }
+        anchors.reverse();
+      }
+      if (anchors.length) {
+        let old = oldStart;
+        let next = newStart;
+        for (const anchor of anchors) {
+          compare(old, anchor.old, next, anchor.next, depth + 1);
+          lines.push({ kind: "equal", text: before[anchor.old] });
+          old = anchor.old + 1;
+          next = anchor.next + 1;
+        }
+        compare(old, oldStop, next, newStop, depth + 1);
+      } else {
+        approximate = true;
+        emit("removed", before, oldStart, oldStop);
+        emit("added", after, newStart, newStop);
+      }
+    }
+    emit("equal", before, oldStop, oldEnd);
+  }
+  compare(0, before.length, 0, after.length, 0);
+  return summarizeHelmLines(lines, approximate);
 }
 
 export type HelmDiffBlock =

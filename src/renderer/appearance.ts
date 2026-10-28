@@ -45,6 +45,7 @@ export function startAppearanceOverride(): () => void {
         :root .NamespaceSelectMenu .Select__option--is-selected:active .Icon { color: inherit; }
         :root a.link { color: var(--primary); }
         :root [data-testid="download-logs-dropdown"] { --accent-color: var(--primary); }
+        :root .Notifications .notification.info { background: var(--primary); color: var(--freelens-power-accent-foreground); }
         ${recolorAppIcon ? '.Welcome [data-testid="no-welcome-banners-icon"] svg path[fill="#23a49c"] { fill: var(--primary); }' : ""}
       `;
       style.textContent = `${accent}

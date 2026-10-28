@@ -139,6 +139,39 @@ describe("application accent override", () => {
     }
   });
 
+  it("accents informational notifications and restores native colors for default, disable and disposal", () => {
+    document.body.innerHTML = `<div class="Notifications"><div class="notification info"></div><div class="notification ok"></div><div class="notification error"></div><div class="notification warning"></div></div><div class="notification info"></div>`;
+    try {
+      dispose = startAppearanceOverride();
+      const notificationRule = () => rules().find((rule) => rule.selectorText.includes(".notification.info"));
+      expect(document.querySelectorAll(notificationRule()!.selectorText)).toHaveLength(1);
+      expect(notificationRule()?.style.getPropertyValue("background")).toBe("var(--primary)");
+      expect(notificationRule()?.style.getPropertyValue("color")).toBe("var(--freelens-power-accent-foreground)");
+      expect(accentRule()?.style.getPropertyValue("--colorInfo")).toBe("");
+      runInAction(() => {
+        preferences.accentColor = "#edc927";
+      });
+      expect(accentRule()?.style.getPropertyValue("--freelens-power-accent-foreground")).toBe("#000000");
+      runInAction(() => {
+        preferences.accentColor = "default";
+      });
+      expect(notificationRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+        preferences.enabled = false;
+      });
+      expect(notificationRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.enabled = true;
+      });
+      expect(notificationRule()).toBeDefined();
+      dispose();
+      expect(notificationRule()).toBeUndefined();
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
   it.each(
     ACCENT_COLOR_OPTIONS.filter((option) => option.value !== "default"),
   )("persists and applies the $label accent preset", ({ value, color }) => {

@@ -19,6 +19,7 @@ import {
   MAX_HELM_PREVIEW_CHARACTERS,
   MAX_HELM_PREVIEW_LINES,
 } from "../common/helm-diff";
+import { HelmFullComparison } from "./helm-full-comparison";
 import { NativeTooltip } from "./native-tooltip";
 
 const { MonacoEditor, Checkbox, Button, Icon } = Renderer.Component;
@@ -137,6 +138,7 @@ type HelmCodeViewProps = {
   changeRanges?: HelmLineRange[];
   changeKind?: "added" | "removed";
   startLine?: number;
+  lineNumberLabels?: string[];
   expanded?: boolean;
   horizontal?: HelmHorizontalScroll;
 };
@@ -213,6 +215,7 @@ export function HelmCodeView({
   changeRanges = [],
   changeKind = "added",
   startLine = 1,
+  lineNumberLabels,
   expanded = false,
   horizontal,
 }: HelmCodeViewProps) {
@@ -358,7 +361,7 @@ export function HelmCodeView({
           // native [WordHighlighter] rejects pending delayed work when an editor closes
           occurrencesHighlight: "off",
           selectionHighlight: false,
-          lineNumbers: (line) => String(startLine + line - 1),
+          lineNumbers: (line) => lineNumberLabels?.[line - 1] ?? String(startLine + line - 1),
           lineNumbersMinChars: 5,
           lineHeight: 18,
           scrollbar: {
@@ -391,6 +394,8 @@ export function HelmRevisionDiff({
   language?: "yaml" | "json";
 }) {
   const diff = useMemo(() => compareHelmLines(before, after), [before, after]);
+  const [complete, setComplete] = useState<{ before: string; after: string }>();
+  const fullComparison = complete?.before === before && complete?.after === after;
   const horizontalController = useMemo(() => createHelmHorizontalScroll(), [before, after]);
   const [horizontalMeasurement, setHorizontalMeasurement] = useState({ before, after, width: 0 });
   const horizontalWidth =
@@ -524,7 +529,7 @@ export function HelmRevisionDiff({
   useEffect(() => {
     const viewport = viewportRef.current;
     return viewport ? bindHelmDiffWheel(viewport) : undefined;
-  }, [unchanged, full, fallback]);
+  }, [unchanged, full, fallback, fullComparison]);
   const label = (value: ReactNode, source: boolean) =>
     typeof value === "string" ? value : source ? "Comparison source document" : "Comparison target document";
   const renderCode = (value: string[], start: number, source: boolean, changed: boolean, height: number) =>
@@ -576,9 +581,9 @@ export function HelmRevisionDiff({
       .helm-diff-summary .Checkbox { position: relative; }
       .helm-diff-summary .Checkbox input[type=checkbox] { display: block; position: absolute; left: 0; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); opacity: 0; margin: 0; z-index: 1; }
       .helm-diff-summary .Checkbox input:focus-visible ~ .box { outline: 2px solid var(--primary); outline-offset: 3px; }
-      .helm-diff-summary .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
-      .helm-diff-summary .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
-      .helm-diff-summary .helm-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+      .helm-revision-diff .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+      .helm-revision-diff .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
+      .helm-revision-diff .helm-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       .helm-diff-summary strong { color: var(--textColorPrimary); }
       .helm-diff-added { color: var(--colorOk, var(--primary)); }
       .helm-diff-removed { color: var(--colorError, var(--textColorPrimary)); }
@@ -588,7 +593,9 @@ export function HelmRevisionDiff({
       .helm-diff-pane + .helm-diff-pane { border-left: 1px solid var(--borderColor); }
       .helm-diff-headers h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; background: var(--contentColor); border-bottom: 1px solid var(--borderColor); font-size: 12px; overflow-wrap: anywhere; }
       .helm-diff-headers { position: sticky; top: 0; z-index: 2; align-items: stretch; background: var(--contentColor); }
-      .helm-diff-headers h4 { min-width: 0; }
+      .helm-diff-headers h4 { min-width: 0; flex-wrap: nowrap; }
+      .helm-diff-heading-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+      .helm-diff-headers .helm-icon-button { flex-shrink: 0; margin-left: auto; }
       .helm-diff-headers h4 + h4 { border-left: 1px solid var(--borderColor); }
       .helm-diff-gap { padding: 7px 12px; text-align: center; background: var(--contentColor); color: var(--textColorSecondary); border-block: 1px solid var(--borderColor); }
       .helm-diff-match { outline: 1px solid var(--primary); outline-offset: -1px; }
@@ -598,56 +605,39 @@ export function HelmRevisionDiff({
       .helm-diff-gutter-added { border-left: 3px solid var(--colorOk, var(--primary)); }
       .helm-diff-gutter-removed { border-left: 3px solid var(--colorError, var(--textColorPrimary)); }
     `}</style>
-      <div className="helm-diff-summary" role="status">
-        {diff.available ? (
-          unchanged ? (
-            <strong>No changes between these revisions</strong>
+      {!fullComparison && (
+        <div className="helm-diff-summary" role="status">
+          {diff.available ? (
+            unchanged ? (
+              <strong>No changes between these revisions</strong>
+            ) : (
+              <>
+                <strong>Document changes</strong>
+                <span className="helm-diff-added">+ {diff.added} added lines</span>
+                <span className="helm-diff-removed">− {diff.removed} removed lines</span>
+              </>
+            )
           ) : (
+            <span>{diff.reason}</span>
+          )}
+          {diff.available && !blocks && (
+            <span>Aligned comparison exceeds the display limit. Documents are shown without alignment.</span>
+          )}
+          {displayLimited && <span>Document display exceeds the safe rendering limit.</span>}
+          {previews && (previews.before.limited || previews.after.limited) && (
             <>
-              <strong>Document changes</strong>
-              <span className="helm-diff-added">+ {diff.added} added lines</span>
-              <span className="helm-diff-removed">− {diff.removed} removed lines</span>
+              <span>
+                Only the first 1000 lines and 262144 characters of each original document are previewed. Copy a full
+                document to read all of it.
+              </span>
+              {copyStatus && <span>{copyStatus}</span>}
             </>
-          )
-        ) : (
-          <span>{diff.reason}</span>
-        )}
-        {diff.available && !blocks && (
-          <span>Aligned comparison exceeds the display limit. Documents are shown without alignment.</span>
-        )}
-        {displayLimited && <span>Document display exceeds the safe rendering limit.</span>}
-        {previews && (previews.before.limited || previews.after.limited) && (
-          <>
-            <span>
-              Only the first 1000 lines and 262144 characters of each original document are previewed. Copy a full
-              document to read all of it.
-            </span>
-            <NativeTooltip title="Copy full source document">
-              <button
-                type="button"
-                className="helm-icon-button"
-                aria-label="Copy full source document"
-                onClick={() => copyDocument(true)}
-              >
-                <Icon material="content_copy" size={18} />
-              </button>
-            </NativeTooltip>
-            <NativeTooltip title="Copy full target document">
-              <button
-                type="button"
-                className="helm-icon-button"
-                aria-label="Copy full target document"
-                onClick={() => copyDocument(false)}
-              >
-                <Icon material="content_copy" size={18} />
-              </button>
-            </NativeTooltip>
-            {copyStatus && <span>{copyStatus}</span>}
-          </>
-        )}
-        {diff.available && blocks && <Checkbox label="Show full documents" value={full} onChange={setFull} />}
-        {(!unchanged || full || fallback) && <small>Both panes share vertical scrolling</small>}
-      </div>
+          )}
+          {fallback && <Button label="Compare full documents" onClick={() => setComplete({ before, after })} />}
+          {diff.available && blocks && <Checkbox label="Show full documents" value={full} onChange={setFull} />}
+          {(!unchanged || full || fallback) && <small>Both panes share vertical scrolling</small>}
+        </div>
+      )}
       {findOpen && (
         <div className="helm-diff-find" role="search" aria-label="Find in comparison">
           <input
@@ -705,64 +695,117 @@ export function HelmRevisionDiff({
           )}
         </div>
       )}
-      {(!unchanged || full || fallback) && (
-        <div ref={viewportRef} className="helm-diff-scroll" tabIndex={0} aria-label="Comparison documents">
-          <div className="helm-diff-panes helm-diff-headers">
-            <h4>{beforeLabel}</h4>
-            <h4>{afterLabel}</h4>
-          </div>
-          {fallback ? (
-            <div className="helm-diff-panes">
-              <div className="helm-diff-pane">
-                <HelmCodeView
-                  value={previews!.before.value}
-                  language={language}
-                  ariaLabel={label(beforeLabel, true)}
-                  expanded
-                  style={{ height: fallbackHeight, minHeight: 0 }}
-                  horizontal={horizontal}
-                />
-              </div>
-              <div className="helm-diff-pane">
-                <HelmCodeView
-                  value={previews!.after.value}
-                  language={language}
-                  ariaLabel={label(afterLabel, false)}
-                  expanded
-                  style={{ height: fallbackHeight, minHeight: 0 }}
-                  horizontal={horizontal}
-                />
-              </div>
+      {fullComparison ? (
+        <HelmFullComparison
+          before={before}
+          after={after}
+          beforeLabel={beforeLabel}
+          afterLabel={afterLabel}
+          viewport={viewportRef}
+          onClose={() => setComplete(undefined)}
+          renderDocument={(document) => (
+            <HelmCodeView
+              key={`${document.source}-${document.window}`}
+              value={document.value}
+              language={language}
+              ariaLabel={label(document.source ? beforeLabel : afterLabel, document.source)}
+              lineNumberLabels={document.numbers}
+              changeRanges={document.ranges}
+              changeKind={document.source ? "removed" : "added"}
+              expanded
+              horizontal={horizontal}
+              style={{ height: document.height, minHeight: 0 }}
+            />
+          )}
+        />
+      ) : (
+        (!unchanged || full || fallback) && (
+          <div ref={viewportRef} className="helm-diff-scroll" tabIndex={0} aria-label="Comparison documents">
+            <div className="helm-diff-panes helm-diff-headers">
+              <h4>
+                <span className="helm-diff-heading-label">{beforeLabel}</span>
+                {previews && (previews.before.limited || previews.after.limited) && (
+                  <NativeTooltip title="Copy full source document">
+                    <button
+                      type="button"
+                      className="helm-icon-button"
+                      aria-label="Copy full source document"
+                      onClick={() => copyDocument(true)}
+                    >
+                      <Icon material="content_copy" size={18} />
+                    </button>
+                  </NativeTooltip>
+                )}
+              </h4>
+              <h4>
+                <span className="helm-diff-heading-label">{afterLabel}</span>
+                {previews && (previews.before.limited || previews.after.limited) && (
+                  <NativeTooltip title="Copy full target document">
+                    <button
+                      type="button"
+                      className="helm-icon-button"
+                      aria-label="Copy full target document"
+                      onClick={() => copyDocument(false)}
+                    >
+                      <Icon material="content_copy" size={18} />
+                    </button>
+                  </NativeTooltip>
+                )}
+              </h4>
             </div>
-          ) : (
-            blocks.map((block, index) => {
-              if (block.kind === "gap")
+            {fallback ? (
+              <div className="helm-diff-panes">
+                <div className="helm-diff-pane">
+                  <HelmCodeView
+                    value={previews!.before.value}
+                    language={language}
+                    ariaLabel={label(beforeLabel, true)}
+                    expanded
+                    style={{ height: fallbackHeight, minHeight: 0 }}
+                    horizontal={horizontal}
+                  />
+                </div>
+                <div className="helm-diff-pane">
+                  <HelmCodeView
+                    value={previews!.after.value}
+                    language={language}
+                    ariaLabel={label(afterLabel, false)}
+                    expanded
+                    style={{ height: fallbackHeight, minHeight: 0 }}
+                    horizontal={horizontal}
+                  />
+                </div>
+              </div>
+            ) : (
+              blocks.map((block, index) => {
+                if (block.kind === "gap")
+                  return (
+                    <div className="helm-diff-gap" key={index}>
+                      {block.count} unchanged lines hidden
+                    </div>
+                  );
+                const height = Math.max(block.before.length, block.after.length) * 18 + 14;
                 return (
-                  <div className="helm-diff-gap" key={index}>
-                    {block.count} unchanged lines hidden
+                  <div
+                    className={`helm-diff-panes${findOpen && match && (match.source === "before" ? match.line >= block.beforeStart && match.line < block.beforeStart + block.before.length : match.line >= block.afterStart && match.line < block.afterStart + block.after.length) ? " helm-diff-match" : ""}`}
+                    key={index}
+                    data-helm-before-start={block.beforeStart}
+                    data-helm-before-count={block.before.length}
+                    data-helm-after-start={block.afterStart}
+                    data-helm-after-count={block.after.length}
+                  >
+                    <div className="helm-diff-pane">
+                      {renderCode(block.before, block.beforeStart, true, block.changed, height)}
+                    </div>
+                    <div className="helm-diff-pane">
+                      {renderCode(block.after, block.afterStart, false, block.changed, height)}
+                    </div>
                   </div>
                 );
-              const height = Math.max(block.before.length, block.after.length) * 18 + 14;
-              return (
-                <div
-                  className={`helm-diff-panes${findOpen && match && (match.source === "before" ? match.line >= block.beforeStart && match.line < block.beforeStart + block.before.length : match.line >= block.afterStart && match.line < block.afterStart + block.after.length) ? " helm-diff-match" : ""}`}
-                  key={index}
-                  data-helm-before-start={block.beforeStart}
-                  data-helm-before-count={block.before.length}
-                  data-helm-after-start={block.afterStart}
-                  data-helm-after-count={block.after.length}
-                >
-                  <div className="helm-diff-pane">
-                    {renderCode(block.before, block.beforeStart, true, block.changed, height)}
-                  </div>
-                  <div className="helm-diff-pane">
-                    {renderCode(block.after, block.afterStart, false, block.changed, height)}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+              })
+            )}
+          </div>
+        )
       )}
       {(!unchanged || full || fallback) && (
         <div className="helm-diff-horizontal-footer">
