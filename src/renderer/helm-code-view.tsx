@@ -22,7 +22,7 @@ import {
 import { HelmFullComparison } from "./helm-full-comparison";
 import { NativeTooltip } from "./native-tooltip";
 
-const { MonacoEditor, Checkbox, Button, Icon } = Renderer.Component;
+const { MonacoEditor, Button, Icon } = Renderer.Component;
 type NativeProps = ComponentProps<typeof MonacoEditor>;
 type Model = Parameters<NonNullable<NativeProps["onModelChange"]>>[0];
 function disposeDetachedModel(model?: Model) {
@@ -419,7 +419,6 @@ export function HelmRevisionDiff({
     [horizontalController, horizontalWidth, onHorizontalWidth],
   );
   useEffect(() => horizontalController.refresh(), [horizontalController, horizontalWidth]);
-  const [full, setFull] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
@@ -462,7 +461,7 @@ export function HelmRevisionDiff({
         break;
       }
     }
-  }, [match, findOpen, full]);
+  }, [match, findOpen, fullComparison]);
   useEffect(() => {
     if (!findOpen) return;
     const capture = (event: KeyboardEvent) => {
@@ -489,7 +488,7 @@ export function HelmRevisionDiff({
       document.removeEventListener("keydown", close);
     };
   }, [findOpen]);
-  const blocks = useMemo(() => (diff.available ? buildHelmDiffBlocks(diff, full) : undefined), [diff, full]);
+  const blocks = useMemo(() => (diff.available ? buildHelmDiffBlocks(diff, false) : undefined), [diff]);
   const matchVisible =
     match &&
     blocks?.some(
@@ -530,7 +529,7 @@ export function HelmRevisionDiff({
   useEffect(() => {
     const viewport = viewportRef.current;
     return viewport ? bindHelmDiffWheel(viewport) : undefined;
-  }, [unchanged, full, fallback, fullComparison]);
+  }, [unchanged, fallback, fullComparison]);
   const label = (value: ReactNode, source: boolean) =>
     typeof value === "string" ? value : source ? "Comparison source document" : "Comparison target document";
   const renderCode = (value: string[], start: number, source: boolean, changed: boolean, height: number) =>
@@ -572,6 +571,7 @@ export function HelmRevisionDiff({
       .helm-revision-diff { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
       .helm-diff-summary { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; color: var(--textColorSecondary); }
       .helm-full-comparison-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-left: auto; }
+      .helm-full-comparison-open { margin-left: auto; }
       .helm-full-comparison-actions > .Button, .helm-full-comparison-open { display: inline-flex; align-items: center; gap: 6px; }
       .helm-full-comparison-actions > .Button > .Icon, .helm-full-comparison-open > .Icon { margin: 0; padding: 0; }
       .helm-diff-find { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; }
@@ -582,9 +582,6 @@ export function HelmRevisionDiff({
       .helm-diff-horizontal-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex-shrink: 0; min-width: 0; }
       .helm-diff-horizontal-scroll { min-width: 0; overflow-x: auto; overflow-y: hidden; }
       .helm-diff-horizontal-scroll:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
-      .helm-diff-summary .Checkbox { position: relative; }
-      .helm-diff-summary .Checkbox input[type=checkbox] { display: block; position: absolute; left: 0; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); opacity: 0; margin: 0; z-index: 1; }
-      .helm-diff-summary .Checkbox input:focus-visible ~ .box { outline: 2px solid var(--primary); outline-offset: 3px; }
       .helm-revision-diff .helm-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--textColorSecondary); border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
       .helm-revision-diff .helm-icon-button:hover { color: var(--textColorPrimary); background: var(--contentColor); }
       .helm-revision-diff .helm-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -634,14 +631,11 @@ export function HelmRevisionDiff({
               {copyStatus && <span>{copyStatus}</span>}
             </>
           )}
-          {fallback && (
-            <Button className="helm-full-comparison-open" onClick={() => setComplete({ before, after })}>
-              <Icon material="compare_arrows" size={16} aria-hidden="true" />
-              <span>Compare full documents</span>
-            </Button>
-          )}
-          {diff.available && blocks && <Checkbox label="Show full documents" value={full} onChange={setFull} />}
-          {(!unchanged || full || fallback) && <small>Both panes share vertical scrolling</small>}
+          {(!unchanged || fallback) && <small>Both panes share vertical scrolling</small>}
+          <Button className="helm-full-comparison-open" onClick={() => setComplete({ before, after })}>
+            <Icon material="compare_arrows" size={16} aria-hidden="true" />
+            <span>Compare full documents</span>
+          </Button>
         </div>
       )}
       {findOpen && (
@@ -683,7 +677,7 @@ export function HelmRevisionDiff({
             onClick={() => setMatchIndex((index) => (index + 1) % search.matches.length)}
           />
           <Button label="Close find" onClick={() => setFindOpen(false)} />
-          {match && (fallback || !matchVisible) && (
+          {match && (fullComparison || fallback || !matchVisible) && (
             <div style={{ width: "100%" }}>
               <strong>
                 {match.source === "before" ? "Source" : "Target"} match at original line {match.line}
@@ -725,7 +719,7 @@ export function HelmRevisionDiff({
           )}
         />
       ) : (
-        (!unchanged || full || fallback) && (
+        (!unchanged || fallback) && (
           <div ref={viewportRef} className="helm-diff-scroll" tabIndex={0} aria-label="Comparison documents">
             <div className="helm-diff-panes helm-diff-headers">
               <h4>
@@ -813,7 +807,7 @@ export function HelmRevisionDiff({
           </div>
         )
       )}
-      {(!unchanged || full || fallback) && (
+      {(!unchanged || fallback || fullComparison) && (
         <div className="helm-diff-horizontal-footer">
           <HelmHorizontalBar horizontal={horizontal} source />
           <HelmHorizontalBar horizontal={horizontal} source={false} />
