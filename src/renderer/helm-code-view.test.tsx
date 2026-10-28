@@ -21,12 +21,6 @@ vi.mock("@freelensapp/extensions", () => ({
           {props.label ?? props.children}
         </button>
       ),
-      Checkbox: (props: any) => (
-        <label>
-          <input type="checkbox" checked={props.value} onChange={(event) => props.onChange(event.target.checked)} />
-          {props.label}
-        </label>
-      ),
       MonacoEditor: (props: any) => {
         mocks.props.push(props);
         const previous = useRef<any>();
@@ -165,7 +159,7 @@ it("allows an explicitly opened writable editor to receive native focus", () => 
   expect(document.activeElement).toBe(screen.getByLabelText("Edit values"));
 });
 
-it("hides unrelated YAML by default and expands it with the native checkbox", () => {
+it("opens full documents from compact context and returns to the hidden unchanged lines", async () => {
   const before = Array.from({ length: 20 }, (_, index) => `key${index}: old`);
   const after = [...before];
   after[10] = "key10: new";
@@ -189,18 +183,21 @@ it("hides unrelated YAML by default and expands it with the native checkbox", ()
   fireEvent.scroll(scroller);
   expect(scroller.scrollTop).toBe(72);
   expect(view.container.querySelectorAll(".helm-diff-scroll")).toHaveLength(1);
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("Full comparison · 1 added · 1 removed");
   expect(screen.queryByText(/unchanged lines hidden/)).toBeNull();
   expect(mocks.props.some((props) => props.value.includes("key0:"))).toBe(true);
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
   expect(screen.getByText("7 unchanged lines hidden")).toBeTruthy();
 });
 
-it("shows an explicit no-change state without mounting hidden document editors", () => {
+it("shows an explicit no-change state and compares unchanged full documents on demand", async () => {
   render(<HelmRevisionDiff before="same" after="same" beforeLabel="Source" afterLabel="Target" />);
   expect(screen.getByText("No changes between these revisions")).toBeTruthy();
   expect(screen.queryByRole("textbox")).toBeNull();
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("No changes in full documents");
   expect(screen.getAllByRole("textbox")).toHaveLength(2);
 });
 
@@ -229,8 +226,9 @@ it("disposes models from compact and full views when toggled and unmounted", asy
   const view = render(
     <HelmRevisionDiff before={source.join("\n")} after={target.join("\n")} beforeLabel="Before" afterLabel="After" />,
   );
-  fireEvent.click(screen.getByLabelText("Show full documents"));
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("Full comparison · 1 added · 1 removed");
+  fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
   view.unmount();
   await new Promise((resolve) => setTimeout(resolve, 10));
   for (const model of mocks.models) expect(model.dispose).toHaveBeenCalledOnce();
@@ -256,7 +254,7 @@ it("searches the entire comparison from outside editors and reveals hidden origi
   expect(screen.getByText("2 matches · Source line 1, column 1")).toBeTruthy();
   expect(screen.getAllByText(/unchanged lines hidden/).length).toBeGreaterThan(0);
   expect(screen.getByLabelText("Matching original document excerpt")).toBeTruthy();
-  expect((screen.getByLabelText("Show full documents") as HTMLInputElement).checked).toBe(false);
+  expect(screen.queryByRole("checkbox")).toBeNull();
   fireEvent.keyDown(find, { key: "Escape" });
   expect(screen.queryByLabelText("Find in both documents")).toBeNull();
 });
@@ -394,22 +392,24 @@ it("bounds huge fallback rendering and copies the full original with retry after
   expect(mocks.copy).toHaveBeenLastCalledWith("target");
 });
 
-it("bounds an explicitly expanded full document instead of rendering every Monaco line", () => {
+it("virtualizes full documents below the comparison size limit", async () => {
   const source = Array.from({ length: 1500 }, (_, index) => `key${index}: value`).join("\n");
   render(<HelmRevisionDiff before={source} after={source} beforeLabel="Source" afterLabel="Target" />);
   expect(screen.queryByRole("textbox")).toBeNull();
-  fireEvent.click(screen.getByLabelText("Show full documents"));
-  expect(screen.getByText("Document display exceeds the safe rendering limit.")).toBeTruthy();
-  expect((screen.getByLabelText("Source") as HTMLTextAreaElement).value.split("\n")).toHaveLength(1000);
-  expect((screen.getByLabelText("Show full documents") as HTMLInputElement).checked).toBe(true);
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("No changes in full documents");
+  expect(screen.queryByText("Document display exceeds the safe rendering limit.")).toBeNull();
+  expect((screen.getByLabelText("Source") as HTMLTextAreaElement).value.split("\n").length).toBeLessThan(300);
+  expect(screen.getAllByRole("textbox")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
   expect(screen.queryByRole("textbox")).toBeNull();
 });
 
-it("reveals an original match beyond the bounded full-document preview", () => {
+it("reveals an original match outside the virtual full-document window", async () => {
   const source = Array.from({ length: 1500 }, (_, index) => `key${index}: value`).join("\n");
   render(<HelmRevisionDiff before={source} after={source} beforeLabel="Source" afterLabel="Target" />);
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("No changes in full documents");
   fireEvent.keyDown(screen.getByLabelText("Source"), { key: "f", ctrlKey: true });
   fireEvent.change(screen.getByLabelText("Find in both documents"), { target: { value: "key1400:" } });
   expect(screen.getByText("2 matches · Source line 1401, column 1")).toBeTruthy();
@@ -425,6 +425,29 @@ it("reveals an original match beyond the bounded full-document preview", () => {
   expect((screen.getByLabelText("Matching original document excerpt") as HTMLTextAreaElement).value).toContain(
     "key1400: value",
   );
+});
+
+it("reveals a changed-line find match outside the full window even when compact context contains it", async () => {
+  const before = Array.from({ length: 1500 }, (_, index) => `key${index}: value`).join("\n");
+  const after = before.replace("key1400: value", "key1400: changed");
+  render(<HelmRevisionDiff before={before} after={after} beforeLabel="Source" afterLabel="Target" />);
+  expect(
+    screen
+      .getAllByLabelText("Target")
+      .some((editor) => (editor as HTMLTextAreaElement).value.includes("key1400: changed")),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("Full comparison · 1 added · 1 removed");
+  expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).not.toContain("key1400:");
+  fireEvent.keyDown(screen.getByLabelText("Target"), { key: "f", ctrlKey: true });
+  fireEvent.change(screen.getByLabelText("Find in both documents"), { target: { value: "key1400: changed" } });
+  expect(screen.getByText("1 matches · Target line 1401, column 1")).toBeTruthy();
+  const excerpt = screen.getByLabelText("Matching original document excerpt") as HTMLTextAreaElement;
+  expect(excerpt.value).toContain("key1400: changed");
+  const props = [...mocks.props]
+    .reverse()
+    .find((props) => props.options.ariaLabel === "Matching original document excerpt");
+  expect(props.options.lineNumbers(4)).toBe("1401");
 });
 
 it("routes vertical wheel over Monaco to the owned shared viewport and disposes the bridge", () => {
@@ -487,7 +510,7 @@ it("synchronizes owned horizontal scroll in either direction across blocks witho
   expect(right.scrollLeft).toBe(45);
 });
 
-it("shares native public content measurements in compact, full and fallback editors", () => {
+it("shares native public content measurements in compact, full and fallback editors", async () => {
   const source = Array.from({ length: 30 }, (_, index) => `key${index}: original`);
   const target = [...source];
   target[10] = "replacement";
@@ -505,7 +528,8 @@ it("shares native public content measurements in compact, full and fallback edit
   roots[0].scrollLeft = 200;
   fireEvent.scroll(roots[0]);
   expect(roots.every((root) => root.scrollLeft === 200)).toBe(true);
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("Full comparison · 1 added · 1 removed");
   const fullRoots = Array.from(view.container.querySelectorAll<HTMLElement>(".helm-code-view"));
   expect(fullRoots.every((root) => root.scrollLeft === 200)).toBe(true);
   view.rerender(
@@ -554,7 +578,7 @@ it("obtains initial measurements when native subscriptions miss creation events"
   expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).toBe(after);
 });
 
-it("measures newly mounted full-context editors when a shared width is already known", () => {
+it("measures newly mounted full-context editors when a shared width is already known", async () => {
   mocks.lateMeasurements = true;
   const before = Array.from({ length: 30 }, (_, index) => `key${index}: same`);
   before[0] = "hidden: " + "x".repeat(200);
@@ -566,7 +590,8 @@ it("measures newly mounted full-context editors when a shared width is already k
   const compactWidth = mocks.props[mocks.props.length - 1].style.width;
   expect(typeof compactWidth).toBe("number");
   mocks.props.length = 0;
-  fireEvent.click(screen.getByLabelText("Show full documents"));
+  fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
+  await screen.findByText("Full comparison · 1 added · 1 removed");
   expect(mocks.props.some((props) => props.value === "" && props.style.width === compactWidth - 1)).toBe(true);
   const fullWidth = mocks.props[mocks.props.length - 1].style.width;
   expect(fullWidth).toBeGreaterThan(compactWidth);
