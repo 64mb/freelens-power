@@ -1,8 +1,9 @@
 import { Renderer } from "@freelensapp/extensions";
 import { ipcRenderer } from "electron";
+import { runInAction } from "mobx";
 import { observer } from "mobx-react";
 import { useEffect, useState } from "react";
-import { AI_MODELS_CHANNEL, type AiModel } from "../../common/ai-models";
+import { AI_MODELS_CHANNEL, type AiModel, piModelLabel } from "../../common/ai-models";
 import { AiPreferencesStore } from "../../common/store/ai-preferences-store";
 import { AiProviderIcon } from "../ai-provider-icon";
 import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
@@ -17,6 +18,7 @@ function withCurrent(options: SelectOption[], value: string, label = value): Sel
 }
 
 function effortLabel(value: string): string {
+  if (value === "off") return "None";
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -39,24 +41,41 @@ export const AiPreferences = observer(() => {
     void ipcRenderer
       .invoke(AI_MODELS_CHANNEL, preferences.provider)
       .then((value: AiModel[]) => {
-        if (active && Array.isArray(value)) setCatalog({ provider, models: value });
+        if (!active || !Array.isArray(value)) return;
+        setCatalog({ provider, models: value });
+        if (provider === "pi" && preferences.provider === "pi" && value[0]?.id) {
+          runInAction(() => {
+            const selected =
+              value.find((model) => model.id === preferences.piModel) ??
+              value.find((model) => piModelLabel(model.id) === piModelLabel(preferences.piModel)) ??
+              value[0];
+            preferences.piModel = selected.id;
+            if (!selected.reasoningEfforts.includes(preferences.piReasoningEffort)) preferences.piReasoningEffort = "";
+          });
+        }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
   }, [preferences.enabled, preferences.provider]);
+  const isPi = preferences.provider === "pi";
   const isClaude = preferences.provider === "claude";
-  const providerLabel = isClaude ? "Claude" : "Codex";
-  const currentModel = isClaude ? preferences.claudeModel : preferences.model;
-  const currentEffort = isClaude ? preferences.claudeReasoningEffort : preferences.reasoningEffort;
+  const providerLabel = isPi ? "Pi" : isClaude ? "Claude" : "Codex";
+  const currentModel = isPi ? preferences.piModel : isClaude ? preferences.claudeModel : preferences.model;
+  const currentEffort = isPi
+    ? preferences.piReasoningEffort
+    : isClaude
+      ? preferences.claudeReasoningEffort
+      : preferences.reasoningEffort;
   const currentSpeed = isClaude ? preferences.claudeSpeed : preferences.speed;
   const modelOptions = withCurrent(
     [
-      { value: "", label: `${providerLabel} default` },
+      ...(!isPi ? [{ value: "", label: `${providerLabel} default` }] : []),
       ...models.map((model) => ({ value: model.id, label: model.label })),
     ],
     currentModel,
+    isPi ? (piModelLabel(currentModel) ?? "Select a configured Pi model") : currentModel,
   );
   const effortOptions = withCurrent(
     [
@@ -66,7 +85,13 @@ export const AiPreferences = observer(() => {
     currentEffort,
     effortLabel(currentEffort),
   );
-  const modelHint = isClaude ? "Claude CLI model aliases." : "Local Codex model catalog.";
+  const modelHint = isPi
+    ? currentModel
+      ? "Local Pi model catalog."
+      : "Configure a Pi model in the CLI, then select it here."
+    : isClaude
+      ? "Claude CLI model aliases."
+      : "Local Codex model catalog.";
   const speedHint = isClaude
     ? "Fast mode for Opus; account access required."
     : "Fast mode depends on model and account.";
@@ -98,15 +123,19 @@ export const AiPreferences = observer(() => {
             options={[
               { value: "codex", label: "Codex" },
               { value: "claude", label: "Claude" },
+              { value: "pi", label: "Pi" },
             ]}
             formatOptionLabel={(option) => (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <AiProviderIcon provider={option.value === "claude" ? "claude" : "codex"} />
+                <AiProviderIcon
+                  provider={option.value === "pi" ? "pi" : option.value === "claude" ? "claude" : "codex"}
+                />
                 {option.label}
               </span>
             )}
             onChange={(option) => {
-              if (option?.value === "codex" || option?.value === "claude") preferences.provider = option.value;
+              if (option?.value === "codex" || option?.value === "claude" || option?.value === "pi")
+                preferences.provider = option.value;
             }}
             isDisabled={!preferences.enabled}
             isClearable={false}
@@ -130,9 +159,12 @@ export const AiPreferences = observer(() => {
             isClearable={false}
             isSearchable={true}
             onChange={(option) => {
-              if (!option || option.value === currentModel) return;
+              if (!option || option.value === currentModel || (isPi && !option.value)) return;
               const effort = effortsFor(models, option.value).includes(currentEffort) ? currentEffort : "";
-              if (isClaude) {
+              if (isPi) {
+                preferences.piModel = option.value;
+                preferences.piReasoningEffort = effort;
+              } else if (isClaude) {
                 preferences.claudeModel = option.value;
                 preferences.claudeReasoningEffort = effort;
               } else {
@@ -163,38 +195,41 @@ export const AiPreferences = observer(() => {
             isSearchable={false}
             onChange={(option) => {
               if (!option) return;
-              if (isClaude) preferences.claudeReasoningEffort = option.value;
+              if (isPi) preferences.piReasoningEffort = option.value;
+              else if (isClaude) preferences.claudeReasoningEffort = option.value;
               else preferences.reasoningEffort = option.value;
             }}
           />
         </div>
       </div>
-      <div className="power-settings-row" style={rowStyle}>
-        <div style={{ minWidth: 0 }}>
-          <label htmlFor="power-ai-speed">Speed</label>
-          <div className="power-settings-hint power-ai-control-hint" title={speedHint}>
-            {speedHint}
+      {!isPi && (
+        <div className="power-settings-row" style={rowStyle}>
+          <div style={{ minWidth: 0 }}>
+            <label htmlFor="power-ai-speed">Speed</label>
+            <div className="power-settings-hint power-ai-control-hint" title={speedHint}>
+              {speedHint}
+            </div>
+          </div>
+          <div style={controlStyle}>
+            <Select
+              id="power-ai-speed"
+              value={currentSpeed}
+              options={[
+                { value: "default", label: "Default" },
+                { value: "fast", label: "Fast" },
+              ]}
+              isDisabled={!preferences.enabled}
+              isClearable={false}
+              isSearchable={false}
+              onChange={(option) => {
+                if (!option) return;
+                if (isClaude) preferences.claudeSpeed = option.value as "default" | "fast";
+                else preferences.speed = option.value as "default" | "fast";
+              }}
+            />
           </div>
         </div>
-        <div style={controlStyle}>
-          <Select
-            id="power-ai-speed"
-            value={currentSpeed}
-            options={[
-              { value: "default", label: "Default" },
-              { value: "fast", label: "Fast" },
-            ]}
-            isDisabled={!preferences.enabled}
-            isClearable={false}
-            isSearchable={false}
-            onChange={(option) => {
-              if (!option) return;
-              if (isClaude) preferences.claudeSpeed = option.value as "default" | "fast";
-              else preferences.speed = option.value as "default" | "fast";
-            }}
-          />
-        </div>
-      </div>
+      )}
       <div className="power-settings-row" style={rowStyle}>
         <div>
           <label htmlFor="power-ai-font-size">Chat font size</label>

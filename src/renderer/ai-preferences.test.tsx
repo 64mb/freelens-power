@@ -55,6 +55,8 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     model: "example-model",
     reasoningEffort: "high",
     speed: "fast",
+    piModel: "example/glm-5-3",
+    piReasoningEffort: "high",
     claudeModel: "",
     claudeReasoningEffort: "",
     claudeSpeed: "default",
@@ -68,10 +70,15 @@ it("keeps provider controls separate and ignores late model catalogs after switc
       ? new Promise((resolve) => {
           finishCodex = resolve;
         })
-      : Promise.resolve([
-          { id: "sonnet", label: "Sonnet", reasoningEfforts: ["low", "max"] },
-          { id: "haiku", label: "Haiku", reasoningEfforts: ["low"] },
-        ]),
+      : provider === "pi"
+        ? Promise.resolve([
+            { id: "example/deepseek-v4-flash", label: "DeepSeek", reasoningEfforts: ["off", "high"] },
+            { id: "example/glm-5-3", label: "GLM", reasoningEfforts: ["off", "high"] },
+          ])
+        : Promise.resolve([
+            { id: "sonnet", label: "Sonnet", reasoningEfforts: ["low", "max"] },
+            { id: "haiku", label: "Haiku", reasoningEfforts: ["low"] },
+          ]),
   );
   const view = render(<AiPreferences />);
   try {
@@ -113,12 +120,108 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     expect(mocks.preferences.claudeReasoningEffort).toBe("");
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "" } });
     expect((screen.getByLabelText("Effort") as HTMLSelectElement).options).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("CLI"), { target: { value: "pi" } });
+    await waitFor(() => expect(screen.getByText("DeepSeek")).toBeTruthy());
+    expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("example/glm-5-3");
+    expect(screen.queryByLabelText("Speed")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "example/deepseek-v4-flash" } });
+    fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "off" } });
+    expect(mocks.preferences.piModel).toBe("example/deepseek-v4-flash");
+    expect(mocks.preferences.piReasoningEffort).toBe("off");
+    expect(mocks.preferences.speed).toBe("fast");
+    expect(mocks.preferences.claudeSpeed).toBe("fast");
     act(() =>
       runInAction(() => {
         mocks.preferences.enabled = false;
       }),
     );
     expect((screen.getByLabelText("CLI") as HTMLSelectElement).disabled).toBe(true);
+  } finally {
+    view.unmount();
+  }
+});
+
+it("selects the first configured Pi model instead of offering an unsupported default", async () => {
+  mocks.preferences = observable({
+    enabled: true,
+    provider: "pi",
+    piModel: "",
+    piReasoningEffort: "max",
+    model: "codex-model",
+    reasoningEffort: "high",
+    chatFontSize: 14,
+    systemPrompt: "",
+    clusterPrompt: "",
+  });
+  mocks.invoke.mockResolvedValue([
+    { id: "example/deepseek-v4-flash", label: "DeepSeek", reasoningEfforts: ["off", "high"] },
+  ]);
+  const view = render(<AiPreferences />);
+  try {
+    await waitFor(() => expect(mocks.preferences.piModel).toBe("example/deepseek-v4-flash"));
+    expect(mocks.preferences.piReasoningEffort).toBe("");
+    expect(mocks.preferences.model).toBe("codex-model");
+    const model = screen.getByLabelText("Model") as HTMLSelectElement;
+    expect(Array.from(model.options).map((option) => option.value)).toEqual(["example/deepseek-v4-flash"]);
+    expect(screen.queryByText("Pi default")).toBeNull();
+  } finally {
+    view.unmount();
+  }
+});
+
+it("keeps Pi unconfigured with a selection hint when its catalog is empty", async () => {
+  mocks.preferences = observable({
+    enabled: true,
+    provider: "pi",
+    piModel: "",
+    piReasoningEffort: "",
+    model: "codex-model",
+    chatFontSize: 14,
+    systemPrompt: "",
+    clusterPrompt: "",
+  });
+  mocks.invoke.mockResolvedValue([]);
+  const view = render(<AiPreferences />);
+  try {
+    await act(async () => {});
+    expect(mocks.preferences.piModel).toBe("");
+    expect(screen.getByText("Configure a Pi model in the CLI, then select it here.")).toBeTruthy();
+    expect(screen.getByText("Select a configured Pi model")).toBeTruthy();
+    expect(screen.queryByText("Pi default")).toBeNull();
+  } finally {
+    view.unmount();
+  }
+});
+
+it("shows friendly Pi models and only each model's supported effort choices", async () => {
+  mocks.preferences = observable({
+    enabled: true,
+    provider: "pi",
+    piModel: "example/glm-5-3",
+    piReasoningEffort: "medium",
+    model: "codex-model",
+    chatFontSize: 14,
+    systemPrompt: "",
+    clusterPrompt: "",
+  });
+  mocks.invoke.mockResolvedValue([
+    {
+      id: "example/deepseek-v4-flash",
+      label: "DeepSeek V4 Flash",
+      reasoningEfforts: ["off", "minimal", "low", "medium", "high", "xhigh"],
+    },
+    { id: "example/glm-5-3", label: "GLM 5.3", reasoningEfforts: ["low", "high", "max"] },
+  ]);
+  const view = render(<AiPreferences />);
+  const labels = (id: string) =>
+    Array.from((screen.getByLabelText(id) as HTMLSelectElement).options).map((option) => option.text);
+  try {
+    await waitFor(() => expect(mocks.preferences.piReasoningEffort).toBe(""));
+    expect(labels("Model")).toEqual(["DeepSeek V4 Flash", "GLM 5.3"]);
+    expect(labels("Effort")).toEqual(["Default", "Low", "High", "Max"]);
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "example/deepseek-v4-flash" } });
+    expect(labels("Effort")).toEqual(["Default", "None", "Minimal", "Low", "Medium", "High", "Xhigh"]);
+    expect(mocks.preferences.model).toBe("codex-model");
   } finally {
     view.unmount();
   }

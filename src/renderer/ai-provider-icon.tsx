@@ -1,7 +1,25 @@
 import claudeIcon from "./assets/claude.svg?inline";
+import piIcon from "./assets/pi.svg?inline";
 import { NativeTooltip } from "./native-tooltip";
 
-export function AiProviderIcon({ provider, size = 16 }: { provider: "codex" | "claude"; size?: number }) {
+import type { AiProvider } from "../common/ai";
+
+export function AiProviderIcon({ provider, size = 16 }: { provider: AiProvider; size?: number }) {
+  if (provider === "pi")
+    return (
+      <NativeTooltip title="Pi">
+        <img
+          className="power-ai-provider-icon"
+          data-provider="pi"
+          src={piIcon}
+          width={size}
+          height={size}
+          alt="Pi"
+          draggable={false}
+          style={{ display: "inline-block", flexShrink: 0, objectFit: "contain", verticalAlign: "middle" }}
+        />
+      </NativeTooltip>
+    );
   if (provider === "codex")
     return (
       <NativeTooltip title="Codex">

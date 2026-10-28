@@ -612,6 +612,10 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       AiShortcutsStore.getInstanceOrCreate<AiShortcutsStore>().shortcuts,
     );
     if (!question || busy || [...activeRequests.current.values()].includes(key)) return;
+    if (preferences.provider === "pi" && !preferences.piModel) {
+      setError("Choose a Pi model in AI preferences before sending a message.");
+      return;
+    }
     if (question.length > 20_000) {
       setError("Message is too long. Please keep it under 20,000 characters.");
       return;
@@ -745,7 +749,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
         {
           role: "assistant",
           text: response.text,
-          provider: response.provider === "claude" ? "claude" : provider,
+          provider: response.provider === "pi" ? "pi" : response.provider === "claude" ? "claude" : provider,
           references: normalizeAiReferences(response.references),
         },
       ]);
@@ -930,9 +934,17 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
                       </span>
                     </NativeTooltip>
                   ) : (
-                    <AiProviderIcon provider={message.provider === "claude" ? "claude" : "codex"} />
+                    <AiProviderIcon
+                      provider={message.provider === "pi" ? "pi" : message.provider === "claude" ? "claude" : "codex"}
+                    />
                   )}
-                  {message.role === "user" ? "You" : message.provider === "claude" ? "Claude" : "Codex"}
+                  {message.role === "user"
+                    ? "You"
+                    : message.provider === "pi"
+                      ? "Pi"
+                      : message.provider === "claude"
+                        ? "Claude"
+                        : "Codex"}
                   {message.role === "assistant" && <AiCopyAnswer text={message.text} />}
                 </strong>
                 <AiMessageContent text={message.text} />

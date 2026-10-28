@@ -17,11 +17,18 @@ import {
   normalizeAiReferences,
   referencedAiResources,
 } from "../common/ai-extras";
-import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../common/ai-models";
+import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS, PI_REASONING_EFFORTS } from "../common/ai-models";
 import { sanitizeAiTerminalSnapshot } from "../common/ai-terminal-context";
 import { createAiAnswerStream } from "./ai-answer-stream";
 import { verifyClaudeManagedPolicy } from "./ai-claude-policy";
 import { aiLogQuery, summarizeAiLogs } from "./ai-logs";
+import {
+  PiAiResponseError,
+  piAiArguments,
+  piAiOutputText,
+  preparePiAiEnvironment,
+  writePiResponseExtension,
+} from "./ai-pi";
 import { collectAiReferences } from "./ai-references";
 import {
   type AiClusterConnection,
@@ -35,6 +42,7 @@ import {
 export type AiClusterResolver = (clusterId: string) => AiClusterConnection | Promise<AiClusterConnection>;
 
 const reasoningEfforts = new Set(["", ...CODEX_REASONING_EFFORTS]);
+const piReasoningEfforts = new Set(["", ...PI_REASONING_EFFORTS]);
 const claudeReasoningEfforts = new Set(["", ...CLAUDE_REASONING_EFFORTS]);
 
 export function aiFailureCode(error: unknown): AiFailureCode {
@@ -48,6 +56,8 @@ export function aiFailureCode(error: unknown): AiFailureCode {
     "Resource read timed out": "TIMEOUT",
     "AI reached the maximum number of resource reads": "READ_LIMIT",
     "Codex returned an incomplete response": "INVALID_REPLY",
+    "AI returned an incomplete response": "INVALID_REPLY",
+    "AI returned an invalid response": "INVALID_REPLY",
     "Codex returned an invalid response": "INVALID_REPLY",
     "AI response exceeded the size limit": "INVALID_REPLY",
     "Codex request failed": "CLI_FAILURE",
@@ -57,6 +67,10 @@ export function aiFailureCode(error: unknown): AiFailureCode {
     "Conversation is too large. Start a new conversation": "INPUT_LIMIT",
     "Invalid AI request": "INPUT_LIMIT",
     "Invalid Codex model": "INPUT_LIMIT",
+    "Invalid Pi model": "INPUT_LIMIT",
+    "Invalid Pi reasoning effort": "INPUT_LIMIT",
+    "Invalid Pi configuration": "CLI_FAILURE",
+    "Pi command credentials are unavailable in read-only mode": "CLI_FAILURE",
     "Invalid Codex reasoning effort": "INPUT_LIMIT",
   };
   return Object.hasOwn(codes, error.message) ? codes[error.message] : "UNAVAILABLE";
@@ -210,6 +224,33 @@ function parseModelResponse(input: string, strict = true): AiModelResponse {
   return response;
 }
 
+export function parsePiAiOutput(output: string): AiModelResponse {
+  try {
+    const response = JSON.parse(piAiOutputText(output));
+    if (
+      response &&
+      typeof response === "object" &&
+      !Array.isArray(response) &&
+      response.text == null &&
+      (Array.isArray(response.tool)
+        ? response.tool.length > 0 && response.tool.length <= 4 && response.tool.every(validReadTool)
+        : validReadTool(response.tool))
+    )
+      response.text = "";
+    return parseModelResponse(JSON.stringify(response));
+  } catch (error) {
+    const failure = new PiAiResponseError(
+      error instanceof SyntaxError
+        ? "AI returned an invalid response"
+        : error instanceof Error
+          ? error.message
+          : "AI returned an invalid response",
+      output,
+    );
+    throw failure;
+  }
+}
+
 export function parseClaudeAiOutput(output: string): AiModelResponse {
   const events = output
     .trim()
@@ -303,7 +344,12 @@ async function execute(
   signal?: AbortSignal,
   onChunk?: (chunk: string) => void,
 ): Promise<string> {
-  const environment = file === "claude" ? await readClaudeAiEnvironment() : undefined;
+  const environment =
+    file === "claude"
+      ? await readClaudeAiEnvironment()
+      : file === "pi" && cwd
+        ? await preparePiAiEnvironment(cwd)
+        : undefined;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new Error("AI request cancelled"));
@@ -313,7 +359,7 @@ async function execute(
       cwd,
       shell: false,
       env:
-        file === "claude"
+        file === "claude" || file === "pi"
           ? environment
           : {
               HOME: process.env.HOME,
@@ -500,7 +546,7 @@ export async function runAiChat(
 ): Promise<AiChatResponse> {
   if (
     !request ||
-    (request.provider !== undefined && !["codex", "claude"].includes(request.provider)) ||
+    (request.provider !== undefined && !["codex", "claude", "pi"].includes(request.provider)) ||
     (request.requestId !== undefined && !validAiRequestId(request.requestId)) ||
     !Array.isArray(request.messages) ||
     request.messages.length > 100 ||
@@ -512,7 +558,13 @@ export async function runAiChat(
     typeof request.model !== "string" ||
     (request.reasoningEffort !== undefined &&
       (typeof request.reasoningEffort !== "string" ||
-        !(request.provider === "claude" ? claudeReasoningEfforts : reasoningEfforts).has(request.reasoningEffort))) ||
+        !(
+          request.provider === "claude"
+            ? claudeReasoningEfforts
+            : request.provider === "pi"
+              ? piReasoningEfforts
+              : reasoningEfforts
+        ).has(request.reasoningEffort))) ||
     (request.systemPrompt !== undefined &&
       (typeof request.systemPrompt !== "string" || request.systemPrompt.length > 20000))
   )
@@ -569,15 +621,29 @@ export async function runAiChat(
         provider,
         provider === "claude"
           ? claudeAiArguments(request.model, request.speed, request.reasoningEffort, finalAnswer)
-          : codexAiArguments(request.model, request.speed, directory, request.reasoningEffort),
-        prompt,
+          : provider === "pi"
+            ? piAiArguments(
+                request.model,
+                request.reasoningEffort,
+                finalAnswer ? finalAnswerSchema : schema,
+                await writePiResponseExtension(directory, finalAnswer ? finalAnswerSchema : schema),
+              )
+            : codexAiArguments(request.model, request.speed, directory, request.reasoningEffort),
+        provider === "pi"
+          ? `${prompt}\nResponse protocol reminder: always return exactly one JSON object matching the response schema, with tool before text. Apply the user requested answer wording or format only inside the text field. Never return plain text or markdown fences outside the JSON object.`
+          : prompt,
         directory,
         signal,
         stream,
       );
       stream("\n");
       signal?.throwIfAborted();
-      const response = provider === "claude" ? parseClaudeAiOutput(output) : parseCodexAiOutput(output);
+      const response =
+        provider === "claude"
+          ? parseClaudeAiOutput(output)
+          : provider === "pi"
+            ? parsePiAiOutput(output)
+            : parseCodexAiOutput(output);
       if (!response.tool) {
         progress("answer", round, response.text);
         const related = referencedAiResources(response.text, references);
@@ -585,7 +651,7 @@ export async function runAiChat(
           text: response.text,
           reads,
           ...(related.length ? { references: related } : {}),
-          ...(request.provider === "claude" ? { provider: "claude" as const } : {}),
+          ...(request.provider === "claude" || request.provider === "pi" ? { provider: request.provider } : {}),
         };
       }
       if (finalAnswer) throw new Error("AI reached the maximum number of resource reads");

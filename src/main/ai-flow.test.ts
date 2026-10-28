@@ -34,12 +34,19 @@ function mockTurns(turns: unknown[], provider = "codex") {
         queueMicrotask(() => {
           stdout.write(
             Buffer.from(
-              provider === "claude"
-                ? JSON.stringify({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(turn) })
-                : `${JSON.stringify({
-                    type: "item.completed",
-                    item: { type: "agent_message", text: JSON.stringify(turn) },
-                  })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
+              provider === "pi"
+                ? `${JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: JSON.stringify(turn) }] } })}\n${JSON.stringify({ type: "agent_settled", aborted: false })}\n`
+                : provider === "claude"
+                  ? JSON.stringify({
+                      type: "result",
+                      subtype: "success",
+                      is_error: false,
+                      result: JSON.stringify(turn),
+                    })
+                  : `${JSON.stringify({
+                      type: "item.completed",
+                      item: { type: "agent_message", text: JSON.stringify(turn) },
+                    })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
             ),
           );
           child.emit("close", 0);
@@ -424,11 +431,16 @@ describe("bounded AI answer synthesis", () => {
   it.each([
     "codex",
     "claude",
+    "pi",
   ] as const)("allows [%s] to answer after six reads with no further read capability", async (provider) => {
     const { prompts, responseSchemas } = mockTurns([...tools, { text: "Six workers inspected", tool: null }], provider);
     const read = vi.fn().mockResolvedValue({ kind: "Node", status: { capacity: { cpu: "2" } } });
     const result = await runAiChat(
-      { ...request, provider, model: provider === "claude" ? "sonnet" : request.model },
+      {
+        ...request,
+        provider,
+        model: provider === "claude" ? "sonnet" : provider === "pi" ? "example/deepseek-v4-flash" : request.model,
+      },
       () => ({ read }),
     );
     expect(result.text).toBe("Six workers inspected");
@@ -444,11 +456,19 @@ describe("bounded AI answer synthesis", () => {
   it.each([
     "codex",
     "claude",
+    "pi",
   ] as const)("rejects a seventh [%s] tool request without executing it", async (provider) => {
     mockTurns([...tools, { text: "unsupported claim", tool: { method: "nodes", name: "worker-extra" } }], provider);
     const read = vi.fn().mockResolvedValue({ items: [] });
     await expect(
-      runAiChat({ ...request, provider, model: provider === "claude" ? "sonnet" : request.model }, () => ({ read })),
+      runAiChat(
+        {
+          ...request,
+          provider,
+          model: provider === "claude" ? "sonnet" : provider === "pi" ? "example/deepseek-v4-flash" : request.model,
+        },
+        () => ({ read }),
+      ),
     ).rejects.toThrow("maximum number of resource reads");
     expect(read).toHaveBeenCalledTimes(6);
     expect(spawnMock).toHaveBeenCalledTimes(7);
@@ -627,4 +647,42 @@ it("measures one read latency for a batch versus four latencies for sequential r
   } finally {
     now.mockRestore();
   }
+});
+
+describe("Pi native read flow", () => {
+  it("uses extension-owned reads with a qualified configured model and isolated CLI environment", async () => {
+    vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/example-missing-pi-config");
+    vi.stubEnv("NODE_OPTIONS", "example-untrusted-option");
+    const { prompts } = mockTurns(
+      [
+        { text: "", tool: logTool },
+        { text: "Ready", tool: null },
+      ],
+      "pi",
+    );
+    const readLogs = vi.fn().mockResolvedValue("ERROR example issue\n");
+    const result = await runAiChat(
+      { ...request, provider: "pi", model: "example/glm-5-3", reasoningEffort: "high" },
+      () => ({ read: vi.fn(), readLogs }),
+    );
+    expect(result).toMatchObject({ text: "Ready", provider: "pi", reads: [{ method: "logs", status: "ok" }] });
+    expect(readLogs).toHaveBeenCalledOnce();
+    expect(prompts[1]).toContain('"errorLines":1');
+    expect(spawnMock.mock.calls.every(([command]) => command === "pi")).toBe(true);
+    const [, args, options] = spawnMock.mock.calls[0];
+    expect(args).toContain("example/glm-5-3");
+    expect(args).toContain("high");
+    expect(options.env).not.toHaveProperty("NODE_OPTIONS");
+    expect(options.env.PI_CODING_AGENT_DIR).toBe(`${options.cwd}/pi-agent`);
+    expect(options.shell).toBe(false);
+  });
+
+  it("does not start Pi after cancellation or with invalid effort", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const pi = { ...request, provider: "pi" as const, model: "example/deepseek-v4-flash" };
+    await expect(runAiChat(pi, vi.fn(), controller.signal)).rejects.toBeDefined();
+    await expect(runAiChat({ ...pi, reasoningEffort: "ultra" }, vi.fn())).rejects.toThrow("Invalid AI request");
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
 });

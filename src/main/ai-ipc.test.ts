@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => {
     preferences: {
       enabled: true,
       provider: "codex",
+      piModel: "example/glm-5-3",
+      piReasoningEffort: "high",
       claudeModel: "sonnet",
       claudeReasoningEffort: "max",
       claudeSpeed: "fast",
@@ -283,6 +285,14 @@ it("uses the persisted provider and its settings instead of forged renderer sett
       model: "sonnet",
       reasoningEffort: "max",
       speed: "fast",
+    });
+    mocks.preferences.provider = "pi";
+    await send(12, { provider: "codex", speed: "fast" });
+    expect(mocks.runAiChat.mock.calls[2][0]).toMatchObject({
+      provider: "pi",
+      model: "example/glm-5-3",
+      reasoningEffort: "high",
+      speed: "default",
     });
   } finally {
     stop();

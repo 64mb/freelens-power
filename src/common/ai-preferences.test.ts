@@ -115,3 +115,27 @@ it("persists sanitized attachment receipts only on user messages with copied sna
   expect(messages[0].attachments?.[0].text).not.toContain("sample-sensitive");
   expect(messages[1]).not.toHaveProperty("attachments");
 });
+
+it("persists independent Pi settings and provider history without changing existing settings", () => {
+  const store = new AiPreferencesStore();
+  store.fromStore({
+    provider: "pi",
+    piModel: "example/deepseek-v4-flash",
+    piReasoningEffort: "off",
+    model: "codex-model",
+    claudeModel: "sonnet",
+  });
+  store.setMessages("example", [{ role: "assistant", text: "Pi reply", provider: "pi" }]);
+  const restored = new AiPreferencesStore();
+  restored.fromStore(store.toJSON());
+  expect(restored.toJSON()).toMatchObject({
+    provider: "pi",
+    piModel: "example/deepseek-v4-flash",
+    piReasoningEffort: "off",
+    model: "codex-model",
+    claudeModel: "sonnet",
+    conversations: { example: [{ role: "assistant", text: "Pi reply", provider: "pi" }] },
+  });
+  restored.fromStore({ piReasoningEffort: "unknown" });
+  expect(restored.piReasoningEffort).toBe("");
+});

@@ -1,6 +1,6 @@
 import type { AiResourceReference } from "./ai-extras";
 
-export type AiProvider = "codex" | "claude";
+export type AiProvider = "codex" | "claude" | "pi";
 
 export interface AiReadActivity {
   method: "pods" | "nodes" | "resources" | "logs";
