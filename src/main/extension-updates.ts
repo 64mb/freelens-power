@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { BrowserWindow, ipcMain, net } from "electron";
+import { app, BrowserWindow, ipcMain, net } from "electron";
 import { reaction } from "mobx";
 import { version as VERSION } from "../../package.json";
 import { EXTENSION_UPDATES_CHANNEL, type ExtensionUpdatesStatus, isValidVersion } from "../common/extension-updates";
@@ -52,6 +52,10 @@ export function startExtensionUpdates(extension: { manifestPath: string }): () =
   let expires = 0;
   let pending: Promise<void> | undefined;
   let controller: AbortController | undefined;
+  let restartTimer: ReturnType<typeof setTimeout> | undefined;
+  let restartPending: Promise<boolean> | undefined;
+  let resolveRestart: ((result: boolean) => void) | undefined;
+  let relaunchQueued = false;
   const allowed = () => active && power.enabled && power.checkUpdates;
   const stop = reaction(
     () => power.enabled && power.checkUpdates,
@@ -72,6 +76,8 @@ export function startExtensionUpdates(extension: { manifestPath: string }): () =
     return { runtimeVersion: VERSION, installedVersion, ...(allowed() && latestVersion ? { latestVersion } : {}) };
   };
   ipcMain.handle(EXTENSION_UPDATES_CHANNEL, async (event, request: unknown) => {
+    const restart =
+      !!request && typeof request === "object" && "operation" in request && request.operation === "restart";
     const sender = event.sender;
     const window = BrowserWindow.fromWebContents(sender);
     if (
@@ -83,11 +89,49 @@ export function startExtensionUpdates(extension: { manifestPath: string }): () =
       window.isDestroyed() ||
       !request ||
       typeof request !== "object" ||
-      Object.keys(request).length !== 1 ||
       !("operation" in request) ||
-      (request.operation !== "check" && request.operation !== "status")
+      (restart
+        ? Object.keys(request).length !== 2 || !("version" in request) || !isValidVersion(request.version)
+        : Object.keys(request).length !== 1 || (request.operation !== "check" && request.operation !== "status"))
     )
-      return null;
+      return restart ? false : null;
+    if (request.operation === "restart" && "version" in request) {
+      if (!power.enabled) return false;
+      const installed = await status();
+      if (
+        !active ||
+        !power.enabled ||
+        installed.installedVersion !== request.version ||
+        event.senderFrame !== sender.mainFrame ||
+        !trustedUrl(sender.getURL()) ||
+        !trustedUrl(event.senderFrame?.url ?? "") ||
+        window.isDestroyed()
+      )
+        return false;
+      if (!restartPending) {
+        restartPending = new Promise<boolean>((resolve) => {
+          resolveRestart = resolve;
+        });
+        restartTimer = setTimeout(() => {
+          restartTimer = undefined;
+          let success = false;
+          try {
+            if (active && power.enabled) {
+              if (!relaunchQueued) {
+                app.relaunch();
+                relaunchQueued = true;
+              }
+              app.quit();
+              success = true;
+            }
+          } catch {}
+          resolveRestart?.(success);
+          resolveRestart = undefined;
+          if (!success) restartPending = undefined;
+        }, 0);
+      }
+      return restartPending;
+    }
     if (request.operation === "check" && allowed() && Date.now() >= expires) {
       if (!pending) {
         const abort = new AbortController();
@@ -124,6 +168,9 @@ export function startExtensionUpdates(extension: { manifestPath: string }): () =
     active = false;
     stop();
     controller?.abort();
+    if (restartTimer !== undefined) clearTimeout(restartTimer);
+    resolveRestart?.(false);
+    resolveRestart = undefined;
     ipcMain.removeHandler(EXTENSION_UPDATES_CHANNEL);
   };
 }

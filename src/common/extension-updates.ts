@@ -1,8 +1,6 @@
 export const EXTENSION_UPDATES_CHANNEL = "freelens-power:extension-updates";
 
-export interface ExtensionUpdatesRequest {
-  operation: "check" | "status";
-}
+export type ExtensionUpdatesRequest = { operation: "check" | "status" } | { operation: "restart"; version: string };
 
 export interface ExtensionUpdatesStatus {
   runtimeVersion: string;

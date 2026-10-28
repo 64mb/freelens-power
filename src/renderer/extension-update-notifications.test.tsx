@@ -3,14 +3,24 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), info: vi.fn(), request: vi.fn(), preferences: undefined as any }));
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  request: vi.fn(),
+  preferences: undefined as any,
+}));
 vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
-      Notifications: { info: mocks.info },
+      Notifications: { info: mocks.info, error: mocks.error },
       Icon: () => null,
-      Button: (props: any) => <button onClick={props.onClick}>{props.children}</button>,
+      Button: (props: any) => (
+        <button disabled={props.disabled} onClick={props.onClick}>
+          {props.children}
+        </button>
+      ),
     },
   },
 }));
@@ -177,4 +187,72 @@ it("does not run in cluster frames", async () => {
   await advance(20 * 60 * 1000);
   expect(mocks.invoke).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("restarts only after an explicit click with the installed version and disables repeated pending requests", async () => {
+  mocks.invoke.mockResolvedValue(status("2.9.0"));
+  await begin();
+  render(mocks.info.mock.calls[0][0]);
+  const button = screen.getByRole("button", { name: "Restart Freelens" }) as HTMLButtonElement;
+  expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("freelens-power:extension-updates", { operation: "status" });
+  let resolve!: (value: boolean) => void;
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  fireEvent.click(button);
+  expect(button.disabled).toBe(true);
+  fireEvent.click(button);
+  expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  expect(mocks.invoke).toHaveBeenLastCalledWith("freelens-power:extension-updates", {
+    operation: "restart",
+    version: "2.9.0",
+  });
+  resolve(true);
+  await flush();
+  expect(button.disabled).toBe(true);
+  expect(mocks.error).not.toHaveBeenCalled();
+});
+it.each(["rejected", "declined"])("reports a %s restart request and permits retry", async (failure) => {
+  mocks.invoke.mockResolvedValue(status("2.9.0"));
+  await begin();
+  render(mocks.info.mock.calls[0][0]);
+  const button = screen.getByRole("button", { name: "Restart Freelens" }) as HTMLButtonElement;
+  if (failure === "rejected") mocks.invoke.mockRejectedValueOnce(new Error("restart unavailable"));
+  else mocks.invoke.mockResolvedValueOnce(false);
+  fireEvent.click(button);
+  await flush();
+  expect(mocks.error).toHaveBeenCalledExactlyOnceWith(
+    "Could not restart Freelens. Close and reopen it when convenient.",
+  );
+  expect(button.disabled).toBe(false);
+  mocks.invoke.mockResolvedValueOnce(true);
+  fireEvent.click(button);
+  await flush();
+  expect(mocks.invoke).toHaveBeenCalledTimes(3);
+  expect(mocks.error).toHaveBeenCalledOnce();
+});
+it("keeps a disposed restart notice inert and suppresses errors from an earlier pending request", async () => {
+  mocks.invoke.mockResolvedValue(status("2.9.0"));
+  await begin();
+  render(mocks.info.mock.calls[0][0]);
+  const button = screen.getByRole("button", { name: "Restart Freelens" });
+  let reject!: (error: Error) => void;
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  fireEvent.click(button);
+  stop?.();
+  reject(new Error("disposed"));
+  await flush();
+  expect(mocks.error).not.toHaveBeenCalled();
+  cleanup();
+  render(mocks.info.mock.calls[0][0]);
+  fireEvent.click(screen.getByRole("button", { name: "Restart Freelens" }));
+  expect(mocks.invoke).toHaveBeenCalledTimes(2);
 });

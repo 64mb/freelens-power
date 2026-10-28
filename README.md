@@ -42,7 +42,7 @@ Real extension components with synthetic website content, prompts, and conversat
 
 ## Install
 
-Install `@64mb/freelens-power` from the npm registry in Freelens Extensions, or download the `.tgz` package from [GitHub Releases](https://github.com/64mb/freelens-power/releases), open **Extensions** in Freelens (`Cmd+Shift+E` on macOS), and install it by its absolute path. The installed Power entry provides **Update**, which opens the native installer for the latest package and keeps its replacement confirmation. Update notifications can open the same installer; disable automatic checks below **Enable Freelens Power** in preferences. After an update, a notification recommends restarting Freelens when convenient. You can also build and pack the extension locally.
+Install `@64mb/freelens-power` from the npm registry in Freelens Extensions, or download the `.tgz` package from [GitHub Releases](https://github.com/64mb/freelens-power/releases), open **Extensions** in Freelens (`Cmd+Shift+E` on macOS), and install it by its absolute path. The installed Power entry provides **Update**, which opens the native installer for the latest package and keeps its replacement confirmation. Update notifications can open the same installer; disable automatic checks below **Enable Freelens Power** in preferences. After an update, a notification recommends restarting when convenient and provides **Restart Freelens**. You can also build and pack the extension locally.
 
 ## Develop
 

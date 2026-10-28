@@ -4,6 +4,8 @@ import { EXTENSION_UPDATES_CHANNEL, isNewerVersion } from "../common/extension-u
 
 const mocks = vi.hoisted(() => ({
   handle: vi.fn(),
+  relaunch: vi.fn(),
+  quit: vi.fn(),
   removeHandler: vi.fn(),
   fetch: vi.fn(),
   readFile: vi.fn(),
@@ -11,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   store: {} as { enabled: boolean; checkUpdates: boolean },
 }));
 vi.mock("electron", () => ({
+  app: { relaunch: mocks.relaunch, quit: mocks.quit },
   ipcMain: { handle: mocks.handle, removeHandler: mocks.removeHandler },
   BrowserWindow: { fromWebContents: mocks.window },
   net: { fetch: mocks.fetch },
@@ -60,6 +63,73 @@ describe("extension update backend", () => {
     expect(await call(child, { operation: "check" })).toBeNull();
     expect(await call(event(), { operation: "check", url: "https://example.invalid" })).toBeNull();
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+  it("only restarts after a trusted explicit request matching the installed version", async () => {
+    await call(event(), { operation: "check" });
+    await call(event(), { operation: "status" });
+    await vi.runAllTimersAsync();
+    expect(mocks.relaunch).not.toHaveBeenCalled();
+    expect(await call(event("https://example.invalid/"), { operation: "restart", version: "2.8.4" })).toBe(false);
+    expect(await call(event(), { operation: "restart", version: "invalid" })).toBe(false);
+    expect(await call(event(), { operation: "restart", version: "2.9.0" })).toBe(false);
+    expect(await call(event(), { operation: "restart", version: "2.8.4", extra: true })).toBe(false);
+    expect(mocks.relaunch).not.toHaveBeenCalled();
+    const first = call(event(), { operation: "restart", version: "2.8.4" });
+    const second = call(event(), { operation: "restart", version: "2.8.4" });
+    expect(mocks.relaunch).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(mocks.relaunch).toHaveBeenCalledTimes(1);
+    expect(mocks.quit).toHaveBeenCalledTimes(1);
+    expect(mocks.relaunch.mock.invocationCallOrder[0]).toBeLessThan(mocks.quit.mock.invocationCallOrder[0]);
+  });
+  it("rejects restart while disabled and cancels a deferred restart on disposal", async () => {
+    runInAction(() => {
+      mocks.store.enabled = false;
+    });
+    expect(await call(event(), { operation: "restart", version: "2.8.4" })).toBe(false);
+    runInAction(() => {
+      mocks.store.enabled = true;
+      mocks.store.checkUpdates = false;
+    });
+    const result = call(event(), { operation: "restart", version: "2.8.4" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(vi.getTimerCount()).toBe(1);
+    dispose?.();
+    expect(await result).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(mocks.relaunch).not.toHaveBeenCalled();
+    expect(mocks.quit).not.toHaveBeenCalled();
+  });
+  it("reports relaunch failures and retries the explicit restart", async () => {
+    mocks.relaunch.mockImplementationOnce(() => {
+      throw new Error("relaunch failed");
+    });
+    const failed = call(event(), { operation: "restart", version: "2.8.4" });
+    await vi.runAllTimersAsync();
+    expect(await failed).toBe(false);
+    expect(mocks.quit).not.toHaveBeenCalled();
+    const retry = call(event(), { operation: "restart", version: "2.8.4" });
+    await vi.runAllTimersAsync();
+    expect(await retry).toBe(true);
+    expect(mocks.relaunch).toHaveBeenCalledTimes(2);
+    expect(mocks.quit).toHaveBeenCalledTimes(1);
+  });
+  it("does not queue duplicate relaunches when retrying a failed quit", async () => {
+    mocks.quit.mockImplementationOnce(() => {
+      throw new Error("quit failed");
+    });
+    const failed = call(event(), { operation: "restart", version: "2.8.4" });
+    await vi.runAllTimersAsync();
+    expect(await failed).toBe(false);
+    const retry = call(event(), { operation: "restart", version: "2.8.4" });
+    await vi.runAllTimersAsync();
+    expect(await retry).toBe(true);
+    expect(mocks.relaunch).toHaveBeenCalledTimes(1);
+    expect(mocks.quit).toHaveBeenCalledTimes(2);
   });
   it("deduplicates concurrent checks and caches successful versions for six hours", async () => {
     const results = await Promise.all([call(event(), { operation: "check" }), call(event(), { operation: "check" })]);

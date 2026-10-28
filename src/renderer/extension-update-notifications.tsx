@@ -1,6 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { ipcRenderer } from "electron";
 import { reaction } from "mobx";
+import { useEffect, useRef, useState } from "react";
 import { version as VERSION } from "../../package.json";
 import {
   EXTENSION_UPDATES_CHANNEL,
@@ -15,6 +16,39 @@ const { Notifications, Button, Icon } = Renderer.Component;
 const attemptKey = "freelens-power-update-attempt";
 const attemptLifetime = 30 * 60 * 1000;
 type Attempt = { version: string; startedAt: number };
+
+function RestartButton({ version, active }: { version: string; active: () => boolean }) {
+  const [restarting, setRestarting] = useState(false);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
+  return (
+    <Button
+      disabled={restarting}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+      onClick={async () => {
+        if (restarting || !active()) return;
+        setRestarting(true);
+        try {
+          const accepted = await ipcRenderer.invoke(EXTENSION_UPDATES_CHANNEL, { operation: "restart", version });
+          if (accepted === true || !active()) return;
+        } catch {
+          if (!active()) return;
+        }
+        if (!mounted.current) return;
+        setRestarting(false);
+        Notifications.error("Could not restart Freelens. Close and reopen it when convenient.");
+      }}
+    >
+      <Icon material="restart_alt" size={16} style={{ margin: 0, padding: 0 }} aria-hidden="true" />
+      <span>Restart Freelens</span>
+    </Button>
+  );
+}
 
 function readAttempt(): Attempt | undefined {
   try {
@@ -67,9 +101,15 @@ export function startExtensionUpdateNotifications(): () => void {
         restartedVersion = value.installedVersion;
         removeRestart?.();
         removeRestart = Notifications.info(
-          <div data-power-extension-restart-notice="">
-            <strong>Freelens Power {value.installedVersion} is installed</strong>
-            <p>Restart Freelens when convenient to ensure all changes are loaded.</p>
+          <div
+            data-power-extension-restart-notice=""
+            style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}
+          >
+            <div style={{ flex: 1 }}>
+              <strong>Freelens Power {value.installedVersion} is installed</strong>
+              <p>Restart Freelens when convenient to ensure all changes are loaded.</p>
+            </div>
+            <RestartButton version={value.installedVersion} active={() => !stopped} />
           </div>,
           { id: "freelens-power-restart-recommended", timeout: 0 },
         );

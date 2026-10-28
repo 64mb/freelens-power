@@ -2,6 +2,13 @@ export function startHostLayoutStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-layout";
   style.textContent = `
+    :root .Notifications .notification {
+      width: min(520px, calc(100vw - 32px));
+      min-width: 0;
+      max-width: none;
+      box-sizing: border-box;
+    }
+    :root .Notifications .notification > .message { min-width: 0; }
     :root .Select__menu-list .Select__option { margin-block: 0 2px; }
     :root .Select__menu-list .Select__option:last-child { margin-bottom: 0; }
     :root .TableCell [class*="badge-module__badge--"][class*="badge-module__flat--"][class*="badge-module__interactive--"]:hover {
