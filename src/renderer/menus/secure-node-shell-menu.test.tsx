@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SecureNodeShellMenu } from "./secure-node-shell-menu";
 
 const mocks = vi.hoisted(() => ({
-  preferences: { command: "ssh", preferIPv6: false, useColimaSSH: true },
+  preferences: { command: "ssh", replaceDefaultNodeShell: false, preferIPv6: false, useColimaSSH: true },
   contextName: "remote",
   createTerminalTab: vi.fn(() => ({ id: "shell-tab" })),
   sendCommand: vi.fn(async () => {}),
@@ -26,7 +26,7 @@ vi.mock("@freelensapp/extensions", () => ({
           {children}
         </button>
       ),
-      Icon: () => null,
+      Icon: ({ svg, material }: any) => <span data-testid="shell-icon" data-svg={svg} data-material={material} />,
       Notifications: { error: mocks.error },
       createTerminalTab: mocks.createTerminalTab,
       terminalStore: { sendCommand: mocks.sendCommand },
@@ -51,10 +51,19 @@ describe("SecureNodeShellMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.preferences.command = "ssh";
+    mocks.preferences.replaceDefaultNodeShell = false;
     mocks.preferences.preferIPv6 = false;
     mocks.preferences.useColimaSSH = true;
     mocks.contextName = "remote";
     mocks.sendCommand.mockResolvedValue();
+  });
+
+  it.each([false, true])("uses the expected icon with replacement %s", (replaceDefaultNodeShell) => {
+    mocks.preferences.replaceDefaultNodeShell = replaceDefaultNodeShell;
+    renderMenu([{ type: "InternalIP", address: "192.0.2.1" }]);
+    const icon = screen.getByTestId("shell-icon");
+    expect(icon.getAttribute("data-svg")).toBe(replaceDefaultNodeShell ? "ssh" : null);
+    expect(icon.getAttribute("data-material")).toBe(replaceDefaultNodeShell ? null : "vpn_key");
   });
 
   it("opens a local terminal and sends the configured command with the selected IPv6 address", async () => {

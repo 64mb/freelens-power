@@ -332,6 +332,36 @@ extensionTest("Settings jumps and stable pointer geometry", async (session, fram
   await restoredSearch.getByRole("button", { name: "Close resource search" }).click();
 });
 
+extensionTest("Secure Node Shell optionally replaces the native action", async (session, frame, info) => {
+  await frame.locator('[data-testid="link-for-sidebar-item-nodes"]').click();
+  await frame.locator(".Nodes .TableRow .TableCell.name").first().click();
+  const secure = frame.locator(".Drawer .power-secure-node-shell-menu").first();
+  await expect(secure).toBeVisible();
+  const native = secure.locator("..").locator(':scope > .MenuItem:has(> .title:text-is("Shell"))');
+  await expect(native).toHaveCount(1);
+  await expect(native).toBeVisible();
+  await expect(secure.locator('[data-icon-name="vpn_key"]')).toHaveCount(1);
+  const nativeIcon = await native.locator(".Icon.svg svg").evaluate((element) => element.outerHTML);
+  const setReplacement = async (enabled: boolean) => {
+    await session.window.locator(".freelens-power-settings-icon").click();
+    const settings = session.window.locator(".freelens-power-preferences");
+    const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: "Replace default Node Shell" });
+    if ((await toggle.locator("input").isChecked()) !== enabled) await toggle.click();
+    if (enabled) await expect(toggle.locator("input")).toBeChecked();
+    else await expect(toggle.locator("input")).not.toBeChecked();
+    await session.window.locator('div[class*="close-button-module__closeButton--"][aria-label="Close"]').click();
+  };
+  await setReplacement(true);
+  await expect(native).toBeHidden();
+  await expect(secure).toBeVisible();
+  await expect(secure.locator(".Icon.svg svg")).toHaveCount(1);
+  expect(await secure.locator(".Icon.svg svg").evaluate((element) => element.outerHTML)).toBe(nativeIcon);
+  await session.screenshot(info, "node-shell-replaced");
+  await setReplacement(false);
+  await expect(native).toBeVisible();
+  await expect(secure.locator('[data-icon-name="vpn_key"]')).toHaveCount(1);
+});
+
 extensionTest("AI resource attachment survives closing its drawer", async (session, frame, info) => {
   await session.window.locator(".freelens-power-settings-icon").click();
   const settings = session.window.locator(".freelens-power-preferences");

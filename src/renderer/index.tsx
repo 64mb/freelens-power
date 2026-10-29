@@ -41,6 +41,7 @@ import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
 import { startMonitoringHistoryCollection } from "./monitoring-history-collection";
 import { NodeMonitoringDetails } from "./node-monitoring";
+import { startNodeShellEntrypoints } from "./node-shell-entrypoints";
 import { startPodDetailsEnhancements } from "./pod-details-enhancements";
 import { startPodMonitoring } from "./pod-monitoring";
 import { PowerLogsPage } from "./power-logs";
@@ -101,6 +102,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
         if (enabled) {
           for (const start of [
             startReadOnlyMode,
+            startNodeShellEntrypoints,
             startMonitoringCollector,
             startMonitoringHistoryCollection,
             startMonitoring,
