@@ -33,9 +33,9 @@ export const SecureNodeShellMenu = observer(
     };
 
     return (
-      <MenuItem onClick={connect} disabled={!canConnect} style={{ order: -1 }}>
+      <MenuItem className="power-secure-node-shell-menu" onClick={connect} disabled={!canConnect} style={{ order: -1 }}>
         <Icon
-          material="vpn_key"
+          {...(preferences.replaceDefaultNodeShell ? { svg: "ssh" } : { material: "vpn_key" })}
           interactive={toolbar}
           tooltip={canConnect ? "Secure Node Shell" : "No node IP address available"}
         />

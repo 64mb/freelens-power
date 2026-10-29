@@ -32,6 +32,19 @@ export const NodeShellPreferences = observer(() => {
       </div>
       <div>
         <Switch
+          checked={preferences.replaceDefaultNodeShell}
+          onChange={(value) => {
+            preferences.replaceDefaultNodeShell = value;
+          }}
+        >
+          Replace default Node Shell
+        </Switch>
+        <div className="power-settings-hint">
+          Hide the default Node Shell action and use its icon for Secure Node Shell.
+        </div>
+      </div>
+      <div>
+        <Switch
           checked={preferences.preferIPv6}
           onChange={(value) => {
             preferences.preferIPv6 = value;
