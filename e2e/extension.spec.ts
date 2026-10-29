@@ -107,7 +107,7 @@ test("catalog floating action follows the accent and restores native colors", as
         .click();
     };
     const closeSettings = () => session.window.getByTestId("close-preferences").click();
-    const select = settings.locator("#freelens-power-accent-color");
+    const select = settings.locator(".Select__control:has(#freelens-power-accent-color)");
     const choose = async (name: string) => {
       await openAppearance();
       await select.click();
