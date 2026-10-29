@@ -337,7 +337,10 @@ extensionTest("Secure Node Shell optionally replaces the native action", async (
   await frame.locator(".Nodes .TableRow .TableCell.name").first().click();
   const secure = frame.locator(".Drawer .power-secure-node-shell-menu").first();
   await expect(secure).toBeVisible();
-  const native = secure.locator("..").locator(':scope > .MenuItem:has(> .title:text-is("Shell"))');
+  const native = secure
+    .locator("..")
+    .locator(":scope > .MenuItem")
+    .filter({ has: frame.locator("span.title").filter({ hasText: /^Shell$/ }) });
   await expect(native).toHaveCount(1);
   await expect(native).toBeVisible();
   await expect(secure.locator('[data-icon-name="vpn_key"]')).toHaveCount(1);
