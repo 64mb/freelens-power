@@ -111,7 +111,10 @@ test("catalog floating action follows the accent and restores native colors", as
     const choose = async (name: string) => {
       await openAppearance();
       await select.click();
-      await settings.getByRole("option", { name, exact: true }).click();
+      await session.window
+        .locator(".Select__option")
+        .filter({ hasText: new RegExp(`^${name}$`) })
+        .click();
       await closeSettings();
     };
     await choose("Yellow");
