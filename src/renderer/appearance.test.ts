@@ -184,6 +184,46 @@ describe("application accent override", () => {
     }
   });
 
+  it("scopes catalog floating accents to enabled primary actions and restores native styles", () => {
+    document.body.innerHTML = `<div class="CatalogAddButton"><button class="MuiFab-primary"></button><button class="MuiFab-primary Mui-disabled"></button><button class="MuiSpeedDialAction-fab"></button></div><button class="MuiFab-primary"></button><div class="AddRemoveButtons"><button class="Button primary add-button"></button><button class="Button primary remove-button"></button></div>`;
+    try {
+      dispose = startAppearanceOverride();
+      const floatingRules = () => rules().filter((rule) => rule.selectorText.includes(".CatalogAddButton"));
+      const [normal, hover] = floatingRules();
+      expect(document.querySelectorAll(normal.selectorText)).toHaveLength(1);
+      expect(normal.style.getPropertyValue("background-color")).toBe("var(--primary)");
+      expect(document.querySelector('style[data-freelens-power="accent-color"]')?.textContent).toContain(
+        `${normal.selectorText} { background-color: var(--primary) !important;`,
+      );
+      expect(normal.style.getPropertyValue("color")).toBe("var(--freelens-power-accent-foreground)");
+      expect(hover.selectorText).toBe(`${normal.selectorText}:hover`);
+      expect(hover.style.getPropertyValue("background-color")).toBe("color-mix(in srgb, var(--primary) 88%, black)");
+      const primaryRule = () => rules().find((rule) => rule.selectorText.startsWith(":root .Button.primary"));
+      const primaryButtons = document.querySelectorAll(primaryRule()!.selectorText);
+      expect(primaryButtons).toHaveLength(1);
+      expect(primaryButtons[0].classList.contains("add-button")).toBe(true);
+      runInAction(() => {
+        preferences.accentColor = "default";
+      });
+      expect(floatingRules()).toHaveLength(0);
+      expect(primaryRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.accentColor = DEFAULT_ACCENT_COLOR;
+        preferences.enabled = false;
+      });
+      expect(floatingRules()).toHaveLength(0);
+      expect(primaryRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.enabled = true;
+      });
+      expect(floatingRules()).toHaveLength(2);
+      dispose();
+      expect(floatingRules()).toHaveLength(0);
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
   it("accents informational notifications and restores native colors for default, disable and disposal", () => {
     document.body.innerHTML = `<div class="Notifications"><div class="notification info"></div><div class="notification ok"></div><div class="notification error"></div><div class="notification warning"></div></div><div class="notification info"></div>`;
     try {

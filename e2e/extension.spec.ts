@@ -74,6 +74,64 @@ function extensionTest(title: string, run: (session: FreelensSession, frame: Fra
   });
 }
 
+test("catalog floating action follows the accent and restores native colors", async ({}, info) => {
+  const session = new FreelensSession();
+  let failed = false;
+  try {
+    await session.start(info);
+    await session.install(info);
+    const welcome = session.window.getByText("Browse Clusters in Catalog", { exact: true });
+    if (await welcome.isVisible()) await welcome.click();
+    const button = session.window.locator(".CatalogAddButton .MuiFab-primary");
+    await expect(button).toBeVisible();
+    await expect(button).toHaveCSS("background-color", "rgb(112, 96, 232)");
+    await expect(button.locator(".Icon")).toHaveCSS("color", "rgb(255, 255, 255)");
+    await session.screenshot(info, "catalog-floating-accent");
+    await button.hover();
+    const hoverColor = await button.evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "color-mix(in srgb, var(--primary) 88%, black)";
+      element.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    await expect(button).toHaveCSS("background-color", hoverColor);
+    await session.screenshot(info, "catalog-floating-accent-hover");
+    const settings = session.window.locator(".freelens-power-preferences");
+    const openAppearance = async () => {
+      await session.window.locator(".freelens-power-settings-icon").click();
+      await settings
+        .getByRole("navigation", { name: "Settings sections" })
+        .getByRole("button", { name: /Appearance/ })
+        .click();
+    };
+    const closeSettings = () => session.window.getByTestId("close-preferences").click();
+    const select = settings.locator("#freelens-power-accent-color");
+    const choose = async (name: string) => {
+      await openAppearance();
+      await select.click();
+      await settings.getByRole("option", { name, exact: true }).click();
+      await closeSettings();
+    };
+    await choose("Yellow");
+    await expect(button).toHaveCSS("background-color", "rgb(237, 201, 39)");
+    await expect(button.locator(".Icon")).toHaveCSS("color", "rgb(0, 0, 0)");
+    await choose("Default");
+    await expect(button).toHaveCSS("background-color", "rgb(0, 167, 160)");
+    await choose("Purple");
+    await openAppearance();
+    await settings.getByText("Override accent color", { exact: true }).click();
+    await closeSettings();
+    await expect(button).toHaveCSS("background-color", "rgb(0, 167, 160)");
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    await session.close(info, true, failed);
+  }
+});
+
 extensionTest("universal search and trusted resource drawers", async (session, frame, info) => {
   let dialog = await openSearch(frame);
   const secret = await search(dialog, "k8s-lockbox-secret");
