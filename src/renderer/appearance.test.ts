@@ -146,9 +146,10 @@ describe("application accent override", () => {
     expect(downloadRule()).toBeUndefined();
   });
 
-  it("accents the sidebar resize handle and dock creation menu without changing status colors", () => {
+  it("accents sidebar and dock resize handles and the dock creation menu without changing status colors", () => {
     document.body.innerHTML = `
       <div class="main-layout-module__sidebar--example"><div class="ResizingAnchor horizontal"></div></div>
+      <div class="Dock"><div class="ResizingAnchor vertical"></div></div>
       <div class="Menu"><div class="MenuItem create-terminal-tab"></div><div class="MenuItem create-resource-tab"></div></div>
       <div class="MenuItem resource-status"></div><div class="Nodes"><div class="ResizingAnchor"></div></div>
     `;
@@ -156,10 +157,13 @@ describe("application accent override", () => {
       dispose = startAppearanceOverride();
       const sidebarRule = () => rules().find((rule) => rule.selectorText.includes("main-layout-module__sidebar--"));
       const dockRule = () => rules().find((rule) => rule.selectorText.includes("create-terminal-tab"));
+      const dockResizeRule = () => rules().find((rule) => rule.selectorText.includes(".Dock > .ResizingAnchor"));
       expect(document.querySelectorAll(sidebarRule()!.selectorText)).toHaveLength(1);
       expect(document.querySelectorAll(dockRule()!.selectorText)).toHaveLength(2);
+      expect(document.querySelectorAll(dockResizeRule()!.selectorText)).toHaveLength(1);
       expect(sidebarRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
       expect(dockRule()?.style.getPropertyValue("--bgc-active")).toBe("var(--primary)");
+      expect(dockResizeRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
       expect(accentRule()?.style.getPropertyValue("--menuActiveBackground")).toBe("");
       expect(accentRule()?.style.getPropertyValue("--colorSuccess")).toBe("");
       runInAction(() => {
@@ -167,12 +171,14 @@ describe("application accent override", () => {
       });
       expect(sidebarRule()).toBeUndefined();
       expect(dockRule()).toBeUndefined();
+      expect(dockResizeRule()).toBeUndefined();
       runInAction(() => {
         preferences.accentColor = DEFAULT_ACCENT_COLOR;
         preferences.enabled = false;
       });
       expect(sidebarRule()).toBeUndefined();
       expect(dockRule()).toBeUndefined();
+      expect(dockResizeRule()).toBeUndefined();
     } finally {
       document.body.innerHTML = "";
     }

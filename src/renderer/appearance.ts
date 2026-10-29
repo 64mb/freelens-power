@@ -59,6 +59,7 @@ export function startAppearanceOverride(): () => void {
         :root .Checkbox, :root .Drawer .drawer-title, :root .DrawerParamToggler .param-link, :root .Drawer .ResizingAnchor { --blue: var(--primary); }
         :root [role="treeitem"][class*="catalog-tree-module__selected--"] { --blue: var(--primary); }
         :root [class*="main-layout-module__sidebar--"] > .ResizingAnchor { --blue: var(--primary); }
+        :root .Dock > .ResizingAnchor { --blue: var(--primary); }
         :root .MenuItem:is(.create-terminal-tab, .create-resource-tab) { --bgc-active: var(--primary); }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
         :root .Select__option--is-focused:not(.Select__option--is-selected) { color: var(--textColorAccent) !important; }
