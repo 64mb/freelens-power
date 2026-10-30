@@ -493,6 +493,40 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     pickerPage.getByText("Loading resources in the current namespace selection…", { exact: true }),
   ).toHaveCount(0);
   await resourcePicker.press("ArrowDown");
+  const pickerState = await frame.evaluate(() => {
+    type Store = {
+      items: { kind?: string; metadata?: { name?: string; namespace?: string; uid?: string } }[];
+      contextItems: unknown[];
+      contextNamespaces?: string[];
+      isLoaded: boolean;
+      failedLoading: boolean;
+      api?: { kind?: string };
+    };
+    type Api = { Renderer: { K8sApi: Record<string, Store> } };
+    const scope = globalThis as unknown as { LensExtensions?: Api; global?: { LensExtensions?: Api } };
+    const api = (scope.LensExtensions ?? scope.global?.LensExtensions)?.Renderer.K8sApi;
+    if (!api) return { available: false };
+    return Object.fromEntries(
+      ["namespaceStore", "podsStore", "deploymentStore", "daemonSetStore"].map((key) => {
+        const store = api[key];
+        const sample = store.items[0];
+        return [
+          key,
+          {
+            items: store.items.length,
+            contextItems: store.contextItems.length,
+            contextNamespaces: store.contextNamespaces?.length,
+            loaded: store.isLoaded,
+            failed: store.failedLoading,
+            apiKind: store.api?.kind,
+            sampleKind: sample?.kind,
+            metadataFields: Object.keys(sample?.metadata ?? {}),
+          },
+        ];
+      }),
+    );
+  });
+  console.info("Power Logs resource picker state", JSON.stringify(pickerState));
   await expect(frame.locator(".Select__option").filter({ hasText: `/ Deployment / ${logsDeployment}` })).toBeVisible();
   await expect(frame.locator(".Select__option").filter({ hasText: `/ Pod / ${samplePodName}` })).toBeVisible();
   await session.screenshot(info, "power-logs-direct-resource-picker");
