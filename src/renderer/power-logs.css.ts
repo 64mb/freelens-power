@@ -115,6 +115,7 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-target, .power-logs-caption { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .power-logs-select { display:inline-block; min-width:0; max-width:360px; flex:1; }
 .power-logs-source .power-logs-select { flex:1; max-width:none; }
+.power-logs-resource-namespace { flex:0 1 240px; min-width:160px; }
 .power-logs-select > div { width:100%; min-width:0; }
 .power-logs-filters .power-logs-select { flex:0 1 180px; }
 .power-logs-filters .power-logs-select[data-source-select] { flex:1 1 260px; max-width:420px; }

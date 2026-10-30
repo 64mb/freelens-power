@@ -91,6 +91,7 @@ vi.mock("@freelensapp/extensions", () => {
         ConfirmDialog: { open: (...args: any[]) => mocks.confirm(...args) },
         Icon: ({ material, svg }: any) => <span aria-hidden="true" data-icon={material ?? svg} />,
         Tooltip: (props: any) => <MockTooltip {...props} />,
+        NamespaceSelectFilter: ({ id }: { id: string }) => <input id={id} readOnly value="default" />,
         Select: ({ "aria-label": label, value, options, onChange, isDisabled, formatOptionLabel }: any) => {
           const [open, setOpen] = useState(false);
           return (
@@ -223,6 +224,7 @@ it("lists workloads before pods across namespaces when opened without a resource
     { kind: "Deployment", metadata: { namespace: "beta", name: "a-worker", uid: "deployment-a" } },
   ];
   await mount();
+  expect(screen.getByLabelText("Namespace")).toBeTruthy();
   expect(
     within(screen.getByLabelText("Resource"))
       .getAllByRole("option")

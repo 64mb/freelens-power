@@ -193,6 +193,12 @@ const SourcePicker = observer(() => {
   return (
     <>
       <div className="power-logs-source">
+        <label htmlFor="power-logs-resource-namespace" className="power-logs-control-label">
+          Namespace
+        </label>
+        <div className="power-logs-resource-namespace">
+          <Renderer.Component.NamespaceSelectFilter id="power-logs-resource-namespace" />
+        </div>
         <span className="power-logs-control-label">Resource</span>
         <LogSelect
           label="Resource"
