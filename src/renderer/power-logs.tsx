@@ -40,8 +40,9 @@ import { SqlEditor } from "./power-log-sql-editor";
 import { powerLogsStyles } from "./power-logs.css";
 import { createPowerLogsClient } from "./power-logs-client";
 import { collectHistoricalLogs, type LiveLogCoverage, resolveLogSources, startLiveLogs } from "./power-logs-collector";
+import { withLogContext } from "./power-logs-context";
 import { openPowerLogs, parsePowerLogsTarget } from "./power-logs-entrypoints";
-import { subscribeLogResourceStores } from "./power-logs-resource-stores";
+import { type LogResourceStoresState, subscribeLogResourceStores } from "./power-logs-resource-stores";
 import { CaptureSqlDrafts } from "./power-logs-sql-drafts";
 import { sqlRowDetails } from "./power-logs-sql-row";
 import { createPowerLogsTransport } from "./power-logs-transport";
@@ -85,6 +86,7 @@ function initialSource(container: unknown = new URLSearchParams(window.location.
 }
 
 function LogSelect({
+  id,
   label,
   value,
   options,
@@ -93,6 +95,7 @@ function LogSelect({
   renderOption,
   onKeyDown,
 }: {
+  id?: string;
   label: string;
   value: string;
   options: { value: string; label: string }[];
@@ -102,7 +105,7 @@ function LogSelect({
   renderOption?: (option: { value: string; label: string }, context: "menu" | "value") => ReactNode;
 }) {
   return (
-    <span className="power-logs-select" data-source-select={label === "Container source" || undefined}>
+    <span id={id} className="power-logs-select" data-source-select={label === "Container source" || undefined}>
       <Renderer.Component.Select
         aria-label={label}
         value={value}
@@ -151,6 +154,8 @@ function LogSelect({
 }
 
 const SourcePicker = observer(() => {
+  const [loadState, setLoadState] = useState<LogResourceStoresState>({ loading: true, failed: false });
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const stores = useMemo(
     () => [
       Renderer.K8sApi.podsStore,
@@ -169,8 +174,9 @@ const SourcePicker = observer(() => {
         stores,
         (callback) => Renderer.K8sApi.namespaceStore.onContextChange(callback),
         Renderer.K8sApi.namespaceStore,
+        setLoadState,
       ),
-    [stores],
+    [stores, loadAttempt],
   );
   const targets = stores.flatMap((store) =>
     store.contextItems.flatMap((object) => {
@@ -185,31 +191,54 @@ const SourcePicker = observer(() => {
       `${a.namespace}/${a.kind}/${a.name}`.localeCompare(`${b.namespace}/${b.kind}/${b.name}`),
   );
   return (
-    <div className="power-logs-source">
-      <span className="power-logs-control-label">Resource</span>
-      <LogSelect
-        label="Resource"
-        value={value}
-        onChange={setValue}
-        options={[
-          { value: "", label: "Choose a pod or workload" },
-          ...sorted.map((target) => ({
-            value: target.uid,
-            label: `${target.namespace} / ${target.kind} / ${target.name}`,
-          })),
-        ]}
-      />
-      <button
-        type="button"
-        disabled={!targets.some((target) => target.uid === value)}
-        onClick={() => {
-          const target = targets.find((t) => t.uid === value);
-          if (target) openPowerLogs(target);
-        }}
-      >
-        <Icon material="subject" size={16} /> Open logs
-      </button>
-    </div>
+    <>
+      <div className="power-logs-source">
+        <label htmlFor="power-logs-resource-namespace" className="power-logs-control-label">
+          Namespace
+        </label>
+        <div className="power-logs-resource-namespace">
+          <Renderer.Component.NamespaceSelectFilter id="power-logs-resource-namespace" />
+        </div>
+        <span className="power-logs-control-label">Resource</span>
+        <LogSelect
+          label="Resource"
+          value={value}
+          disabled={loadState.loading && targets.length === 0}
+          onChange={setValue}
+          options={[
+            { value: "", label: loadState.loading ? "Loading pods and workloads…" : "Choose a pod or workload" },
+            ...sorted.map((target) => ({
+              value: target.uid,
+              label: `${target.namespace} / ${target.kind} / ${target.name}`,
+            })),
+          ]}
+        />
+        <button
+          type="button"
+          disabled={!targets.some((target) => target.uid === value)}
+          onClick={() => {
+            const target = targets.find((t) => t.uid === value);
+            if (target) openPowerLogs(target);
+          }}
+        >
+          <Icon material="subject" size={16} /> Open logs
+        </button>
+      </div>
+      {(loadState.loading || loadState.failed || targets.length === 0) && (
+        <div className="power-logs-muted" role="status">
+          {loadState.loading
+            ? "Loading resources in the current namespace selection…"
+            : loadState.failed
+              ? "Could not load some resources. Available results may be incomplete."
+              : "No pods or workloads found in the current namespace selection."}
+          {!loadState.loading && (
+            <button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+              <Icon material="refresh" size={16} /> Retry loading resources
+            </button>
+          )}
+        </div>
+      )}
+    </>
   );
 });
 
@@ -221,6 +250,7 @@ function LogRows({
   follow,
   setFollow,
   compact,
+  matches,
 }: {
   records: ViewRecord[];
   loading: boolean;
@@ -229,6 +259,7 @@ function LogRows({
   follow: boolean;
   setFollow(value: boolean): void;
   compact: boolean;
+  matches?: ReadonlySet<ViewRecord>;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(0);
@@ -285,6 +316,8 @@ function LogRows({
                 type="button"
                 className="power-log-row"
                 data-level={record.level}
+                data-search-match={matches?.has(record) || undefined}
+                data-context={(matches && !matches.has(record)) || undefined}
                 aria-pressed={selected === record.key}
                 style={{ top: (start + i) * rowHeight, height: rowHeight }}
                 key={record.key}
@@ -450,6 +483,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [sqlError, setSqlError] = useState("");
   const [tab, setTab] = useState<"live" | "captures">("live");
   const [text, setText] = useState("");
+  const [contextLines, setContextLines] = useState(0);
   const [level, setLevel] = useState("");
   const [source, setSource] = useState(initialSource);
   const [savedPoolFull, setSavedPoolFull] = useState(false);
@@ -1014,6 +1048,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     [records, text, level, source, fieldFilters, matchFields],
   );
   const chosenCapture = captures.find((item) => item.id === captureId);
+  const matchingRecords = useMemo(() => new Set(filtered), [filtered]);
+  const displayedRecords = useMemo(
+    () => withLogContext(records, matchingRecords, contextLines),
+    [records, matchingRecords, contextLines],
+  );
+  const showContext = contextLines > 0 && Boolean(text || level || fieldFilters.length);
   const collectionNotes = tab === "live" ? [...new Set([...notes, ...(live ? (liveCoverage?.notes ?? []) : [])])] : [];
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("power-logs-workspace-change", { detail: { active: true } }));
@@ -1408,6 +1448,17 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 ...levels.map((value) => ({ value, label: value.toUpperCase() })),
               ]}
             />
+            <NativeTooltip title="Show loaded lines before and after each match from the same pod and container. Context can include other levels and JSON values.">
+              <LogSelect
+                label="Search context"
+                value={String(contextLines)}
+                onChange={(value) => setContextLines(Number(value))}
+                options={[
+                  { value: "0", label: "No context" },
+                  ...[3, 5, 10].map((count) => ({ value: String(count), label: `Context: ±${count} lines` })),
+                ]}
+              />
+            </NativeTooltip>
             <LogSelect
               label="Container source"
               renderOption={(option, context) => {
@@ -1475,14 +1526,22 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             title={`${status} · Viewer retains up to ${limits.liveRows.toLocaleString()} lines / ${limits.liveBytes / 1048576} MiB`}
           >
             <div className="power-logs-muted power-logs-status" role="status">
-              <span>{filtered.length.toLocaleString()} matching lines</span> · {status}
+              <span>{filtered.length.toLocaleString()} matching lines</span>
+              {showContext && (
+                <span>
+                  {" "}
+                  · {(displayedRecords.length - filtered.length).toLocaleString()} context lines (loaded only)
+                </span>
+              )}{" "}
+              · {status}
               {liveCoverage && live ? ` · ${liveCoverage.active}/${liveCoverage.total} active sources` : ""} · Viewer
               retains up to {limits.liveRows.toLocaleString()} lines / {limits.liveBytes / 1048576} MiB
             </div>
           </NativeTooltip>
           <div className="power-logs-workspace">
             <LogRows
-              records={filtered}
+              records={displayedRecords}
+              matches={showContext ? matchingRecords : undefined}
               loading={busy}
               selected={selected?.key}
               onSelect={setSelected}

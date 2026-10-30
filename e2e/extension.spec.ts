@@ -485,6 +485,28 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     await expect(toggle.locator("input")).toBeChecked();
   }
   await closeSettings();
+  await frame.getByText("Power Logs", { exact: true }).first().click();
+  const pickerPage = frame.getByTestId("power-logs-page");
+  const resourcePicker = pickerPage.getByRole("combobox", { name: "Resource", exact: true });
+  await expect(resourcePicker).toBeEnabled();
+  await expect(
+    pickerPage.getByText("Loading resources in the current namespace selection…", { exact: true }),
+  ).toHaveCount(0);
+  await pickerPage.locator(".power-logs-resource-namespace .Select__control").click();
+  await frame
+    .locator(".Select__option")
+    .filter({ hasText: /^All Namespaces$/ })
+    .click();
+  await expect(pickerPage.locator('[data-testid="namespace-select-filter"]')).toContainText("All namespaces");
+  await expect(resourcePicker).toBeEnabled();
+  await expect(
+    pickerPage.getByText("Loading resources in the current namespace selection…", { exact: true }),
+  ).toHaveCount(0);
+  await resourcePicker.press("ArrowDown");
+  await expect(frame.locator(".Select__option").filter({ hasText: `/ Deployment / ${logsDeployment}` })).toBeVisible();
+  await expect(frame.locator(".Select__option").filter({ hasText: `/ Pod / ${samplePodName}` })).toBeVisible();
+  await session.screenshot(info, "power-logs-direct-resource-picker");
+  await resourcePicker.press("Escape");
   const openDeployment = async (active: Frame) => {
     const dialog = await openSearch(active);
     await (await search(dialog, logsDeployment, "Deployment")).click();
@@ -500,6 +522,15 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.getByRole("status").filter({ hasText: /sources/ })).toContainText("6 sources", {
     timeout: 120_000,
   });
+  const controlHeights = await page
+    .locator(".power-logs-filters")
+    .evaluate((element) =>
+      [...element.querySelectorAll(":scope > input, :scope > button, .Select__control")].map(
+        (control) => control.getBoundingClientRect().height + (control.classList.contains("Select__control") ? 2 : 0),
+      ),
+    );
+  expect(controlHeights.length).toBeGreaterThanOrEqual(6);
+  for (const height of controlHeights) expect(height).toBe(32);
   const sourceFilter = page.getByRole("combobox", { name: "Container source", exact: true });
   await sourceFilter.click();
   const sourceMenu = frame.getByRole("listbox");
@@ -561,6 +592,14 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · sidecar" }).click();
   await expect(page.locator(".power-log-row .power-log-origin").first()).toContainText(logsDeployment);
   await expect(page.locator(".power-log-row").first()).toHaveAttribute("data-level", "error");
+  await page.getByRole("combobox", { name: "Search context", exact: true }).press("ArrowDown");
+  await frame.locator(".Select__option").filter({ hasText: "Context: ±3 lines" }).click();
+  await expect(page.locator(".power-log-row[data-search-match=true]").first()).toBeVisible();
+  await expect(page.locator(".power-log-row[data-context=true]").first()).toBeVisible();
+  await expect(page.getByText(/context lines \(loaded only\)/)).toBeVisible();
+  await session.screenshot(info, "power-logs-search-context");
+  await page.getByRole("combobox", { name: "Search context", exact: true }).press("ArrowDown");
+  await frame.locator(".Select__option").filter({ hasText: "No context" }).click();
   await page.locator(".power-log-row").first().click();
   const detail = page.getByLabel("Log line details");
   await expect(detail).toContainText("Structured fields");

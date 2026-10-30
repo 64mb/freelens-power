@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   explain: vi.fn(),
   delete: vi.fn(),
   clearPersistent: vi.fn(),
+  namespaceLoad: vi.fn(),
   export: vi.fn(),
   objects: [] as any[],
 }));
@@ -61,7 +62,7 @@ vi.mock("@freelensapp/extensions", () => {
     Renderer: {
       Catalog: { activeCluster: { get: () => ({ metadata: { uid: "cluster-a" } }) } },
       K8sApi: {
-        namespaceStore: { onContextChange: () => () => {}, loadAll: async () => {} },
+        namespaceStore: { onContextChange: () => () => {}, loadAll: (...args: any[]) => mocks.namespaceLoad(...args) },
         ...Object.fromEntries(
           [
             "podsStore",
@@ -90,6 +91,7 @@ vi.mock("@freelensapp/extensions", () => {
         ConfirmDialog: { open: (...args: any[]) => mocks.confirm(...args) },
         Icon: ({ material, svg }: any) => <span aria-hidden="true" data-icon={material ?? svg} />,
         Tooltip: (props: any) => <MockTooltip {...props} />,
+        NamespaceSelectFilter: ({ id }: { id: string }) => <input id={id} readOnly value="default" />,
         Select: ({ "aria-label": label, value, options, onChange, isDisabled, formatOptionLabel }: any) => {
           const [open, setOpen] = useState(false);
           return (
@@ -164,6 +166,7 @@ async function mount() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.namespaceLoad.mockResolvedValue([]);
   window.history.replaceState({}, "", `/?target=${encodeURIComponent(JSON.stringify(target))}`);
   vi.stubGlobal(
     "ResizeObserver",
@@ -221,6 +224,7 @@ it("lists workloads before pods across namespaces when opened without a resource
     { kind: "Deployment", metadata: { namespace: "beta", name: "a-worker", uid: "deployment-a" } },
   ];
   await mount();
+  expect(screen.getByLabelText("Namespace")).toBeTruthy();
   expect(
     within(screen.getByLabelText("Resource"))
       .getAllByRole("option")
@@ -237,6 +241,21 @@ it("lists workloads before pods across namespaces when opened without a resource
     "zeta / StatefulSet / worker",
     "alpha / Pod / worker",
   ]);
+});
+
+it("distinguishes resource loading failures from an empty selection and allows retry", async () => {
+  window.history.replaceState({}, "", "/");
+  mocks.objects = [];
+  mocks.namespaceLoad.mockImplementationOnce(async (options) => {
+    options.onLoadFailure(new Error("Unavailable"));
+    return [];
+  });
+  await mount();
+  await waitFor(() => expect(screen.getByText(/Could not load some resources/)).toBeTruthy());
+  expect(screen.queryByText(/No pods or workloads found/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retry loading resources" }));
+  await waitFor(() => expect(screen.getByText(/No pods or workloads found/)).toBeTruthy());
+  expect(mocks.namespaceLoad).toHaveBeenCalledTimes(2);
 });
 
 it("retains the workload target when opened from a resource", async () => {
@@ -321,6 +340,43 @@ it("virtualizes a large stream and filters and expands a specific source line", 
     reason: "timeout",
   });
   fireEvent.change(screen.getByLabelText("Container source"), { target: { value: "container:application" } });
+  expect(screen.getByText("No matching log lines")).toBeTruthy();
+});
+
+it("shows loaded context from the matching stream, including other levels, and restores matches only", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([
+      record(0, { message: "before" }),
+      record(1, { message: "other container", container: "sidecar" }),
+      record(2, { message: "needle", level: "error" }),
+      record(3, { message: "previous process", previous: true }),
+      record(4, { message: "after" }),
+      record(5, { message: "other pod", podUid: "another-pod" }),
+    ]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "needle" } });
+  fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "error" } });
+  expect(screen.getByText("1 matching lines")).toBeTruthy();
+  expect(view.container.querySelectorAll(".power-log-row")).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText("Search context"), { target: { value: "3" } });
+  expect(screen.getByText(/2 context lines \(loaded only\)/)).toBeTruthy();
+  const rows = [...view.container.querySelectorAll(".power-log-row")];
+  expect(rows.map((row) => row.querySelector(".power-log-message")?.textContent)).toEqual([
+    "before",
+    "needle",
+    "after",
+  ]);
+  expect(view.container.querySelectorAll("[data-search-match=true]")).toHaveLength(1);
+  expect(view.container.querySelectorAll("[data-context=true]")).toHaveLength(2);
+  fireEvent.click(rows[0]);
+  expect(screen.getByLabelText("Log line details").textContent).toContain("before");
+  fireEvent.change(screen.getByLabelText("Search context"), { target: { value: "0" } });
+  expect(view.container.querySelectorAll(".power-log-row")).toHaveLength(1);
+  expect(screen.queryByText(/context lines \(loaded only\)/)).toBeNull();
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "missing" } });
+  fireEvent.change(screen.getByLabelText("Search context"), { target: { value: "5" } });
   expect(screen.getByText("No matching log lines")).toBeTruthy();
 });
 

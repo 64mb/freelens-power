@@ -3,10 +3,16 @@ interface ResourceStore {
   subscribe(options: { abortController: AbortController; onLoadFailure(error: unknown): void }): () => void;
 }
 
+export interface LogResourceStoresState {
+  loading: boolean;
+  failed: boolean;
+}
+
 export function subscribeLogResourceStores(
   stores: ResourceStore[],
   onNamespaceChange: (callback: () => void) => () => void,
   namespaceStore?: Pick<ResourceStore, "loadAll">,
+  onStateChange: (state: LogResourceStoresState) => void = () => {},
 ): () => void {
   let stop = () => {};
   const bootstrap = new AbortController();
@@ -14,7 +20,16 @@ export function subscribeLogResourceStores(
     stop();
     const controller = new AbortController();
     const unsubscribers: (() => void)[] = [];
-    const onLoadFailure = () => {};
+    let pending = stores.length;
+    let failed = namespaceFailed;
+    const publish = () => {
+      if (!controller.signal.aborted) onStateChange({ loading: pending > 0, failed });
+    };
+    const onLoadFailure = () => {
+      failed = true;
+      publish();
+    };
+    publish();
     stop = () => {
       controller.abort();
       for (const unsubscribe of unsubscribers) unsubscribe();
@@ -27,9 +42,14 @@ export function subscribeLogResourceStores(
             unsubscribers.push(store.subscribe({ abortController: controller, onLoadFailure }));
           }
         })
-        .catch(onLoadFailure);
+        .catch(onLoadFailure)
+        .finally(() => {
+          pending -= 1;
+          publish();
+        });
     }
   };
+  let namespaceFailed = false;
   let stopNamespaceChanges = () => {};
   const start = () => {
     if (bootstrap.signal.aborted) return;
@@ -37,7 +57,14 @@ export function subscribeLogResourceStores(
     reload();
   };
   if (namespaceStore) {
-    void namespaceStore.loadAll({ reqInit: { signal: bootstrap.signal }, onLoadFailure: () => {} }).then(start, start);
+    onStateChange({ loading: true, failed: false });
+    const onLoadFailure = () => {
+      namespaceFailed = true;
+    };
+    void namespaceStore.loadAll({ reqInit: { signal: bootstrap.signal }, onLoadFailure }).then(start, () => {
+      onLoadFailure();
+      start();
+    });
   } else start();
   return () => {
     bootstrap.abort();
