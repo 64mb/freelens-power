@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  handlers: new Map<string, (event: unknown, input: unknown) => Promise<unknown>>(),
   handler: undefined as ((event: unknown, input: unknown) => Promise<unknown>) | undefined,
   preferenceChanged: undefined as ((value: { enabled: boolean; limits?: unknown }) => void) | undefined,
   preferences: { enabled: true },
@@ -15,11 +16,12 @@ vi.mock("@freelensapp/extensions", () => ({
   Main: { Catalog: { getClusterById: () => ({ contextName: "example", kubeConfigPath: "example-config" }) } },
 }));
 vi.mock("electron", () => ({
-  BrowserWindow: { fromWebContents: () => ({}) },
+  BrowserWindow: { fromWebContents: () => ({ isDestroyed: () => false }) },
   dialog: { showSaveDialog: mocks.showSaveDialog },
   ipcMain: {
     handle: (_channel: string, handler: typeof mocks.handler) => {
       mocks.handler = handler;
+      if (handler) mocks.handlers.set(_channel, handler);
     },
     removeHandler: vi.fn(),
   },
@@ -197,4 +199,47 @@ it("applies enabled and trusted-renderer guards to SQL draft storage without usi
   }
   await expect(invoke(request)).rejects.toThrow("unavailable");
   expect(mocks.call).toHaveBeenCalledTimes(1);
+});
+
+it("restricts global storage operations to the trusted settings main frame and enabled extension", async () => {
+  const stop = startPowerLogs();
+  const frame = { url: "https://renderer.freelens.app/preferences" };
+  const sender = { mainFrame: frame, getURL: () => frame.url };
+  const event = { sender, senderFrame: frame };
+  const handler = mocks.handlers.get("freelens-power:logs-storage")!;
+  try {
+    for (const untrusted of [
+      { sender, senderFrame: { ...frame } },
+      { sender: { ...sender, getURL: () => "https://example.invalid/" }, senderFrame: frame },
+      (() => {
+        const other = { url: "https://cluster-example.renderer.freelens.app/" };
+        return {
+          sender: { mainFrame: other, getURL: () => other.url },
+          senderFrame: other,
+        };
+      })(),
+    ])
+      await expect(handler(untrusted, { operation: "clear" })).rejects.toThrow("unavailable");
+    expect(mocks.call).not.toHaveBeenCalled();
+    await expect(handler(event, { operation: "query" })).rejects.toThrow("unavailable");
+    await handler(event, { operation: "status" });
+    expect(mocks.call).toHaveBeenLastCalledWith({
+      clusterId: "settings",
+      contextId: "settings",
+      operation: "storage-status",
+    });
+    await handler(event, { operation: "clear" });
+    expect(mocks.call).toHaveBeenLastCalledWith({
+      clusterId: "settings",
+      contextId: "settings",
+      operation: "clear-storage",
+    });
+    mocks.preferences.enabled = false;
+    await expect(handler(event, { operation: "clear" })).rejects.toThrow("unavailable");
+    mocks.preferences.enabled = true;
+    stop();
+    await expect(handler(event, { operation: "clear" })).rejects.toThrow("unavailable");
+  } finally {
+    stop();
+  }
 });

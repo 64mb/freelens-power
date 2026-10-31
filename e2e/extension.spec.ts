@@ -529,7 +529,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
         (control) => control.getBoundingClientRect().height + (control.classList.contains("Select__control") ? 2 : 0),
       ),
     );
-  expect(controlHeights.length).toBeGreaterThanOrEqual(6);
+  expect(controlHeights.length).toBeGreaterThanOrEqual(5);
   for (const height of controlHeights) expect(height).toBe(32);
   const sourceFilter = page.getByRole("combobox", { name: "Container source", exact: true });
   await sourceFilter.click();
@@ -592,15 +592,34 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await frame.getByRole("option").filter({ hasText: "All pods" }).filter({ hasText: "Container · sidecar" }).click();
   await expect(page.locator(".power-log-row .power-log-origin").first()).toContainText(logsDeployment);
   await expect(page.locator(".power-log-row").first()).toHaveAttribute("data-level", "error");
-  await page.getByRole("combobox", { name: "Search context", exact: true }).press("ArrowDown");
-  await frame.locator(".Select__option").filter({ hasText: "Context: ±3 lines" }).click();
+  await expect(page.getByRole("combobox", { name: "Search context", exact: true })).toHaveCount(0);
+  const matchedRow = page.locator(".power-log-row").first();
+  await matchedRow.hover();
+  const surrounding = matchedRow.getByRole("button", { name: "Show surrounding lines", exact: true });
+  await expect(surrounding).toHaveCSS("opacity", "1");
+  await surrounding.hover();
+  await expect
+    .poll(() =>
+      surrounding.evaluate((element) => {
+        const sample = document.createElement("span");
+        sample.style.color = "var(--primary)";
+        element.append(sample);
+        const accent = getComputedStyle(sample).color;
+        sample.remove();
+        return getComputedStyle(element).color === accent;
+      }),
+    )
+    .toBe(true);
+  await surrounding.click();
+  const expandedContext = page.locator('.power-log-context[aria-expanded="true"]');
+  await expect(expandedContext).toHaveCount(1);
   await expect(page.locator(".power-log-row[data-search-match=true]").first()).toBeVisible();
   await expect(page.locator(".power-log-row[data-context=true]").first()).toBeVisible();
-  await expect(page.getByText(/context lines \(loaded only\)/)).toBeVisible();
+  await expect(page.getByLabel("Log line details")).toHaveCount(0);
   await session.screenshot(info, "power-logs-search-context");
-  await page.getByRole("combobox", { name: "Search context", exact: true }).press("ArrowDown");
-  await frame.locator(".Select__option").filter({ hasText: "No context" }).click();
-  await page.locator(".power-log-row").first().click();
+  await expandedContext.click();
+  await expect(page.locator(".power-log-row[data-context=true]")).toHaveCount(0);
+  await page.locator(".power-log-open").first().click();
   const detail = page.getByLabel("Log line details");
   await expect(detail).toContainText("Structured fields");
   const geometry = await page.evaluate((element) => {
@@ -633,6 +652,22 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   expect(geometry.detailTop).toBeLessThan(geometry.streamBottom);
   expect(geometry.detailWidth).toBeGreaterThan(200);
   expect(geometry.detailRight).toBeLessThanOrEqual(geometry.viewport + 1);
+  await detail.getByText('"sequence"', { exact: true }).hover();
+  const showColumn = detail.getByRole("button", { name: "Show field as column", exact: true });
+  await expect(showColumn).toBeVisible();
+  await showColumn.click();
+  const columnHeading = page.getByRole("button", { name: 'Remove column $["sequence"]', exact: true });
+  await expect(columnHeading).toBeVisible();
+  await expect(page.locator(".power-log-column-value").first()).toHaveText(/^\d+$/);
+  await expect(page.locator(".power-log-row").first()).toHaveCSS("height", "34px");
+  await detail.getByRole("button", { name: "Close line details", exact: true }).click();
+  await columnHeading.click();
+  await expect(page.locator(".power-log-column-value")).toHaveCount(0);
+  await page.locator(".power-logs-stream").evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  await page.locator(".power-log-open").first().click();
+  await expect(detail).toBeVisible();
   await session.screenshot(info, "power-logs-filtered-line");
   await page.getByRole("button", { name: "Open AI assistant", exact: true }).click();
   const assistant = frame.getByLabel("AI assistant", { exact: true });

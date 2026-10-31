@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
+const storage = vi.hoisted(() => ({ status: vi.fn(), clear: vi.fn(), confirm: vi.fn() }));
+vi.mock("../power-logs-storage", () => ({ powerLogsStorage: storage }));
 const singleton = vi.hoisted(() => ({ store: undefined as unknown }));
 vi.mock("@freelensapp/extensions", () => ({
   Common: {
@@ -17,6 +19,7 @@ vi.mock("@freelensapp/extensions", () => ({
   },
   Renderer: {
     Component: {
+      ConfirmDialog: { open: storage.confirm },
       Select: ({
         options,
         value,
@@ -66,6 +69,15 @@ import { LogsPreferences } from "./logs-preferences";
 
 let preferences: LogsPreferencesStore;
 beforeEach(() => {
+  vi.clearAllMocks();
+  storage.status.mockResolvedValue({
+    bytes: 2 * 1024 * 1024,
+    maxBytes: 1024 * 1024 * 1024,
+    captures: 3,
+    collecting: 1,
+  });
+  storage.clear.mockResolvedValue(true);
+  storage.confirm.mockReset();
   preferences = new LogsPreferencesStore();
   singleton.store = preferences;
   applyPowerLogsLimits(undefined);
@@ -134,22 +146,37 @@ it.each([
   expect(POWER_LOGS_LIMITS).toEqual({ ...previous, ...patch });
 });
 
-it("resets all limits only when explicitly requested", () => {
-  preferences.fromStore({
-    enabled: true,
-    gentle: false,
-    compactRows: true,
-    limits: { liveRows: 321, liveBytes: 1024 * 1024, resultRows: 23 },
-  });
-  applyPowerLogsLimits(preferences.limits);
+it("shows physical storage and confirms clearing completed captures across all clusters without changing limits", async () => {
+  preferences.fromStore({ enabled: true, limits: { liveRows: 321 } });
+  const previous = preferences.toJSON();
   render(<LogsPreferences />);
-  fireEvent.click(screen.getByRole("button", { name: "Reset log limits" }));
-  expect(preferences.toJSON()).toMatchObject({
-    enabled: true,
-    gentle: false,
-    compactRows: true,
-    limits: POWER_LOGS_DEFAULT_LIMITS,
-  });
-  expect(POWER_LOGS_LIMITS).toEqual(POWER_LOGS_DEFAULT_LIMITS);
-  expect((screen.getByRole("combobox", { name: "Live buffer" }) as HTMLSelectElement).value).toBe("2");
+  await screen.findByText("2.00 / 1024 MiB");
+  expect(screen.queryByRole("button", { name: "Reset log limits" })).toBeNull();
+  expect(screen.getByRole("progressbar", { name: "Local log storage" }).getAttribute("aria-valuemax")).toBe(
+    String(1024 * 1024 * 1024),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  expect(storage.clear).not.toHaveBeenCalled();
+  const confirmation = storage.confirm.mock.calls[0][0];
+  expect(confirmation.message).toMatch(/pinned snapshots.*all clusters/);
+  expect(confirmation.message).toMatch(/Active captures are preserved/);
+  storage.status.mockResolvedValue({ bytes: 0, maxBytes: 1024 * 1024 * 1024, captures: 1, collecting: 1 });
+  confirmation.ok();
+  await screen.findByText("0.00 / 1024 MiB");
+  expect(storage.clear).toHaveBeenCalledOnce();
+  expect(preferences.toJSON()).toEqual(previous);
+});
+
+it("keeps settings and usage visible when clearing fails", async () => {
+  preferences.enabled = true;
+  storage.clear.mockRejectedValueOnce(new Error("unavailable"));
+  render(<LogsPreferences />);
+  await screen.findByText("2.00 / 1024 MiB");
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  storage.confirm.mock.calls[0][0].ok();
+  await screen.findByText("Unable to clear log storage. Try again.");
+  expect(screen.getByText("2.00 / 1024 MiB")).toBeTruthy();
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Clear" }) as HTMLButtonElement).disabled).toBe(false),
+  );
 });

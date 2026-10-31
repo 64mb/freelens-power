@@ -12,7 +12,7 @@ export class CaptureSqlDrafts {
 
   constructor(
     private save: (id: string, sql: string) => Promise<unknown>,
-    private onError?: (id: string) => void,
+    private onError?: (id: string, error: unknown) => void,
   ) {}
 
   read(capture: LogCapture, fallback: string): string {
@@ -65,11 +65,11 @@ export class CaptureSqlDrafts {
       if (this.local.get(id)?.lifetime !== draft.lifetime) return;
       try {
         await this.save(id, draft.sql);
-      } catch {
+      } catch (error) {
         // retain the local draft without retrying failed writes or reporting obsolete failures
         if (!this.disposed && this.local.get(id)?.version === draft.version) {
           try {
-            this.onError?.(id);
+            this.onError?.(id, error);
           } catch {
             /* error feedback must not break later saves */
           }

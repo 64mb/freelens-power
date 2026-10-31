@@ -3,7 +3,7 @@ import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { app, type UtilityProcess, utilityProcess } from "electron";
-import { POWER_LOGS_LIMITS as L, type LogRequest } from "../common/power-logs";
+import { POWER_LOGS_LIMITS as L, type LogRequest, POWER_LOGS_STORAGE_FULL } from "../common/power-logs";
 import { normalizePowerLogsLimits } from "../common/power-logs-limits";
 
 import type { PowerLogsQuerySnapshot } from "./power-logs-query";
@@ -90,7 +90,8 @@ export class PowerLogsWorker {
       if (error)
         pending.reject(
           new Error(
-            error === "Saved snapshot limit reached. Delete a saved snapshot before keeping another."
+            error === POWER_LOGS_STORAGE_FULL ||
+              error === "Saved snapshot limit reached. Delete a saved snapshot before keeping another."
               ? error
               : "Log operation failed or exceeded its limit",
           ),
@@ -113,7 +114,7 @@ export class PowerLogsWorker {
   }
   private clearing = false;
   call(request: LogRequest, destination?: string): Promise<unknown> {
-    if (request.operation === "clear-persistent") {
+    if (request.operation === "clear-persistent" || request.operation === "clear-storage") {
       if (this.clearing) return Promise.reject(new Error("Log storage busy"));
       this.clearing = true;
       this.query?.reject(new Error("Log query canceled"));

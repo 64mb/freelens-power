@@ -4,10 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
+import {
+  type LogCapture,
+  type LogRecord,
+  type LogTarget,
+  POWER_LOGS_CHANNEL,
+  POWER_LOGS_STORAGE_FULL,
+} from "../common/power-logs";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 import { PowerLogsPage } from "./power-logs";
-
-import type { LogCapture, LogRecord, LogTarget } from "../common/power-logs";
 
 const mocks = vi.hoisted(() => ({
   copy: vi.fn(),
@@ -301,7 +306,7 @@ it.each([false, true])("copies complete structured JSON and reports clipboard fa
       throw new Error("clipboard unavailable");
     });
   const view = await mount();
-  fireEvent.click(view.container.querySelector(".power-log-row")!);
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
   const severity = screen.getByLabelText("Log line details").querySelector(".power-logs-muted .power-logs-level-label");
   expect(severity?.textContent).toBe("INFO");
   expect(severity?.getAttribute("data-level")).toBe("info");
@@ -335,7 +340,7 @@ it("virtualizes a large stream and filters and expands a specific source line", 
   fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "needle" } });
   fireEvent.change(screen.getByLabelText("Container source"), { target: { value: "container:sidecar" } });
   expect(screen.getByText("1 matching lines")).toBeTruthy();
-  fireEvent.click(view.container.querySelector(".power-log-row")!);
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
   expect(JSON.parse(screen.getByLabelText("Log line details").querySelector(".power-log-json")!.textContent!)).toEqual({
     reason: "timeout",
   });
@@ -343,7 +348,7 @@ it("virtualizes a large stream and filters and expands a specific source line", 
   expect(screen.getByText("No matching log lines")).toBeTruthy();
 });
 
-it("shows loaded context from the matching stream, including other levels, and restores matches only", async () => {
+it("expands only the chosen stream and keeps details separate from surrounding lines", async () => {
   mocks.history.mockImplementation(async (_sources, _transport, options) => {
     await options.onRecords([
       record(0, { message: "before" }),
@@ -358,10 +363,10 @@ it("shows loaded context from the matching stream, including other levels, and r
   const view = await mount();
   fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "needle" } });
   fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "error" } });
-  expect(screen.getByText("1 matching lines")).toBeTruthy();
+  expect(screen.queryByLabelText("Search context")).toBeNull();
   expect(view.container.querySelectorAll(".power-log-row")).toHaveLength(1);
-  fireEvent.change(screen.getByLabelText("Search context"), { target: { value: "3" } });
-  expect(screen.getByText(/2 context lines \(loaded only\)/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Show surrounding lines" }));
+  expect(screen.queryByLabelText("Log line details")).toBeNull();
   const rows = [...view.container.querySelectorAll(".power-log-row")];
   expect(rows.map((row) => row.querySelector(".power-log-message")?.textContent)).toEqual([
     "before",
@@ -370,14 +375,123 @@ it("shows loaded context from the matching stream, including other levels, and r
   ]);
   expect(view.container.querySelectorAll("[data-search-match=true]")).toHaveLength(1);
   expect(view.container.querySelectorAll("[data-context=true]")).toHaveLength(2);
-  fireEvent.click(rows[0]);
+  const expanded = screen.getByRole("button", { name: "Hide surrounding lines" });
+  expect(expanded.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(rows[0].querySelector(".power-log-open")!);
   expect(screen.getByLabelText("Log line details").textContent).toContain("before");
-  fireEvent.change(screen.getByLabelText("Search context"), { target: { value: "0" } });
+  expect(expanded.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(expanded);
   expect(view.container.querySelectorAll(".power-log-row")).toHaveLength(1);
-  expect(screen.queryByText(/context lines \(loaded only\)/)).toBeNull();
-  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "missing" } });
-  fireEvent.change(screen.getByLabelText("Search context"), { target: { value: "5" } });
+  fireEvent.click(screen.getByRole("button", { name: "Show surrounding lines" }));
+  fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "info" } });
+  expect(screen.queryByRole("button", { name: "Hide surrounding lines" })).toBeNull();
   expect(screen.getByText("No matching log lines")).toBeTruthy();
+});
+
+it("bounds each expansion to five neighbors and independently collapses overlapping anchors", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords(
+      Array.from({ length: 31 }, (_, index) =>
+        record(index, {
+          message: [8, 11, 28].includes(index) ? `needle ${index}` : `neighbor ${index}`,
+        }),
+      ),
+    );
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  const row = (message: string) => screen.getByText(message).closest(".power-log-row")!;
+  const toggle = (message: string) => fireEvent.click(row(message).querySelector(".power-log-context")!);
+  const messages = () => {
+    fireEvent.scroll(screen.getByLabelText("Log lines"), { target: { scrollTop: 0 } });
+    return [...view.container.querySelectorAll(".power-log-message")].map((node) => node.textContent);
+  };
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "needle" } });
+  toggle("needle 8");
+  expect(messages()).toHaveLength(12);
+  expect(messages()).toContain("neighbor 3");
+  expect(messages()).toContain("neighbor 13");
+  expect(messages()).not.toContain("neighbor 2");
+  expect(messages()).not.toContain("neighbor 14");
+  expect(messages()).not.toContain("neighbor 27");
+  toggle("needle 11");
+  expect(messages()).toHaveLength(15);
+  expect(new Set(messages()).size).toBe(messages().length);
+  toggle("needle 8");
+  expect(messages()).toHaveLength(12);
+  expect(messages()).not.toContain("neighbor 3");
+  expect(messages()).toContain("neighbor 6");
+  expect(row("needle 11").querySelector(".power-log-context")?.getAttribute("aria-expanded")).toBe("true");
+  toggle("neighbor 6");
+  expect(messages()).toContain("neighbor 1");
+  toggle("needle 11");
+  expect(messages()).toContain("neighbor 1");
+  expect(messages()).not.toContain("neighbor 16");
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "needle 28" } });
+  expect(messages()).toEqual(["needle 28"]);
+  expect(screen.queryByRole("button", { name: "Hide surrounding lines" })).toBeNull();
+  toggle("needle 28");
+  expect(screen.getByRole("button", { name: "Hide surrounding lines" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Hide surrounding lines" })).toBeNull());
+  expect(messages()).toEqual(["needle 28"]);
+});
+
+it("adds nested field columns to every live row and removes them from either action", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([
+      record(0, { fieldsJson: '{"request":{"status":200},"request.status":false}' }),
+      record(1, { fieldsJson: '{"request":{"status":null},"request.status":0}' }),
+      record(2),
+    ]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  const detail = screen.getByLabelText("Log line details");
+  fireEvent.focus(within(detail).getByText('"status"'));
+  fireEvent.click(within(detail).getByRole("button", { name: "Show field as column" }));
+  const values = () => [...view.container.querySelectorAll(".power-log-column-value")].map((cell) => cell.textContent);
+  expect(values()).toEqual(["200", "null", "—"]);
+  expect(screen.getByRole("button", { name: 'Remove column $["request"]["status"]' })).toBeTruthy();
+  expect(screen.queryByLabelText("Live JSON filters")?.textContent ?? "").not.toContain("status");
+  fireEvent.focus(within(detail).getByText('"request.status"'));
+  fireEvent.click(within(detail).getByRole("button", { name: "Show field as column" }));
+  expect(values()).toEqual(["200", "false", "null", "0", "—", "—"]);
+  fireEvent.click(screen.getByRole("button", { name: 'Remove column $["request"]["status"]' }));
+  expect(values()).toEqual(["false", "0", "—"]);
+  fireEvent.focus(within(detail).getByText('"request.status"'));
+  fireEvent.click(within(detail).getByRole("button", { name: "Hide field column" }));
+  expect(values()).toEqual([]);
+  expect(screen.queryByLabelText("Displayed log columns")).toBeNull();
+});
+
+it("limits live field columns to eight and allows replacement after removal", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([
+      record(0, {
+        fieldsJson: JSON.stringify(
+          Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`field${index}`, index])),
+        ),
+      }),
+    ]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  const detail = screen.getByLabelText("Log line details");
+  const add = (index: number) => {
+    fireEvent.focus(within(detail).getByText(`"field${index}"`));
+    fireEvent.click(within(detail).getByRole("button", { name: "Show field as column" }));
+  };
+  for (let index = 0; index < 9; index++) add(index);
+  expect(view.container.querySelectorAll(".power-log-column-heading")).toHaveLength(8);
+  expect(screen.queryByRole("button", { name: 'Remove column $["field8"]' })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: 'Remove column $["field0"]' }));
+  add(8);
+  expect(view.container.querySelectorAll(".power-log-column-heading")).toHaveLength(8);
+  expect(screen.getByRole("button", { name: 'Remove column $["field8"]' })).toBeTruthy();
 });
 
 it("combines JSON field inclusions and exclusions with AND and removes individual filters", async () => {
@@ -390,7 +504,7 @@ it("combines JSON field inclusions and exclusions with AND and removes individua
     return { notes: [], partial: false };
   });
   const view = await mount();
-  fireEvent.click(view.container.querySelector(".power-log-row")!);
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
   const detail = screen.getByLabelText("Log line details");
   fireEvent.focus(within(detail).getByText('"status"'));
   fireEvent.click(within(detail).getByRole("button", { name: "Include value" }));
@@ -705,6 +819,103 @@ it("uses a fixed capture boundary and marks timestamp-less records partial while
   ]);
   expect(mocks.finish.mock.calls[0][1]).toBe(true);
   expect(mocks.finish.mock.calls[0][2].join(" ")).toContain("no timestamp");
+});
+
+it.each([
+  ["create", false],
+  ["create", true],
+  ["append", false],
+  ["append", true],
+  ["finish", false],
+  ["finish", true],
+] as const)("shows actionable storage errors from capture %s (IPC envelope: %s)", async (stage, envelope) => {
+  await mount();
+  const collecting: LogCapture = { ...snapshot, state: "collecting" };
+  mocks.create.mockResolvedValue(collecting);
+  mocks.append.mockResolvedValue(collecting);
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0)]);
+    return { notes: [], partial: false };
+  });
+  const message = envelope
+    ? `Error invoking remote method '${POWER_LOGS_CHANNEL}': Error: ${POWER_LOGS_STORAGE_FULL}`
+    : POWER_LOGS_STORAGE_FULL;
+  mocks[stage].mockRejectedValueOnce(new Error(message));
+  if (stage === "finish") mocks.list.mockResolvedValue([collecting]);
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.click(screen.getByText("Capture logs"));
+  expect(await screen.findByText(POWER_LOGS_STORAGE_FULL)).toBeTruthy();
+  if (stage === "finish") {
+    await waitFor(() => expect(screen.queryByText("Stop & keep partial")).toBeNull());
+    fireEvent.click(screen.getByLabelText("Capture snapshot"));
+    const remove = screen.getByRole("button", {
+      name: `Delete snapshot ${collecting.target.name}`,
+    }) as HTMLButtonElement;
+    expect(remove.disabled).toBe(false);
+    mocks.delete.mockResolvedValueOnce(true);
+    mocks.list.mockResolvedValueOnce([]);
+    fireEvent.click(remove);
+    await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith(collecting.id));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: `Delete snapshot ${collecting.target.name}` })).toBeNull(),
+    );
+  }
+});
+
+it.each([
+  false,
+  true,
+])("shows storage quota errors when saving retention or SQL drafts (IPC envelope: %s)", async (envelope) => {
+  await mount();
+  const message = envelope
+    ? `Error invoking remote method '${POWER_LOGS_CHANNEL}': Error: ${POWER_LOGS_STORAGE_FULL}`
+    : POWER_LOGS_STORAGE_FULL;
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.click(screen.getByLabelText("Capture snapshot"));
+  mocks.setPersistent.mockRejectedValueOnce(new Error(message));
+  fireEvent.click(screen.getByRole("button", { name: `Keep snapshot ${snapshot.target.name}` }));
+  expect(await screen.findByText(POWER_LOGS_STORAGE_FULL)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
+  await screen.findByText("captured log message");
+  await waitFor(() => expect(screen.queryByText(POWER_LOGS_STORAGE_FULL)).toBeNull());
+  mocks.saveSql.mockRejectedValueOnce(new Error(message));
+  fireEvent.change(screen.getByLabelText("SQL query"), { target: { value: "SELECT unsaved_edit" } });
+  expect(await screen.findByText(POWER_LOGS_STORAGE_FULL)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).toBe("SELECT unsaved_edit");
+});
+
+it("preserves append quota failures when the collector reports cancellation and finishes a partial capture", async () => {
+  await mount();
+  mocks.append.mockRejectedValueOnce(new Error(POWER_LOGS_STORAGE_FULL));
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    try {
+      await options.onRecords([record(0)]);
+    } catch {
+      throw new Error("Log collection canceled");
+    }
+    return { notes: [], partial: false };
+  });
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.click(screen.getByText("Capture logs"));
+  expect(await screen.findByText(POWER_LOGS_STORAGE_FULL)).toBeTruthy();
+  expect(mocks.finish).toHaveBeenCalledWith(snapshot.id, true, expect.any(Array));
+  await screen.findByText("captured log message");
+  expect(screen.getByText(POWER_LOGS_STORAGE_FULL)).toBeTruthy();
+});
+
+it("keeps unknown capture failures generic", async () => {
+  await mount();
+  mocks.create.mockRejectedValueOnce(new Error(`private failure ${POWER_LOGS_STORAGE_FULL}`));
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.click(screen.getByText("Capture logs"));
+  expect(
+    await screen.findByText("Could not create a capture. Delete an old snapshot or check the log service."),
+  ).toBeTruthy();
+  expect(screen.queryByText(POWER_LOGS_STORAGE_FULL)).toBeNull();
+  expect(screen.queryByText(/private failure/)).toBeNull();
 });
 
 it("keeps a canceled capture as a partial snapshot", async () => {

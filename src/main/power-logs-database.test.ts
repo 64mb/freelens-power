@@ -14,11 +14,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  type LogCapture,
+  type LogRecord,
+  POWER_LOGS_STORAGE_FULL,
+  POWER_LOGS_STORAGE_MAX_BYTES,
+} from "../common/power-logs";
 import { applyPowerLogsLimits } from "../common/power-logs-limits";
 import { PowerLogsDatabase } from "./power-logs-database";
 import { type PowerLogsQuerySnapshot, runPowerLogsQuery } from "./power-logs-query";
-
-import type { LogCapture, LogRecord } from "../common/power-logs";
 
 vi.mock("node:fs", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs")>();
@@ -512,4 +516,119 @@ it("clears saved snapshots from old partitions while preserving temporary snapsh
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it("measures capture files and retained pinned copies and clears completed captures across partitions", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "power-logs-test-"));
+  const persistent = join(directory, "saved");
+  const temporary = join(directory, "temporary");
+  const db = new PowerLogsDatabase(temporary, persistent);
+  databases.push(db);
+  const id = await capture(db);
+  await db.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true });
+  const other = { clusterId: "other-cluster", contextId: "other-context" };
+  const completed = (await db.run({ ...other, operation: "create", target })) as LogCapture;
+  await db.run({ ...other, operation: "finish", captureId: completed.id, partial: true, notes: [] });
+  const active = (await db.run({ ...partition, operation: "create", target })) as LogCapture;
+  await db.run({ ...partition, operation: "append", captureId: active.id, records: [record] });
+  const unrelated = join(directory, "unrelated.txt");
+  writeFileSync(unrelated, "preserve this file");
+  symlinkSync(unrelated, join(temporary, active.id, "external-link"));
+  const fileBytes = (root: string): number =>
+    readdirSync(root, { withFileTypes: true }).reduce((bytes, entry) => {
+      const path = join(root, entry.name);
+      return bytes + (entry.isDirectory() ? fileBytes(path) : entry.isFile() ? statSync(path).size : 0);
+    }, 0);
+  expect(await db.run({ ...partition, operation: "storage-status" })).toEqual({
+    bytes: fileBytes(temporary) + fileBytes(persistent),
+    maxBytes: POWER_LOGS_STORAGE_MAX_BYTES,
+    captures: 3,
+    collecting: 1,
+  });
+  await db.run({ ...partition, operation: "clear-storage" });
+  expect(await db.run({ ...other, operation: "list" })).toEqual([]);
+  expect(await db.run({ ...partition, operation: "list" })).toMatchObject([{ id: active.id, state: "collecting" }]);
+  expect(existsSync(join(persistent, id))).toBe(false);
+  expect(existsSync(join(temporary, id))).toBe(false);
+  expect(readFileSync(unrelated, "utf8")).toBe("preserve this file");
+  await db.run({ ...partition, operation: "append", captureId: active.id, records: [record] });
+});
+
+it("enforces the shared disk quota before appending across clusters without changing either capture", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "power-logs-quota-test-"));
+  const db = new PowerLogsDatabase(directory, undefined, 1024);
+  databases.push(db);
+  const first = (await db.run({ ...partition, operation: "create", target })) as LogCapture;
+  const other = { clusterId: "other-cluster", contextId: "other-context" };
+  const second = (await db.run({ ...other, operation: "create", target })) as LogCapture;
+  const records = [{ ...record, message: "x".repeat(500) }];
+  await db.run({ ...partition, operation: "append", captureId: first.id, records });
+  const before = readFileSync(join(directory, first.id, "logs.ndjson"));
+  await expect(db.run({ ...other, operation: "append", captureId: second.id, records })).rejects.toThrow(
+    POWER_LOGS_STORAGE_FULL,
+  );
+  expect(readFileSync(join(directory, first.id, "logs.ndjson"))).toEqual(before);
+  expect(statSync(join(directory, second.id, "logs.ndjson")).size).toBe(0);
+  expect(await db.run({ ...partition, operation: "storage-status" })).toMatchObject({
+    bytes: before.length,
+    maxBytes: 1024,
+  });
+});
+
+it("bounds SQLite creation and indexing and preserves the spool for retry after space is freed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "power-logs-quota-test-"));
+  const quota = 40 * 1024;
+  const db = new PowerLogsDatabase(directory, undefined, quota);
+  databases.push(db);
+  const completed = await capture(db);
+  const active = (await db.run({ ...partition, operation: "create", target })) as LogCapture;
+  await db.run({
+    ...partition,
+    operation: "append",
+    captureId: active.id,
+    records: [{ ...record, message: "x".repeat(10000) }],
+  });
+  const spool = readFileSync(join(directory, active.id, "logs.ndjson"));
+  await expect(
+    db.run({ ...partition, operation: "finish", captureId: active.id, partial: false, notes: [] }),
+  ).rejects.toThrow(POWER_LOGS_STORAGE_FULL);
+  expect(readFileSync(join(directory, active.id, "logs.ndjson"))).toEqual(spool);
+  expect(readdirSync(join(directory, active.id))).toEqual(["logs.ndjson"]);
+  await db.run({ ...partition, operation: "delete", captureId: completed });
+  await expect(
+    db.run({ ...partition, operation: "finish", captureId: active.id, partial: false, notes: [] }),
+  ).resolves.toMatchObject({ state: "ready" });
+  const status = (await db.run({ ...partition, operation: "storage-status" })) as { bytes: number };
+  expect(status.bytes).toBeLessThanOrEqual(quota);
+  expect(await query(db, active.id, "SELECT length(message) AS length FROM logs")).toMatchObject({ rows: [[10000]] });
+});
+
+it("rejects pinned copies that exceed the shared disk quota while preserving the completed original", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "power-logs-quota-test-"));
+  const temporary = join(directory, "temporary"),
+    saved = join(directory, "saved");
+  const db = new PowerLogsDatabase(temporary, saved, 20 * 1024);
+  databases.push(db);
+  const id = await capture(db);
+  await expect(db.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true })).rejects.toThrow(
+    POWER_LOGS_STORAGE_FULL,
+  );
+  expect(readdirSync(saved)).toEqual([]);
+  expect(await query(db, id, "SELECT count(*) FROM logs")).toMatchObject({ rows: [[1]] });
+});
+
+it("rejects oversized SQL metadata writes without changing the pinned snapshot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "power-logs-quota-test-"));
+  const temporary = join(directory, "temporary"),
+    saved = join(directory, "saved");
+  const db = new PowerLogsDatabase(temporary, saved, 40 * 1024);
+  databases.push(db);
+  const id = await capture(db);
+  await db.run({ ...partition, operation: "set-persistent", captureId: id, persistent: true });
+  const before = readFileSync(join(saved, id, "capture.json"));
+  await expect(db.run({ ...partition, operation: "save-sql", captureId: id, sql: "x".repeat(20000) })).rejects.toThrow(
+    POWER_LOGS_STORAGE_FULL,
+  );
+  expect(readFileSync(join(saved, id, "capture.json"))).toEqual(before);
+  expect(existsSync(join(saved, id, "capture.json.pending"))).toBe(false);
 });

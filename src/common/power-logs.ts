@@ -1,3 +1,13 @@
+export const POWER_LOGS_STORAGE_MAX_BYTES = 1024 * 1024 * 1024;
+export const POWER_LOGS_STORAGE_FULL =
+  "Log storage limit reached. Clear completed captures or delete snapshots and try again.";
+export const POWER_LOGS_STORAGE_CHANNEL = "freelens-power:logs-storage";
+export interface LogStorageStatus {
+  bytes: number;
+  maxBytes: number;
+  captures: number;
+  collecting: number;
+}
 export const POWER_LOGS_CHANNEL = "freelens-power:logs";
 export const POWER_LOGS_DEFAULT_LIMITS = {
   liveRows: 10000,
@@ -86,6 +96,8 @@ export type LogRequest = LogPartition &
     | { operation: "finish"; captureId: string; partial: boolean; notes: string[] }
     | { operation: "list" }
     | { operation: "clear-persistent" }
+    | { operation: "storage-status" }
+    | { operation: "clear-storage" }
     | { operation: "delete"; captureId: string }
     | { operation: "set-persistent"; captureId: string; persistent: boolean }
     | { operation: "save-sql"; captureId: string; sql: string }

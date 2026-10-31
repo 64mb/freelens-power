@@ -2,7 +2,7 @@ import { clipboard } from "electron";
 import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { type JsonField, jsonFieldLiteral, jsonFields, maxJsonTokens } from "./power-log-json-fields";
 
-import type { JsonFieldFilter } from "../common/power-log-field-filters";
+import type { JsonFieldFilter, JsonPath } from "../common/power-log-field-filters";
 
 export interface LogJsonProps {
   text: string;
@@ -10,6 +10,8 @@ export interface LogJsonProps {
   fieldsEnabled?: boolean;
   Icon?: ComponentType<{ material: string; size?: number; tooltip?: string }>;
   onFilter?: (filter: JsonFieldFilter) => void;
+  onToggleColumn?: (path: JsonPath) => void;
+  columnPaths?: readonly JsonPath[];
 }
 
 const fieldButtonStyle: CSSProperties = {
@@ -28,7 +30,15 @@ const fieldButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter }: LogJsonProps) {
+export function LogJson({
+  text,
+  fieldText,
+  fieldsEnabled = true,
+  Icon,
+  onFilter,
+  onToggleColumn,
+  columnPaths = [],
+}: LogJsonProps) {
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>();
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
   const keepOpen = () => {
@@ -43,7 +53,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
     [],
   );
   const identity = fieldText ?? text;
-  const interactive = fieldsEnabled && Boolean(Icon || onFilter);
+  const interactive = fieldsEnabled && Boolean(Icon || onFilter || onToggleColumn);
   const fields = useMemo(
     () => (interactive ? jsonFields(identity) : new Map<number, JsonField>()),
     [identity, interactive],
@@ -53,6 +63,17 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
   activeField.current = active;
   const [feedback, setFeedback] = useState("");
   const selected = fieldsEnabled && active?.text === identity ? active : undefined;
+  const columnSelected = Boolean(
+    selected &&
+      columnPaths.some(
+        (path) =>
+          path.length === selected.field.path.length &&
+          path.every((part, index) => part === selected.field.path[index]),
+      ),
+  );
+  const columnLabel = columnSelected ? "Hide field column" : "Show field as column";
+  const actionCount = 1 + (onFilter ? 2 : 0) + (onToggleColumn ? 1 : 0);
+  const actionWidth = actionCount * 20 + (actionCount - 1) * 2;
   const tokens = useMemo(() => {
     const tokens: ReactNode[] = [];
     const pattern = /"(?:\\.|[^"\\])*"(?:\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[\[{]/g;
@@ -117,7 +138,7 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
           field,
           text: identity,
           lineTop: rect.top,
-          x: Math.max(4, Math.min(lineRight + 4, visibleRight - 64)),
+          x: Math.max(4, Math.min(lineRight + 4, visibleRight - actionWidth)),
           y: Math.max(0, Math.min(actionTop + (actionHeight - 20) / 2, window.innerHeight - 20)),
         });
         setFeedback("");
@@ -175,13 +196,13 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
     }
     tokens.push(text.slice(cursor));
     return tokens;
-  }, [text, fields, identity]);
+  }, [text, fields, identity, actionWidth]);
   const pre = <pre className="power-log-json">{tokens}</pre>;
-  if (!Icon && !onFilter) return pre;
+  if (!Icon && !onFilter && !onToggleColumn) return pre;
   return (
     <div
       className="power-log-json-fields"
-      style={{ paddingRight: 76 }}
+      style={{ paddingRight: actionWidth + 12 }}
       onMouseEnter={keepOpen}
       onMouseLeave={() => {
         leaveTimer.current = setTimeout(() => setActive(undefined), 150);
@@ -257,6 +278,23 @@ export function LogJson({ text, fieldText, fieldsEnabled = true, Icon, onFilter 
                 {Icon ? <Icon material="filter_alt_off" size={12} tooltip="Exclude value" /> : "!="}
               </button>
             </>
+          )}
+          {onToggleColumn && (
+            <button
+              type="button"
+              style={fieldButtonStyle}
+              aria-label={columnLabel}
+              aria-pressed={columnSelected}
+              onClick={() => onToggleColumn(selected.field.path)}
+            >
+              {Icon ? (
+                <Icon material={columnSelected ? "visibility_off" : "visibility"} size={12} tooltip={columnLabel} />
+              ) : columnSelected ? (
+                "◉"
+              ) : (
+                "◎"
+              )}
+            </button>
           )}
           {feedback && (
             <span role="status" style={{ position: "absolute", top: 22, right: 0, whiteSpace: "nowrap" }}>
