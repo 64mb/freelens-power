@@ -7,6 +7,56 @@ export function logColumnLabel(path: JsonPath): string {
   return `$${path.map((part) => `[${typeof part === "number" ? part : JSON.stringify(part)}]`).join("")}`;
 }
 
+function suffixName(path: JsonPath, depth: number): string {
+  if (!path.length) return "$";
+  const suffix = path.slice(-depth);
+  if (suffix.length === 1) return typeof suffix[0] === "number" ? `[${suffix[0]}]` : suffix[0] || '\"\"';
+  return suffix
+    .map((part, index) => {
+      if (typeof part === "number") return `[${part}]`;
+      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(part)) return `${index ? "." : ""}${part}`;
+      return `[${JSON.stringify(part)}]`;
+    })
+    .join("");
+}
+
+export function logColumnNames(paths: readonly JsonPath[]): string[] {
+  const depths = paths.map(() => 1);
+  for (let left = 0; left < paths.length; left++) {
+    for (let right = left + 1; right < paths.length; right++) {
+      let shared = 0;
+      while (
+        shared < Math.min(paths[left].length, paths[right].length) &&
+        paths[left].at(-shared - 1) === paths[right].at(-shared - 1)
+      )
+        shared++;
+      if (!shared) continue;
+      depths[left] = Math.max(depths[left], Math.min(paths[left].length, shared + 1));
+      depths[right] = Math.max(depths[right], Math.min(paths[right].length, shared + 1));
+    }
+  }
+  const canonical = new Set<number>();
+  let names = paths.map((path, index) => suffixName(path, depths[index]));
+  for (;;) {
+    const groups = new Map<string, number[]>();
+    names.forEach((name, index) => groups.set(name, [...(groups.get(name) ?? []), index]));
+    let changed = false;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const canExtend =
+        group.every((index) => !canonical.has(index)) && group.some((index) => depths[index] < paths[index].length);
+      for (const index of group) {
+        if (canExtend) depths[index]++;
+        else canonical.add(index);
+        const next = canonical.has(index) ? logColumnLabel(paths[index]) : suffixName(paths[index], depths[index]);
+        if (next !== names[index]) changed = true;
+        names[index] = next;
+      }
+    }
+    if (!changed) return names;
+  }
+}
+
 const previewLength = 256;
 
 function preview(value: unknown): string {

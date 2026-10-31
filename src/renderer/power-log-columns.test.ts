@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { createLogColumnReader, logColumnLabel } from "./power-log-columns";
+import { createLogColumnReader, logColumnLabel, logColumnNames } from "./power-log-columns";
 
 import type { LogRecord } from "../common/power-logs";
 
@@ -69,4 +69,52 @@ it("reads immutable record sources once even across paths and invalid JSON", () 
     read(row, ["a"]);
     expect(reads).toBe(1);
   }
+});
+
+it("uses leaf names and the shortest unique parent suffix for duplicate leaves", () => {
+  expect(
+    logColumnNames([
+      ["req", "url"],
+      ["res", "url"],
+      ["other", "status"],
+    ]),
+  ).toEqual(["req.url", "res.url", "status"]);
+  expect(
+    logColumnNames([
+      ["one", "shared", "url"],
+      ["two", "shared", "url"],
+    ]),
+  ).toEqual(["one.shared.url", "two.shared.url"]);
+  expect(logColumnNames([["url"], ["req", "url"]])).toEqual(["url", "req.url"]);
+});
+
+it("preserves escaped keys and typed indices in qualified names", () => {
+  expect(
+    logColumnNames([
+      ["a.b", "url"],
+      ["other", "url"],
+    ]),
+  ).toEqual(['["a.b"].url', "other.url"]);
+  expect(
+    logColumnNames([
+      ["items", 0],
+      ["items", "0"],
+    ]),
+  ).toEqual(["[0]", "0"]);
+  expect(logColumnNames([[], [""]])).toEqual(["$", '\"\"']);
+});
+
+it("falls back to canonical paths when literal names collide with qualified or special names", () => {
+  const paths = [["req", "url"], ["res", "url"], ["req.url"]];
+  expect(logColumnNames(paths)).toEqual([logColumnLabel(paths[0]), "res.url", logColumnLabel(paths[2])]);
+  expect(logColumnNames([[0], ["[0]"]])).toEqual(["$[0]", '$["[0]"]']);
+  expect(logColumnNames([[], ["$"]])).toEqual(["$", '$["$"]']);
+  expect(logColumnNames([[""], ['""']])).toEqual(['$[""]', '$["\\"\\""]']);
+});
+
+it("resolves collisions introduced by canonical fallback without mutating paths", () => {
+  const paths = [[0], ["[0]"], ["$[0]"]];
+  const before = JSON.stringify(paths);
+  expect(logColumnNames(paths)).toEqual(paths.map(logColumnLabel));
+  expect(JSON.stringify(paths)).toBe(before);
 });

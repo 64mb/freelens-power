@@ -234,10 +234,6 @@ function LogsStorage({ enabled }: { enabled: boolean }) {
                 ? `${status.captures} captures · ${status.collecting} collecting`
                 : "Checking log storage…")}
         </div>
-        <div className="power-settings-hint">
-          All clusters, including pinned snapshots. Active captures are preserved. Clear completed captures when storage
-          is full.
-        </div>
       </div>
       <Renderer.Component.Button
         disabled={!enabled || !status || clearing || status.captures === status.collecting}
@@ -249,10 +245,25 @@ function LogsStorage({ enabled }: { enabled: boolean }) {
             ok: clear,
           })
         }
-        style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, height: 30, padding: "0 10px" }}
+        style={{
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: 30,
+          padding: "0 10px",
+          fontSize: 12,
+          lineHeight: "16px",
+          border: "1px solid var(--borderFaintColor)",
+          borderRadius: 6,
+          background: "var(--contentColor)",
+          color: "var(--textColorSecondary)",
+        }}
       >
-        <Renderer.Component.Icon material="delete_outline" size={14} aria-hidden="true" />
-        Clear
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <Renderer.Component.Icon material="delete_outline" size={14} aria-hidden="true" />
+          <span>Clear</span>
+        </span>
       </Renderer.Component.Button>
     </div>
   );

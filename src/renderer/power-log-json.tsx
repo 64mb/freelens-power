@@ -257,7 +257,17 @@ export function LogJson({
               }
             }}
           >
-            {Icon ? <Icon material="content_copy" size={12} tooltip="Copy value" /> : "⧉"}
+            {Icon ? (
+              <Icon
+                material={feedback === "Copied" ? "check" : "content_copy"}
+                size={12}
+                tooltip={feedback || "Copy value"}
+              />
+            ) : feedback === "Copied" ? (
+              "✓"
+            ) : (
+              "⧉"
+            )}
           </button>
           {onFilter && (
             <>
@@ -297,7 +307,20 @@ export function LogJson({
             </button>
           )}
           {feedback && (
-            <span role="status" style={{ position: "absolute", top: 22, right: 0, whiteSpace: "nowrap" }}>
+            <span
+              role="status"
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                overflow: "hidden",
+                clipPath: "inset(50%)",
+                whiteSpace: "nowrap",
+                border: 0,
+              }}
+            >
               {feedback}
             </span>
           )}

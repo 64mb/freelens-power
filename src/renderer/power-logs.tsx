@@ -39,7 +39,8 @@ import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { NativeTooltip } from "./native-tooltip";
-import { createLogColumnReader, logColumnLabel } from "./power-log-columns";
+import { createLogColumnSizer } from "./power-log-column-widths";
+import { createLogColumnReader, logColumnLabel, logColumnNames } from "./power-log-columns";
 import { LogJson } from "./power-log-json";
 import { LogJsonCell } from "./power-log-json-cell";
 import { formatJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
@@ -283,7 +284,9 @@ function LogRows({
   columnPaths: readonly JsonPath[];
   onToggleColumn(path: JsonPath): void;
 }) {
+  const columnNames = useMemo(() => logColumnNames(columnPaths), [columnPaths]);
   const readColumn = useMemo(() => createLogColumnReader(), []);
+  const sizeColumns = useMemo(() => createLogColumnSizer(readColumn), [readColumn]);
   const viewport = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(0);
   const [height, setHeight] = useState(400);
@@ -318,6 +321,7 @@ function LogRows({
     );
     setTop(viewport.current.scrollTop);
   }, [contextAnchor, records, rowHeight, headerHeight]);
+  const fieldWidths = sizeColumns(records, columnPaths, viewport.current?.clientWidth ?? 0, compact);
   const start = Math.max(0, Math.floor(Math.max(0, top - headerHeight) / rowHeight) - 5);
   const visible = records.slice(start, start + Math.ceil(height / rowHeight) + 10);
   return (
@@ -329,7 +333,10 @@ function LogRows({
           {
             "--power-log-level-ch": levelCharacters,
             "--power-log-extra-columns": columnPaths.length,
-            "--power-log-field-columns": columnPaths.length ? `repeat(${columnPaths.length},160px)` : undefined,
+            "--power-log-field-columns": fieldWidths.length
+              ? fieldWidths.map((width) => `${width}cqw`).join(" ")
+              : undefined,
+            "--power-log-fields-width": `${fieldWidths.reduce((total, width) => total + width, 0)}cqw`,
           } as CSSProperties
         }
         aria-label="Log lines"
@@ -346,18 +353,18 @@ function LogRows({
             <span>Level</span>
             <span className="power-log-origin">Source</span>
             <span>Message</span>
-            {columnPaths.map((path) => (
-              <button
-                key={JSON.stringify(path)}
-                className="power-log-column-heading"
-                type="button"
-                aria-label={`Remove column ${logColumnLabel(path)}`}
-                title={logColumnLabel(path)}
-                onClick={() => onToggleColumn(path)}
-              >
-                <span>{logColumnLabel(path)}</span>
-                <Icon material="close" size={14} />
-              </button>
+            {columnPaths.map((path, index) => (
+              <NativeTooltip key={JSON.stringify(path)} title={logColumnLabel(path)}>
+                <button
+                  className="power-log-column-heading"
+                  type="button"
+                  aria-label={`Remove column ${logColumnLabel(path)}`}
+                  onClick={() => onToggleColumn(path)}
+                >
+                  <span>{columnNames[index]}</span>
+                  <Icon material="close" size={14} />
+                </button>
+              </NativeTooltip>
             ))}
           </div>
         )}
@@ -406,9 +413,9 @@ function LogRows({
                   {columnPaths.map((path) => {
                     const value = readColumn(record, path);
                     return (
-                      <span className="power-log-column-value" key={JSON.stringify(path)} title={value}>
-                        {value}
-                      </span>
+                      <NativeTooltip key={JSON.stringify(path)} title={value}>
+                        <span className="power-log-column-value">{value}</span>
+                      </NativeTooltip>
                     );
                   })}
                 </button>
@@ -440,6 +447,7 @@ function LogRows({
 
 function LogDetails({
   record,
+  namespace,
   jsonColumn,
   onClose,
   onFilter,
@@ -447,6 +455,7 @@ function LogDetails({
   columnPaths,
 }: {
   record: LogRecord;
+  namespace?: string;
   jsonColumn?: string;
   onClose: () => void;
   onFilter?: (filter: JsonFieldFilter) => void;
@@ -459,7 +468,28 @@ function LogDetails({
   }, [record?.fieldsJson]);
   const fieldsEnabled = useMemo(() => !jsonHasDuplicateKeys(record.fieldsJson ?? ""), [record.fieldsJson]);
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [fieldCopyFeedback, setFieldCopyFeedback] = useState<{ kind: string; text: string }>();
   useEffect(() => setCopyFeedback(""), [structuredFields]);
+  useEffect(() => setFieldCopyFeedback(undefined), [record.pod, namespace, record.level]);
+  const formattedTime = record.timestamp === null ? "Unavailable" : formatDateTime(record.timestamp);
+  const [date, time] = formattedTime.split("  ");
+  const metadata = [
+    { kind: "pod", label: "Pod:", value: record.pod, copyLabel: "Copy pod name", failure: "Unable to copy pod name" },
+    {
+      kind: "namespace",
+      label: "Namespace:",
+      value: namespace,
+      copyLabel: "Copy namespace",
+      failure: "Unable to copy namespace",
+    },
+    {
+      kind: "level",
+      label: "Level:",
+      value: record.level.toUpperCase(),
+      copyLabel: "Copy log level",
+      failure: "Unable to copy log level",
+    },
+  ];
   return (
     <aside className="power-logs-detail" aria-label="Log line details">
       <header>
@@ -470,16 +500,66 @@ function LogDetails({
           </button>
         </NativeTooltip>
       </header>
-      <p className="power-logs-muted">
-        {record.pod && <>{sourceKey(record)} · </>}
-        <span className="power-logs-level-label" data-level={record.level}>
-          {record.level.toUpperCase()}
-        </span>
-      </p>
+      <div className="power-logs-detail-metadata">
+        {metadata.map((field) => (
+          <div key={field.kind} className={`power-logs-detail-field power-logs-detail-${field.kind}`}>
+            <strong>{field.label}</strong>
+            <span
+              className={field.kind === "level" ? "power-logs-level-label" : undefined}
+              data-level={field.kind === "level" ? record.level : undefined}
+              title={field.kind === "pod" && record.container ? `Container: ${record.container}` : undefined}
+            >
+              {field.value || "Unavailable"}
+            </span>
+            {field.value && (
+              <NativeTooltip title={fieldCopyFeedback?.kind === field.kind ? fieldCopyFeedback.text : field.copyLabel}>
+                <button
+                  type="button"
+                  className="power-logs-detail-field-copy"
+                  aria-label={field.copyLabel}
+                  onClick={() => {
+                    try {
+                      clipboard.writeText(field.value!);
+                      setFieldCopyFeedback({ kind: field.kind, text: "Copied" });
+                    } catch {
+                      setFieldCopyFeedback({ kind: field.kind, text: field.failure });
+                    }
+                  }}
+                >
+                  <Icon
+                    material={
+                      fieldCopyFeedback?.kind === field.kind && fieldCopyFeedback.text === "Copied"
+                        ? "check"
+                        : "content_copy"
+                    }
+                    size={14}
+                  />
+                </button>
+              </NativeTooltip>
+            )}
+          </div>
+        ))}
+        <div className="power-logs-detail-time">
+          <strong>Time:</strong>
+          <span className="power-logs-detail-timestamp" aria-label={formattedTime}>
+            <span>{date}</span>
+            {time && (
+              <>
+                {"  "}
+                <span>{time}</span>
+              </>
+            )}
+          </span>
+        </div>
+      </div>
       {record.message && (
-        <pre>
-          <LogMessage text={record.message} />
-        </pre>
+        <>
+          <hr className="power-logs-detail-separator" />
+          <pre>
+            <LogMessage text={record.message} />
+          </pre>
+          <hr className="power-logs-detail-separator" />
+        </>
       )}
       {record.fieldsJson && (
         <>
@@ -502,7 +582,7 @@ function LogDetails({
                 <Icon material={copyFeedback === "Copied" ? "check" : "content_copy"} size={16} />
               </button>
             </NativeTooltip>
-            <span className="power-logs-muted" aria-live="polite">
+            <span className="power-logs-sr-only" aria-live="polite">
               {copyFeedback}
             </span>
           </div>
@@ -1694,6 +1774,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             {selected && (
               <LogDetails
                 record={selected}
+                namespace={target?.namespace}
                 onClose={() => setSelected(undefined)}
                 onFilter={addLiveFilter}
                 onToggleColumn={toggleColumn}
@@ -1965,6 +2046,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 {selectedSqlRow && (
                   <LogDetails
                     record={selectedSqlRow.record}
+                    namespace={chosenCapture?.target.namespace}
                     jsonColumn={selectedSqlRow.jsonColumn}
                     onFilter={
                       !sqlFilteringDisabled && selectedSqlRow.jsonColumn
