@@ -13,7 +13,12 @@ import {
   useState,
 } from "react";
 import { formatDateTime } from "../common/date-time";
-import { compileJsonFilters, type JsonFieldFilter, jsonValuesEqual } from "../common/power-log-field-filters";
+import {
+  compileJsonFilters,
+  type JsonFieldFilter,
+  type JsonPath,
+  jsonValuesEqual,
+} from "../common/power-log-field-filters";
 import { buildJsonFilterSql, type SqlJsonFieldFilter } from "../common/power-log-json-filter-sql";
 import { buildJsonProjectionSql, JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
 import { sqlCellLevel } from "../common/power-log-sql-level";
@@ -25,6 +30,8 @@ import {
   type LogRecord,
   type LogSource,
   type LogTarget,
+  POWER_LOGS_CHANNEL,
+  POWER_LOGS_STORAGE_FULL,
 } from "../common/power-logs";
 import { powerLogLineEvidence, powerLogQueryEvidence } from "../common/power-logs-ai";
 import { applyPowerLogsLimits, normalizePowerLogsLimits } from "../common/power-logs-limits";
@@ -32,6 +39,7 @@ import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { NativeTooltip } from "./native-tooltip";
+import { createLogColumnReader, logColumnLabel } from "./power-log-columns";
 import { LogJson } from "./power-log-json";
 import { LogJsonCell } from "./power-log-json-cell";
 import { formatJsonLiteral, jsonHasDuplicateKeys } from "./power-log-json-fields";
@@ -55,6 +63,10 @@ const Icon = (props: { material: string; size?: number; tooltip?: string }) => (
 );
 const sourceKey = (r: Pick<LogRecord, "pod" | "container" | "previous">) =>
   `${r.pod} / ${r.container}${r.previous ? " (previous)" : ""}`;
+const storageFull = (error: unknown) =>
+  error instanceof Error &&
+  (error.message === POWER_LOGS_STORAGE_FULL ||
+    error.message === `Error invoking remote method '${POWER_LOGS_CHANNEL}': Error: ${POWER_LOGS_STORAGE_FULL}`);
 const levels: LogLevel[] = ["trace", "debug", "info", "access", "warn", "error", "fatal", "unknown"];
 const examples = [
   ["Recent", "SELECT timestamp, level, message, container, pod FROM logs ORDER BY timestamp DESC NULLS LAST LIMIT 200"],
@@ -251,6 +263,11 @@ function LogRows({
   setFollow,
   compact,
   matches,
+  expanded,
+  onToggleContext,
+  contextAnchor,
+  columnPaths,
+  onToggleColumn,
 }: {
   records: ViewRecord[];
   loading: boolean;
@@ -260,7 +277,13 @@ function LogRows({
   setFollow(value: boolean): void;
   compact: boolean;
   matches?: ReadonlySet<ViewRecord>;
+  expanded: ReadonlySet<number>;
+  onToggleContext(record: ViewRecord): void;
+  contextAnchor?: { key: number };
+  columnPaths: readonly JsonPath[];
+  onToggleColumn(path: JsonPath): void;
 }) {
+  const readColumn = useMemo(() => createLogColumnReader(), []);
   const viewport = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(0);
   const [height, setHeight] = useState(400);
@@ -276,20 +299,39 @@ function LogRows({
       viewport.current.scrollTop = viewport.current.scrollHeight;
       setTop(viewport.current.scrollTop);
     }
-  }, [records, follow, compact]);
+  }, [records, follow, compact, columnPaths.length]);
   const levelCharacters = useMemo(
     () => records.reduce((width, record) => Math.max(width, record.level.length), 4),
     [records],
   );
   const rowHeight = compact ? 20 : 34;
-  const start = Math.max(0, Math.floor(top / rowHeight) - 5);
+  const headerHeight = columnPaths.length ? 28 : 0;
+  const centeredAnchor = useRef<typeof contextAnchor>();
+  useLayoutEffect(() => {
+    if (!contextAnchor || centeredAnchor.current === contextAnchor || !viewport.current) return;
+    centeredAnchor.current = contextAnchor;
+    const index = records.findIndex((record) => record.key === contextAnchor.key);
+    if (index < 0) return;
+    viewport.current.scrollTop = Math.max(
+      0,
+      index * rowHeight - (viewport.current.clientHeight - headerHeight - rowHeight) / 2,
+    );
+    setTop(viewport.current.scrollTop);
+  }, [contextAnchor, records, rowHeight, headerHeight]);
+  const start = Math.max(0, Math.floor(Math.max(0, top - headerHeight) / rowHeight) - 5);
   const visible = records.slice(start, start + Math.ceil(height / rowHeight) + 10);
   return (
     <div className="power-logs-viewer">
       <div
         className="power-logs-stream"
         ref={viewport}
-        style={{ "--power-log-level-ch": levelCharacters } as CSSProperties}
+        style={
+          {
+            "--power-log-level-ch": levelCharacters,
+            "--power-log-extra-columns": columnPaths.length,
+            "--power-log-field-columns": columnPaths.length ? `repeat(${columnPaths.length},160px)` : undefined,
+          } as CSSProperties
+        }
         aria-label="Log lines"
         aria-busy={loading}
         onScroll={(event) => {
@@ -298,6 +340,27 @@ function LogRows({
           if (el.scrollHeight - el.scrollTop - el.clientHeight > 60) setFollow(false);
         }}
       >
+        {columnPaths.length > 0 && (
+          <div className="power-log-column-headings" aria-label="Displayed log columns">
+            <span>Time</span>
+            <span>Level</span>
+            <span className="power-log-origin">Source</span>
+            <span>Message</span>
+            {columnPaths.map((path) => (
+              <button
+                key={JSON.stringify(path)}
+                className="power-log-column-heading"
+                type="button"
+                aria-label={`Remove column ${logColumnLabel(path)}`}
+                title={logColumnLabel(path)}
+                onClick={() => onToggleColumn(path)}
+              >
+                <span>{logColumnLabel(path)}</span>
+                <Icon material="close" size={14} />
+              </button>
+            ))}
+          </div>
+        )}
         {records.length === 0 ? (
           <div className="power-logs-empty">
             {loading ? (
@@ -310,34 +373,63 @@ function LogRows({
             )}
           </div>
         ) : (
-          <div style={{ height: records.length * rowHeight, position: "relative" }}>
+          <div className="power-log-rows" style={{ height: records.length * rowHeight, position: "relative" }}>
             {visible.map((record, i) => (
-              <button
-                type="button"
+              <div
                 className="power-log-row"
                 data-level={record.level}
                 data-search-match={matches?.has(record) || undefined}
                 data-context={(matches && !matches.has(record)) || undefined}
-                aria-pressed={selected === record.key}
                 style={{ top: (start + i) * rowHeight, height: rowHeight }}
                 key={record.key}
-                onClick={() => onSelect(record)}
               >
-                <NativeTooltip
-                  title={record.timestamp !== null ? formatDateTime(record.timestamp) : "Timestamp unavailable"}
+                <button
+                  type="button"
+                  className="power-log-open"
+                  aria-pressed={selected === record.key}
+                  onClick={() => onSelect(record)}
                 >
-                  <span>{record.timestamp !== null ? formatDateTime(record.timestamp).slice(-8) : "—"}</span>
+                  <NativeTooltip
+                    title={record.timestamp !== null ? formatDateTime(record.timestamp) : "Timestamp unavailable"}
+                  >
+                    <span>{record.timestamp !== null ? formatDateTime(record.timestamp).slice(-8) : "—"}</span>
+                  </NativeTooltip>
+                  <span className="power-log-level">{record.level}</span>
+                  <span className="power-log-origin" id={`power-log-source-${record.key}`}>
+                    {record.pod}
+                    {record.previous ? " (previous)" : ""}
+                    <Renderer.Component.Tooltip targetId={`power-log-source-${record.key}`}>
+                      {sourceKey(record)}
+                    </Renderer.Component.Tooltip>
+                  </span>
+                  <LogMessage text={record.message} />
+                  {columnPaths.map((path) => {
+                    const value = readColumn(record, path);
+                    return (
+                      <span className="power-log-column-value" key={JSON.stringify(path)} title={value}>
+                        {value}
+                      </span>
+                    );
+                  })}
+                </button>
+                <NativeTooltip
+                  title={
+                    expanded.has(record.key)
+                      ? "Hide surrounding lines"
+                      : "Show up to 5 loaded lines before and after this line from the same source"
+                  }
+                >
+                  <button
+                    type="button"
+                    className="power-log-context"
+                    aria-label={expanded.has(record.key) ? "Hide surrounding lines" : "Show surrounding lines"}
+                    aria-expanded={expanded.has(record.key)}
+                    onClick={() => onToggleContext(record)}
+                  >
+                    <Icon material={expanded.has(record.key) ? "unfold_less" : "unfold_more"} size={16} />
+                  </button>
                 </NativeTooltip>
-                <span className="power-log-level">{record.level}</span>
-                <span className="power-log-origin" id={`power-log-source-${record.key}`}>
-                  {record.pod}
-                  {record.previous ? " (previous)" : ""}
-                  <Renderer.Component.Tooltip targetId={`power-log-source-${record.key}`}>
-                    {sourceKey(record)}
-                  </Renderer.Component.Tooltip>
-                </span>
-                <LogMessage text={record.message} />
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -351,11 +443,15 @@ function LogDetails({
   jsonColumn,
   onClose,
   onFilter,
+  onToggleColumn,
+  columnPaths,
 }: {
   record: LogRecord;
   jsonColumn?: string;
   onClose: () => void;
   onFilter?: (filter: JsonFieldFilter) => void;
+  onToggleColumn?: (path: JsonPath) => void;
+  columnPaths?: readonly JsonPath[];
 }) {
   const structuredFields = useMemo(() => {
     if (!record?.fieldsJson) return "";
@@ -410,7 +506,14 @@ function LogDetails({
               {copyFeedback}
             </span>
           </div>
-          <LogJson text={structuredFields} fieldsEnabled={fieldsEnabled} Icon={Icon} onFilter={onFilter} />
+          <LogJson
+            text={structuredFields}
+            fieldsEnabled={fieldsEnabled}
+            Icon={Icon}
+            onFilter={onFilter}
+            onToggleColumn={onToggleColumn}
+            columnPaths={columnPaths}
+          />
         </>
       )}
     </aside>
@@ -464,7 +567,12 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     () =>
       new CaptureSqlDrafts(
         (id, query) => client.saveSql(id, query),
-        () => setError("Could not save the SQL draft. Your edits remain available in this workspace."),
+        (_id, error) =>
+          setError(
+            storageFull(error)
+              ? POWER_LOGS_STORAGE_FULL
+              : "Could not save the SQL draft. Your edits remain available in this workspace.",
+          ),
       ),
     [client],
   );
@@ -483,12 +591,26 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [sqlError, setSqlError] = useState("");
   const [tab, setTab] = useState<"live" | "captures">("live");
   const [text, setText] = useState("");
-  const [contextLines, setContextLines] = useState(0);
+  const [contextKeys, setContextKeys] = useState<ReadonlySet<number>>(() => new Set());
+  const [contextAnchor, setContextAnchor] = useState<{ key: number }>();
   const [level, setLevel] = useState("");
   const [source, setSource] = useState(initialSource);
   const [savedPoolFull, setSavedPoolFull] = useState(false);
   const [fieldFilters, setFieldFilters] = useState<JsonFieldFilter[]>([]);
+  const [columnPaths, setColumnPaths] = useState<JsonPath[]>([]);
+  const toggleColumn = (path: JsonPath) => {
+    setColumnPaths((current) => {
+      const identity = JSON.stringify(path);
+      const exists = current.some((item) => JSON.stringify(item) === identity);
+      if (exists) return current.filter((item) => JSON.stringify(item) !== identity);
+      return current.length < 8 ? [...current, [...path]] : current;
+    });
+  };
   const matchFields = useMemo(() => compileJsonFilters(fieldFilters), [fieldFilters]);
+  useEffect(() => {
+    setContextKeys((keys) => (keys.size ? new Set() : keys));
+    setContextAnchor(undefined);
+  }, [text, level, source, fieldFilters, target?.uid]);
   const parsedFields = useRef(new WeakMap<LogRecord, unknown>());
   const [sqlFieldFilters, setSqlFieldFilters] = useState<{
     base: string;
@@ -664,6 +786,8 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     pending.current = [];
     setBusy(true);
     setRecords([]);
+    setContextKeys(new Set());
+    setContextAnchor(undefined);
     setSelected(undefined);
     setError("");
     setNotes([]);
@@ -783,6 +907,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     captureController.current = controller;
     let current: LogCapture | undefined;
     let partial = false;
+    let storageLimitReached = false;
     let captureNotes: string[] = [];
     setError("");
     stopLive();
@@ -827,8 +952,10 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             try {
               current = await client.append(current!.id, chunk);
               if (alive.current) setCapturing(current);
-            } catch {
+            } catch (error) {
+              storageLimitReached ||= storageFull(error);
               controller.abort();
+              if (storageFull(error)) throw error;
               throw new Error("Capture reached its storage limit or became unavailable");
             }
           }
@@ -836,7 +963,8 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       });
       partial ||= history.partial;
       captureNotes.push(...history.notes);
-    } catch {
+    } catch (error) {
+      storageLimitReached ||= storageFull(error);
       partial = true;
       captureNotes.push("Collection stopped or a source was unavailable; this snapshot may be incomplete");
     } finally {
@@ -854,12 +982,18 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             setSql(examples[0][1]);
             void applyPreset("Recent", saved, true);
           }
-        } catch {
-          if (alive.current) setError("The temporary capture could not be finalized");
+        } catch (error) {
+          storageLimitReached ||= storageFull(error);
+          if (alive.current) {
+            setCaptures((items) => [current!, ...items.filter((item) => item.id !== current!.id)]);
+            setTab("captures");
+            setError("The temporary capture could not be finalized");
+          }
         }
       } else if (alive.current)
         setError("Could not create a capture. Delete an old snapshot or check the log service.");
       if (alive.current) {
+        if (storageLimitReached) setError(POWER_LOGS_STORAGE_FULL);
         setCapturing(undefined);
         setCapturePending(false);
         void refreshCaptures();
@@ -1049,11 +1183,23 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   );
   const chosenCapture = captures.find((item) => item.id === captureId);
   const matchingRecords = useMemo(() => new Set(filtered), [filtered]);
-  const displayedRecords = useMemo(
-    () => withLogContext(records, matchingRecords, contextLines),
-    [records, matchingRecords, contextLines],
-  );
-  const showContext = contextLines > 0 && Boolean(text || level || fieldFilters.length);
+  const displayedRecords = useMemo(() => {
+    if (!contextKeys.size) return filtered;
+    const anchors = new Set(records.filter((record) => contextKeys.has(record.key)));
+    const context = new Set(withLogContext(records, anchors, 5));
+    return records.filter((record) => matchingRecords.has(record) || context.has(record));
+  }, [records, matchingRecords, contextKeys, filtered]);
+  const showContext = contextKeys.size > 0;
+  const toggleContext = (record: ViewRecord) => {
+    setFollow(false);
+    setContextKeys((keys) => {
+      const next = new Set(keys);
+      if (next.has(record.key)) next.delete(record.key);
+      else next.add(record.key);
+      return next;
+    });
+    setContextAnchor({ key: record.key });
+  };
   const collectionNotes = tab === "live" ? [...new Set([...notes, ...(live ? (liveCoverage?.notes ?? []) : [])])] : [];
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("power-logs-workspace-change", { detail: { active: true } }));
@@ -1200,7 +1346,9 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             setError(
               full
                 ? "Saved snapshot limit reached. Delete a saved snapshot or clear saved snapshots from all clusters."
-                : "Could not update snapshot retention",
+                : storageFull(error)
+                  ? POWER_LOGS_STORAGE_FULL
+                  : "Could not update snapshot retention",
             );
           }
         } finally {
@@ -1448,17 +1596,6 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                 ...levels.map((value) => ({ value, label: value.toUpperCase() })),
               ]}
             />
-            <NativeTooltip title="Show loaded lines before and after each match from the same pod and container. Context can include other levels and JSON values.">
-              <LogSelect
-                label="Search context"
-                value={String(contextLines)}
-                onChange={(value) => setContextLines(Number(value))}
-                options={[
-                  { value: "0", label: "No context" },
-                  ...[3, 5, 10].map((count) => ({ value: String(count), label: `Context: ±${count} lines` })),
-                ]}
-              />
-            </NativeTooltip>
             <LogSelect
               label="Container source"
               renderOption={(option, context) => {
@@ -1542,15 +1679,26 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             <LogRows
               records={displayedRecords}
               matches={showContext ? matchingRecords : undefined}
+              expanded={contextKeys}
+              onToggleContext={toggleContext}
+              contextAnchor={contextAnchor}
               loading={busy}
               selected={selected?.key}
               onSelect={setSelected}
               follow={follow}
               setFollow={setFollow}
               compact={compact}
+              columnPaths={columnPaths}
+              onToggleColumn={toggleColumn}
             />
             {selected && (
-              <LogDetails record={selected} onClose={() => setSelected(undefined)} onFilter={addLiveFilter} />
+              <LogDetails
+                record={selected}
+                onClose={() => setSelected(undefined)}
+                onFilter={addLiveFilter}
+                onToggleColumn={toggleColumn}
+                columnPaths={columnPaths}
+              />
             )}
           </div>
         </>
@@ -1619,7 +1767,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
                         aria-label={`Delete snapshot ${item.target.name}`}
                         data-capture-delete={item.id}
                         onKeyDown={(event) => event.stopPropagation()}
-                        disabled={!!queryId || capturePending || deletingCount > 0 || item.state === "collecting"}
+                        disabled={!!queryId || capturePending || deletingCount > 0}
                         onMouseDown={(event) => {
                           event.preventDefault();
                           event.stopPropagation();

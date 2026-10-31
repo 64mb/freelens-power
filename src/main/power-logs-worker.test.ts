@@ -202,12 +202,15 @@ describe("isolated log worker lifecycle", () => {
     };
     return { storage, sql, nextSql, worker, directory, request, reply, snapshot, start, cleanup };
   }
-  it("drains readers from other partitions before globally clearing saved snapshots", async () => {
+  it.each([
+    "clear-persistent",
+    "clear-storage",
+  ] as const)("drains readers from other partitions before %s", async (operation) => {
     const f = setupQuery();
     try {
       const { pending } = await f.start();
       const rejected = expect(pending).rejects.toThrow("canceled");
-      const clearing = f.worker.call({ ...partition, contextId: "other-context", operation: "clear-persistent" });
+      const clearing = f.worker.call({ ...partition, contextId: "other-context", operation });
       await rejected;
       expect(f.sql.kill).toHaveBeenCalled();
       expect(f.storage.postMessage.mock.calls).toHaveLength(1);
@@ -215,7 +218,7 @@ describe("isolated log worker lifecycle", () => {
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
-      expect(f.storage.postMessage.mock.calls.at(-1)![0].request.operation).toBe("clear-persistent");
+      expect(f.storage.postMessage.mock.calls.at(-1)![0].request.operation).toBe(operation);
       f.reply(true);
       await expect(clearing).resolves.toBe(true);
     } finally {

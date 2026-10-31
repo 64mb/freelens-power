@@ -16,7 +16,13 @@ import {
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
-import { POWER_LOGS_LIMITS as L, type LogCapture, type LogRequest } from "../common/power-logs";
+import {
+  POWER_LOGS_LIMITS as L,
+  type LogCapture,
+  type LogRequest,
+  POWER_LOGS_STORAGE_FULL,
+  POWER_LOGS_STORAGE_MAX_BYTES,
+} from "../common/power-logs";
 
 import type { PowerLogsQuerySnapshot } from "./power-logs-query";
 
@@ -36,6 +42,7 @@ export class PowerLogsDatabase {
   constructor(
     private directory: string,
     private persistentDirectory?: string,
+    private storageLimit = POWER_LOGS_STORAGE_MAX_BYTES,
   ) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     chmodSync(directory, 0o700);
@@ -89,6 +96,28 @@ export class PowerLogsDatabase {
     this.timer = setInterval(() => this.expire(), 30000);
     this.timer.unref();
   }
+  private directoryBytes(directory: string): number {
+    const root = lstatSync(directory);
+    if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Log storage unavailable");
+    let bytes = 0;
+    for (const name of readdirSync(directory)) {
+      const path = join(directory, name);
+      const info = lstatSync(path);
+      if (info.isSymbolicLink()) continue;
+      if (info.isFile()) bytes += info.size;
+      else if (info.isDirectory()) bytes += this.directoryBytes(path);
+    }
+    return bytes;
+  }
+  private storageBytes(): number {
+    return (
+      this.directoryBytes(this.directory) +
+      (this.persistentDirectory ? this.directoryBytes(this.persistentDirectory) : 0)
+    );
+  }
+  private reserve(bytes: number): void {
+    if (this.storageBytes() + bytes > this.storageLimit) throw new Error(POWER_LOGS_STORAGE_FULL);
+  }
   private partition(request: LogRequest): string {
     return JSON.stringify([request.clusterId, request.contextId]);
   }
@@ -132,6 +161,18 @@ export class PowerLogsDatabase {
     if (request.operation === "permit" || "streamId" in request) throw new Error("Log permits require main process");
     const partition = this.partition(request);
     if (request.operation === "cancel") return true;
+    if (request.operation === "storage-status") {
+      return {
+        bytes: this.storageBytes(),
+        maxBytes: this.storageLimit,
+        captures: this.captures.size,
+        collecting: [...this.captures.values()].filter((capture) => capture.meta.state === "collecting").length,
+      };
+    }
+    if (request.operation === "clear-storage") {
+      for (const [id, capture] of this.captures) if (capture.meta.state !== "collecting") this.remove(id);
+      return true;
+    }
     if (request.operation === "clear-persistent") {
       for (const [id, capture] of this.captures) if (capture.meta.persistent) this.remove(id);
       return true;
@@ -150,6 +191,7 @@ export class PowerLogsDatabase {
       const id = randomUUID(),
         directory = join(this.directory, id),
         now = Date.now();
+      this.reserve(0);
       mkdirSync(directory, { mode: 0o700 });
       const spool = join(directory, "logs.ndjson");
       writeFileSync(spool, "", { mode: 0o600 });
@@ -194,11 +236,13 @@ export class PowerLogsDatabase {
         }
         const staging = join(this.persistentDirectory, `${capture.meta.id}.pending`);
         try {
+          this.reserve(this.directoryBytes(capture.directory));
           cpSync(capture.directory, staging, { recursive: true, errorOnExist: true, force: false });
           this.saveMetadata({ ...capture, directory, meta: { ...capture.meta, persistent: true } }, staging);
           renameSync(staging, directory);
-        } catch {
+        } catch (error) {
           rmSync(staging, { recursive: true, force: true });
+          if (error instanceof Error && error.message === POWER_LOGS_STORAGE_FULL) throw error;
           throw new Error("Persistent storage unavailable");
         }
         // retain the original directory for active readers until capture deletion drains them
@@ -213,12 +257,14 @@ export class PowerLogsDatabase {
         const directory = join(this.directory, capture.meta.id);
         const staging = `${directory}.pending`;
         try {
+          this.reserve(this.directoryBytes(capture.directory));
           cpSync(capture.directory, staging, { recursive: true, errorOnExist: true, force: false });
           rmSync(directory, { recursive: true, force: true });
           renameSync(staging, directory);
           rmSync(capture.directory, { recursive: true, force: true });
-        } catch {
+        } catch (error) {
           rmSync(staging, { recursive: true, force: true });
+          if (error instanceof Error && error.message === POWER_LOGS_STORAGE_FULL) throw error;
           throw new Error("Temporary storage unavailable");
         }
         capture.directory = directory;
@@ -251,6 +297,7 @@ export class PowerLogsDatabase {
         capture.meta.rows + request.records.length > capture.limits.captureRows
       )
         throw new Error("Capture limit reached");
+      this.reserve(bytes);
       try {
         appendFileSync(capture.spool, data);
       } catch {
@@ -263,10 +310,13 @@ export class PowerLogsDatabase {
     }
     if (request.operation === "finish") {
       if (capture.meta.state !== "collecting") return { ...capture.meta };
+      const pages = Math.floor((this.storageLimit - this.storageBytes()) / 4096);
+      if (pages < 2) throw new Error(POWER_LOGS_STORAGE_FULL);
       let database: DatabaseSync | undefined;
       try {
         writeFileSync(capture.database, "", { mode: 0o600 });
         database = new DatabaseSync(capture.database, { allowExtension: false });
+        database.exec(`PRAGMA page_size=4096; PRAGMA max_page_count=${pages}`);
         database.exec(
           "PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; PRAGMA cache_size=-16384; PRAGMA temp_store=MEMORY",
         );
@@ -302,10 +352,12 @@ export class PowerLogsDatabase {
           input.destroy();
         }
         database.exec("CREATE INDEX logs_timestamp ON logs(timestamp)");
-      } catch {
+      } catch (error) {
         database?.close();
         database = undefined;
         rmSync(capture.database, { force: true });
+        if (error instanceof Error && /database or disk is full/.test(error.message))
+          throw new Error(POWER_LOGS_STORAGE_FULL);
         throw new Error("Log capture storage unavailable");
       } finally {
         database?.close();
@@ -323,11 +375,9 @@ export class PowerLogsDatabase {
   }
   private saveMetadata(capture: Capture, directory = capture.directory): void {
     const temporary = join(directory, "capture.json.pending");
-    writeFileSync(
-      temporary,
-      JSON.stringify({ meta: capture.meta, partition: capture.partition, limits: capture.limits }),
-      { mode: 0o600 },
-    );
+    const data = JSON.stringify({ meta: capture.meta, partition: capture.partition, limits: capture.limits });
+    this.reserve(Buffer.byteLength(data));
+    writeFileSync(temporary, data, { mode: 0o600 });
     renameSync(temporary, join(directory, "capture.json"));
   }
   close(): void {

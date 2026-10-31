@@ -1,4 +1,5 @@
 import { copyFile } from "node:fs/promises";
+import { POWER_LOGS_STORAGE_FULL } from "../common/power-logs";
 import { applyPowerLogsLimits } from "../common/power-logs-limits";
 import { PowerLogsDatabase } from "./power-logs-database";
 
@@ -56,7 +57,8 @@ port.on(
           id: data.id,
           error:
             error instanceof Error &&
-            error.message === "Saved snapshot limit reached. Delete a saved snapshot before keeping another."
+            (error.message === POWER_LOGS_STORAGE_FULL ||
+              error.message === "Saved snapshot limit reached. Delete a saved snapshot before keeping another.")
               ? error.message
               : "Log operation failed or exceeded its limit",
         });

@@ -81,7 +81,9 @@ it("shows plain icon controls on the hovered line with separate tooltips", () =>
   const Icon = ({ material, tooltip }: { material: string; tooltip?: string }) => (
     <span data-icon={material} data-tooltip={tooltip} />
   );
-  const { container, getByRole } = render(<LogJson text={text} Icon={Icon} onFilter={vi.fn()} />);
+  const { container, getByRole } = render(
+    <LogJson text={text} Icon={Icon} onFilter={vi.fn()} onToggleColumn={vi.fn()} />,
+  );
   const key = container.querySelector<HTMLElement>('[data-token="key"]')!;
   vi.spyOn(key, "getBoundingClientRect").mockReturnValue({
     left: 30,
@@ -95,7 +97,7 @@ it("shows plain icon controls on the hovered line with separate tooltips", () =>
   expect(toolbar.style.top).toBe("80px");
   expect(toolbar.style.left).toBe("104px");
   expect(toolbar.style.background).toBe("transparent");
-  for (const name of ["Copy value", "Include value", "Exclude value"]) {
+  for (const name of ["Copy value", "Include value", "Exclude value", "Show field as column"]) {
     const button = getByRole("button", { name });
     expect(button.title).toBe("");
     expect(button.style.width).toBe("20px");
@@ -105,6 +107,9 @@ it("shows plain icon controls on the hovered line with separate tooltips", () =>
     expect(button.style.borderWidth).toBe("0px");
     expect(button.querySelector("[data-tooltip]")?.getAttribute("data-tooltip")).toBe(name);
   }
+  expect(
+    getByRole("button", { name: "Show field as column" }).querySelector("[data-icon]")?.getAttribute("data-icon"),
+  ).toBe("visibility");
   expect(container.querySelector("pre")?.textContent).toBe(text);
 });
 
@@ -255,4 +260,75 @@ it("places actions after the last wrapped visual line including its trailing com
   } finally {
     createRange.mockRestore();
   }
+});
+
+it("toggles nested fields as columns with exact typed paths and pressed state", () => {
+  const onToggleColumn = vi.fn();
+  const text = '{"a.b":[{"0":null}],"object":{},"array":[]}';
+  const { container, getByRole, rerender } = render(
+    <LogJson text={text} onToggleColumn={onToggleColumn} columnPaths={[["a.b", "0", "0"]]} />,
+  );
+  fireEvent.focus(container.querySelector('[data-token="literal"]')!);
+  const show = getByRole("button", { name: "Show field as column" });
+  expect(show.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(show);
+  expect(onToggleColumn).toHaveBeenLastCalledWith(["a.b", 0, "0"]);
+  rerender(<LogJson text={text} onToggleColumn={onToggleColumn} columnPaths={[["a.b", 0, "0"]]} />);
+  const hide = getByRole("button", { name: "Hide field column" });
+  expect(hide.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(hide);
+  expect(onToggleColumn).toHaveBeenLastCalledWith(["a.b", 0, "0"]);
+  const keys = container.querySelectorAll('[data-token="key"]');
+  for (const [index, path] of [
+    [2, ["object"]],
+    [3, ["array"]],
+  ] as const) {
+    fireEvent.focus(keys[index]);
+    fireEvent.click(getByRole("button", { name: "Show field as column" }));
+    expect(onToggleColumn).toHaveBeenLastCalledWith(path);
+  }
+});
+
+it("omits column controls without a callback in read-only and copy-only JSON", () => {
+  const Icon = () => <span />;
+  const { container, queryByRole, getByRole, rerender } = render(<LogJson text='{"value":1}' />);
+  expect(container.querySelector("[tabindex]")).toBeNull();
+  rerender(<LogJson text='{"value":1}' Icon={Icon} columnPaths={[["value"]]} />);
+  fireEvent.focus(container.querySelector('[data-token="key"]')!);
+  expect(getByRole("button", { name: "Copy value" })).toBeTruthy();
+  expect(queryByRole("button", { name: /field.*column/ })).toBeNull();
+});
+
+it.each([
+  '{"value":1,"value":2}',
+  '{"value":[1,',
+  "[".repeat(10000) + "0" + "]".repeat(10000),
+])("keeps column actions disabled for ambiguous or invalid JSON", (text) => {
+  const { container, queryByRole } = render(<LogJson text={text} onToggleColumn={vi.fn()} />);
+  expect(container.querySelector("pre [tabindex]")).toBeNull();
+  fireEvent.mouseEnter(container.querySelector("pre span")!);
+  expect(queryByRole("toolbar")).toBeNull();
+});
+
+it.each([
+  [false, false, 20],
+  [true, false, 64],
+  [false, true, 42],
+  [true, true, 86],
+])("fits the actual action count inside the wrapper", (filter, column, width) => {
+  const Icon = () => <span />;
+  const { container, getByRole } = render(
+    <LogJson
+      text='{"value":1}'
+      Icon={Icon}
+      onFilter={filter ? vi.fn() : undefined}
+      onToggleColumn={column ? vi.fn() : undefined}
+    />,
+  );
+  const key = container.querySelector<HTMLElement>('[data-token="key"]')!;
+  const wrapper = container.querySelector<HTMLElement>(".power-log-json-fields")!;
+  vi.spyOn(key, "getBoundingClientRect").mockReturnValue({ right: 2500, top: 80, height: 20 } as DOMRect);
+  vi.spyOn(wrapper, "getBoundingClientRect").mockReturnValue({ right: 320 } as DOMRect);
+  fireEvent.focus(key);
+  expect(getByRole("toolbar").style.left).toBe(`${320 - Number(width)}px`);
 });

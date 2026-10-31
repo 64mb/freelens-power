@@ -90,7 +90,7 @@ it("keeps failed drafts locally, reports only current failures, and retries on a
   const drafts = new CaptureSqlDrafts(save, onError);
   drafts.set("a", "invalid draft '");
   await drafts.flush();
-  expect(onError).toHaveBeenCalledExactlyOnceWith("a");
+  expect(onError).toHaveBeenCalledExactlyOnceWith("a", expect.objectContaining({ message: "unavailable" }));
   expect(drafts.read(capture("a"), "default")).toBe("invalid draft '");
   await vi.runAllTimersAsync();
   await drafts.flush();

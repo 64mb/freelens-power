@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Main } from "@freelensapp/extensions";
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain } from "electron";
 import { reaction } from "mobx";
 import {
   POWER_LOGS_LIMITS as L,
@@ -9,6 +9,8 @@ import {
   type LogRequest,
   type LogTarget,
   POWER_LOGS_CHANNEL,
+  POWER_LOGS_STORAGE_CHANNEL,
+  POWER_LOGS_STORAGE_FULL,
 } from "../common/power-logs";
 import { applyPowerLogsLimits, normalizePowerLogsLimits } from "../common/power-logs-limits";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
@@ -126,6 +128,25 @@ export function validateLogRequest(input: unknown): LogRequest {
   return { ...scoped, operation: "append", records };
 }
 
+export function trustedLogStorageSender(event: IpcMainInvokeEvent): boolean {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window || window.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame)
+    return false;
+  try {
+    const frame = new URL(event.senderFrame.url);
+    const root = new URL(event.sender.getURL());
+    return (
+      frame.protocol === "https:" &&
+      frame.hostname === "renderer.freelens.app" &&
+      !frame.username &&
+      !frame.password &&
+      frame.origin === root.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function startPowerLogs(): () => void {
   let storageAvailable = true;
   try {
@@ -174,6 +195,24 @@ export function startPowerLogs(): () => void {
       .update(readFileSync(cluster.kubeConfigPath))
       .digest("hex");
   };
+  ipcMain.handle(POWER_LOGS_STORAGE_CHANNEL, async (event, input: unknown) => {
+    const allowed = () => active && preferences.enabled && trustedLogStorageSender(event);
+    try {
+      if (!allowed() || !storageAvailable || !input || typeof input !== "object") throw new Error();
+      const operation = (input as { operation?: unknown }).operation;
+      if (operation !== "status" && operation !== "clear") throw new Error();
+      if (!worker || worker.isClosed) worker = new PowerLogsWorker();
+      const result = await worker.call({
+        clusterId: "settings",
+        contextId: "settings",
+        operation: operation === "status" ? "storage-status" : "clear-storage",
+      });
+      if (!allowed()) throw new Error();
+      return result;
+    } catch {
+      throw new Error("Log storage operation failed or is unavailable");
+    }
+  });
   ipcMain.handle(POWER_LOGS_CHANNEL, async (event, input: unknown) => {
     try {
       const request = validateLogRequest(input);
@@ -249,7 +288,8 @@ export function startPowerLogs(): () => void {
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message === "Saved snapshot limit reached. Delete a saved snapshot before keeping another."
+        (error.message === POWER_LOGS_STORAGE_FULL ||
+          error.message === "Saved snapshot limit reached. Delete a saved snapshot before keeping another.")
       )
         throw error;
       throw new Error("Power Logs operation failed or is unavailable");
@@ -261,6 +301,7 @@ export function startPowerLogs(): () => void {
     streamOwners.clear();
     stop();
     ipcMain.removeHandler(POWER_LOGS_CHANNEL);
+    ipcMain.removeHandler(POWER_LOGS_STORAGE_CHANNEL);
     worker?.close();
     worker = undefined;
   };
