@@ -570,6 +570,17 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
         .evaluate((el) => el.getBoundingClientRect().height),
     )
     .toBe(20);
+  const compactTextGap = await page
+    .locator(".power-log-open")
+    .first()
+    .evaluate((element) => {
+      const time = document.createRange();
+      time.selectNodeContents(element.firstElementChild!);
+      const level = document.createRange();
+      level.selectNodeContents(element.querySelector(".power-log-level")!);
+      return level.getBoundingClientRect().left - time.getBoundingClientRect().right;
+    });
+  expect(compactTextGap).toBeGreaterThanOrEqual(8);
   await page.getByText("Compact density", { exact: true }).click();
   await session.window.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Capture logs", exact: true })).toHaveCount(0);
@@ -652,15 +663,46 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   expect(geometry.detailTop).toBeLessThan(geometry.streamBottom);
   expect(geometry.detailWidth).toBeGreaterThan(200);
   expect(geometry.detailRight).toBeLessThanOrEqual(geometry.viewport + 1);
+  const copyLevel = detail.getByRole("button", { name: "Copy log level", exact: true });
+  await copyLevel.hover();
+  await copyLevel.click();
+  await expect(copyLevel.locator(".Icon.material .icon")).toHaveText("check");
+  const levelCopyCenterDifference = await detail.locator(".power-logs-detail-level").evaluate((element) => {
+    const label = element.querySelector(".power-logs-level-label")!.getBoundingClientRect();
+    const icon = element.querySelector("button .Icon .icon")!.getBoundingClientRect();
+    return Math.abs((label.top + label.bottom - icon.top - icon.bottom) / 2);
+  });
+  expect(levelCopyCenterDifference).toBeLessThanOrEqual(0.6);
   await detail.getByText('"sequence"', { exact: true }).hover();
+  const copyValue = detail.getByRole("button", { name: "Copy value", exact: true });
+  await copyValue.click();
+  await expect(copyValue.locator(".Icon.material .icon")).toHaveText("check");
+  await copyValue.locator(".Icon").hover();
+  await expect(frame.getByRole("tooltip").filter({ hasText: /^Copied$/ })).toBeVisible();
+  const copyStatus = detail.getByRole("status");
+  await expect(copyStatus).toHaveText("Copied");
+  await expect(copyStatus).toHaveCSS("width", "1px");
+  await expect(copyStatus).toHaveCSS("height", "1px");
+  await expect(copyStatus).toHaveCSS("clip-path", "inset(50%)");
+  await expect(copyStatus).toHaveCSS("overflow", "hidden");
   const showColumn = detail.getByRole("button", { name: "Show field as column", exact: true });
   await expect(showColumn).toBeVisible();
   await showColumn.click();
   const columnHeading = page.getByRole("button", { name: 'Remove column $["sequence"]', exact: true });
   await expect(columnHeading).toBeVisible();
+  await expect(columnHeading.locator("span").first()).toHaveText("sequence");
+  await expect(columnHeading).not.toHaveAttribute("title");
+  expect(
+    await page
+      .locator(".power-log-column-headings > span")
+      .nth(1)
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
   await expect(page.locator(".power-log-column-value").first()).toHaveText(/^\d+$/);
   await expect(page.locator(".power-log-row").first()).toHaveCSS("height", "34px");
   await detail.getByRole("button", { name: "Close line details", exact: true }).click();
+  await columnHeading.hover();
+  await expect(frame.getByRole("tooltip").filter({ hasText: /^\$\["sequence"\]$/ })).toBeVisible();
   await columnHeading.click();
   await expect(page.locator(".power-log-column-value")).toHaveCount(0);
   await page.locator(".power-logs-stream").evaluate((element) => {

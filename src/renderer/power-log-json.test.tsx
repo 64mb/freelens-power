@@ -332,3 +332,54 @@ it.each([
   fireEvent.focus(key);
   expect(getByRole("toolbar").style.left).toBe(`${320 - Number(width)}px`);
 });
+
+it.each([
+  false,
+  true,
+])("reports field copy feedback through the native icon tooltip without a visible status (fails: %s)", (fails) => {
+  const Icon = ({ material, tooltip }: { material: string; tooltip?: string }) => (
+    <span data-icon={material} data-tooltip={tooltip} />
+  );
+  const text = '{"first":"original","second":"next"}';
+  const { container, getByRole, queryByRole } = render(<LogJson text={text} Icon={Icon} />);
+  const values = container.querySelectorAll('[data-token="string"]');
+  fireEvent.focus(values[0]);
+  const copy = getByRole("button", { name: "Copy value" });
+  expect(copy.querySelector("[data-tooltip]")?.getAttribute("data-tooltip")).toBe("Copy value");
+  if (fails)
+    mocks.writeText.mockImplementationOnce(() => {
+      throw new Error("private clipboard diagnostic");
+    });
+  fireEvent.click(copy);
+  expect(mocks.writeText).toHaveBeenLastCalledWith("original");
+  const feedback = fails ? "Copy failed" : "Copied";
+  expect(copy.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(fails ? "content_copy" : "check");
+  expect(copy.querySelector("[data-tooltip]")?.getAttribute("data-tooltip")).toBe(feedback);
+  const status = getByRole("status");
+  expect(status.textContent).toBe(feedback);
+  expect(status.style.width).toBe("1px");
+  expect(status.style.height).toBe("1px");
+  expect(status.style.clipPath).toBe("inset(50%)");
+  expect(status.style.overflow).toBe("hidden");
+  expect(container.textContent).not.toContain("private clipboard diagnostic");
+  expect(container.querySelector("pre")?.textContent).toBe(text);
+  fireEvent.focus(values[1]);
+  expect(queryByRole("status")).toBeNull();
+  expect(getByRole("button", { name: "Copy value" }).querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(
+    "content_copy",
+  );
+  expect(
+    getByRole("button", { name: "Copy value" }).querySelector("[data-tooltip]")?.getAttribute("data-tooltip"),
+  ).toBe("Copy value");
+  expect(container.querySelector("pre")?.textContent).toBe(text);
+});
+
+it("shows a check glyph after copying when native icons are unavailable", () => {
+  const { container, getByRole } = render(<LogJson text='{"value":"raw"}' onFilter={vi.fn()} />);
+  fireEvent.focus(container.querySelector('[data-token="string"]')!);
+  const copy = getByRole("button", { name: "Copy value" });
+  expect(copy.textContent).toBe("⧉");
+  fireEvent.click(copy);
+  expect(copy.textContent).toBe("✓");
+  expect(getByRole("status").textContent).toBe("Copied");
+});

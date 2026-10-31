@@ -55,9 +55,11 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-workspace { position:relative; display:flex; flex:1; min-height:0; }
 .power-logs-viewer { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; gap:4px; }
 .power-logs-stream { position:relative; flex:1; min-height:0; min-width:0; overflow:auto; border:1px solid var(--borderColor); border-radius:6px; background:var(--contentColor); }
-.power-log-rows { min-width:calc(100% + var(--power-log-extra-columns,0) * var(--power-log-extra-column-width,168px)); }
+.power-logs-stream:has(.power-log-column-headings) { container-type:inline-size; --power-log-message-column:minmax(0,40cqw); }
+.power-logs-stream:has(.power-log-column-headings) :is(.power-log-rows,.power-log-column-headings) { --power-log-table-width:max(100cqw,calc(var(--log-time-width,calc(8ch + 4px)) + var(--log-level-width,max(calc(5ch + 4px),calc(var(--power-log-level-ch,7) * .833333ch + 4px))) + var(--power-log-origin-width,180px) + 40cqw + var(--power-log-fields-width,0cqw) + (var(--power-log-extra-columns,0) + var(--power-log-base-gaps,3)) * var(--power-log-track-gap,8px) + var(--power-log-row-padding,51px))); }
+.power-log-rows { font-family:var(--font-monospace,monospace); font-size:12px; min-width:var(--power-log-table-width,100%); }
 .power-log-row { display:flex; align-items:center; box-sizing:border-box; min-height:0; position:absolute; left:0; right:0; width:100%; border-left:3px solid var(--textColorSecondary); border-bottom:1px solid var(--borderFaintColor); font-family:var(--font-monospace,monospace); font-size:12px; }
-.power-logs .power-log-open, .power-logs .power-log-column-headings { box-sizing:border-box; width:100%; flex:0 0 100%; height:100%; min-height:0; display:grid; grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,calc(var(--power-log-level-ch,7) * .833333ch + 4px)) minmax(100px,180px) minmax(0,1fr) var(--power-log-field-columns,); align-items:center; justify-content:normal; gap:8px; padding:0 36px 0 12px; border:0; border-radius:0; text-align:left; background:transparent; font-family:inherit; font-size:inherit; }
+.power-logs .power-log-open, .power-logs .power-log-column-headings { box-sizing:border-box; width:100%; flex:0 0 100%; height:100%; min-height:0; display:grid; grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,max(calc(5ch + 4px),calc(var(--power-log-level-ch,7) * .833333ch + 4px))) minmax(100px,180px) var(--power-log-message-column,minmax(0,1fr)) var(--power-log-field-columns,); align-items:center; justify-content:normal; gap:8px; padding:0 36px 0 12px; border:0; border-radius:0; text-align:left; background:transparent; font-family:inherit; font-size:inherit; }
 .power-logs .power-log-open:focus-visible { outline-offset:-2px; }
 .power-logs .power-log-context { position:sticky; flex:0 0 24px; box-sizing:border-box; right:4px; margin-left:-28px; z-index:1; width:24px; height:20px; min-height:20px; padding:0; border:0; border-radius:3px; background:var(--contentColor); color:var(--textColorSecondary); opacity:0; transition:opacity 160ms ease,color 160ms ease; }
 .power-logs .power-log-row:is(:hover,:focus-within) .power-log-context, .power-logs .power-log-context[aria-expanded=true] { opacity:1; }
@@ -66,14 +68,15 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-log-context > .Icon, .power-log-context > .Icon > .icon { color:inherit; }
 @media (hover:none) { .power-logs .power-log-context { opacity:1; } }
 @media (prefers-reduced-motion:reduce) { .power-logs .power-log-context { transition:none; } }
-.power-logs[data-compact=true] { --power-log-extra-column-width:164px; --log-time-width:calc(8ch + 1px); --log-level-width:calc(var(--power-log-level-ch,7) * .909091ch + 1px); }
+.power-logs[data-compact=true] { --power-log-track-gap:4px; --power-log-row-padding:45px; --log-time-width:calc(8ch + 5px); --log-level-width:calc(var(--power-log-level-ch,7) * .909091ch + 1px); }
+.power-logs[data-compact=true] .power-log-rows { font-size:11px; }
 .power-logs[data-compact=true] .power-log-row { font-size:11px; line-height:16px; }
 .power-logs[data-compact=true] :is(.power-log-open,.power-log-column-headings) { padding-left:6px; gap:4px; }
 .power-logs[data-compact=true] table :is(td,th) { padding:1px 6px; font-size:11px; line-height:16px; }
 .power-logs[data-compact=true] .power-logs-cell { white-space:nowrap; }
 .power-log-open > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .power-log-open > .power-log-message, .power-log-column-value { white-space:pre; height:16px; line-height:16px; }
-.power-logs .power-log-column-headings { position:sticky; top:0; z-index:2; width:calc(100% + var(--power-log-extra-columns,0) * var(--power-log-extra-column-width,168px)); height:28px; padding-left:15px; background:var(--contentColor); border-bottom:1px solid var(--borderColor); font-family:var(--font-monospace,monospace); font-size:12px; color:var(--textColorSecondary); }
+.power-logs .power-log-column-headings { position:sticky; top:0; z-index:2; width:var(--power-log-table-width,100%); height:28px; padding-left:15px; background:var(--contentColor); border-bottom:1px solid var(--borderColor); font-family:var(--font-monospace,monospace); font-size:12px; color:var(--textColorSecondary); }
 .power-logs[data-compact=true] .power-log-column-headings { padding-left:9px; font-size:11px; }
 .power-log-column-headings > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .power-logs .power-log-column-heading { min-width:0; min-height:20px; height:24px; padding:0 4px; justify-content:space-between; border:0; background:transparent; font-size:11px; }
@@ -90,8 +93,23 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-log-row[data-level=info] { border-left-color:var(--primary)!important; }
 .power-logs .power-log-row[data-search-match=true] { background:color-mix(in srgb,var(--primary) 12%,var(--contentColor))!important; }
 .power-logs-detail { position:absolute; z-index:5; top:0; bottom:0; right:0; box-sizing:border-box; box-shadow:-4px 0 18px #0004; display:flex; flex-direction:column; align-items:stretch; gap:12px; width:460px; max-width:95%; padding:16px; background:var(--contentColor); border:1px solid var(--borderColor); border-radius:6px; overflow:auto; }
+.power-logs-detail-metadata { display:grid; gap:6px; }
+.power-logs-detail-field, .power-logs-detail-time { display:flex; align-items:baseline; gap:6px; min-width:0; }
+.power-logs-detail-field { align-items:center; }
+.power-logs-detail-timestamp { display:inline-flex; flex-wrap:wrap; column-gap:12px; row-gap:2px; }
+.power-logs-detail-timestamp > span { white-space:nowrap; }
+.power-logs-detail-field > strong, .power-logs-detail-time > strong { flex-shrink:0; }
+.power-logs-detail-field > span { min-width:0; overflow-wrap:anywhere; }
+.power-logs .power-logs-detail-field-copy { display:inline-flex; align-items:center; justify-content:center; line-height:1; align-self:center; flex-shrink:0; width:24px; height:24px; min-height:24px; padding:0; border:0; background:transparent; color:var(--textColorSecondary); opacity:0; transition:opacity 160ms ease,color 160ms ease; }
+.power-logs-detail-field:is(:hover,:focus-within) .power-logs-detail-field-copy { opacity:1; }
+.power-logs .power-logs-detail-field-copy:is(:hover,:focus-visible) { color:var(--primary); }
+.power-logs-detail-field-copy .Icon, .power-logs-detail-field-copy .icon { color:inherit; }
+.power-logs-detail-separator { width:calc(100% - 8px); margin:2px 0; border:0; border-top:1px solid var(--borderFaintColor); flex-shrink:0; }
+@media (hover:none) { .power-logs .power-logs-detail-field-copy { opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .power-logs .power-logs-detail-field-copy { transition:none; } }
 .power-logs-detail header { justify-content:flex-end; }
 .power-logs-detail header > strong { margin-right:auto; }
+.power-logs-sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .power-logs-structured-heading { display:flex; align-items:center; gap:6px; }
 .power-logs .power-logs-detail-copy, .power-logs .power-logs-detail-close { flex-shrink:0; width:28px; padding:0; border-color:transparent; background:transparent; }
 .power-logs .power-logs-detail-copy:not(:disabled):hover, .power-logs .power-logs-detail-close:not(:disabled):hover { border-color:transparent; background:color-mix(in srgb,var(--primary) 10%,transparent); }
@@ -159,7 +177,7 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .power-logs .power-logs-error { white-space:normal; overflow:visible; overflow-wrap:anywhere; }
 .power-logs-snapshot-notes { max-height:100px; overflow:auto; }
-@container(max-width:760px) { .power-logs-detail { width:min(420px,86%); padding:12px; gap:10px; } .power-logs-filters .power-logs-select { flex:1 1 130px; } .power-logs-filters > input { flex-basis:100%; } .power-logs :is(.power-log-open,.power-log-column-headings) { grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,calc(var(--power-log-level-ch,7) * .833333ch + 4px)) minmax(0,1fr) var(--power-log-field-columns,); } .power-logs .power-log-origin { display:none; } .power-logs header .power-logs-actions { gap:4px; } }
+@container(max-width:760px) { .power-logs :is(.power-log-rows,.power-log-column-headings) { --power-log-origin-width:0px; --power-log-base-gaps:2; } .power-logs-detail { width:min(420px,86%); padding:12px; gap:10px; } .power-logs-filters .power-logs-select { flex:1 1 130px; } .power-logs-filters > input { flex-basis:100%; } .power-logs :is(.power-log-open,.power-log-column-headings) { grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,max(calc(5ch + 4px),calc(var(--power-log-level-ch,7) * .833333ch + 4px))) var(--power-log-message-column,minmax(0,1fr)) var(--power-log-field-columns,); } .power-logs .power-log-origin { display:none; } .power-logs header .power-logs-actions { gap:4px; } }
 .Select__option:is(.Select__option--is-selected,:active) .power-logs-snapshot-option > button { color:var(--freelens-power-accent-foreground,#fff); background:color-mix(in srgb,var(--freelens-power-accent-foreground,#fff) 10%,transparent); border-color:color-mix(in srgb,var(--freelens-power-accent-foreground,#fff) 60%,transparent); }
 .Select__option:is(.Select__option--is-selected,:active) .power-logs-snapshot-option > button:not(:disabled):is(:hover,:active,:focus-visible) { color:var(--freelens-power-accent-foreground,#fff); background:color-mix(in srgb,var(--freelens-power-accent-foreground,#fff) 22%,transparent); border-color:var(--freelens-power-accent-foreground,#fff); }
 .power-logs-field-filters { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
@@ -183,7 +201,8 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .theme-light .power-log-message [data-status-class="4"] { color:#8a4b00; }
 .power-log-message [data-status-class="5"] { color:#f19b8d; }
 .theme-light .power-log-message [data-status-class="5"] { color:#9e2b1a; }
-.power-logs[data-hide-resource-name=true] :is(.power-log-open,.power-log-column-headings) { grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,calc(var(--power-log-level-ch,7) * .833333ch + 4px)) minmax(0,1fr) var(--power-log-field-columns,); }
+.power-logs[data-hide-resource-name=true] :is(.power-log-rows,.power-log-column-headings) { --power-log-origin-width:0px; --power-log-base-gaps:2; }
+.power-logs[data-hide-resource-name=true] :is(.power-log-open,.power-log-column-headings) { grid-template-columns:var(--log-time-width,calc(8ch + 4px)) var(--log-level-width,max(calc(5ch + 4px),calc(var(--power-log-level-ch,7) * .833333ch + 4px))) var(--power-log-message-column,minmax(0,1fr)) var(--power-log-field-columns,); }
 .power-logs[data-hide-resource-name=true] .power-log-origin { display:none; }
 .power-logs .power-logs-control-label { display:block; flex:0 0 76px; width:76px; margin:0; }
 .power-logs .power-logs-source > .power-logs-control-label { flex:0 0 auto; width:auto; }

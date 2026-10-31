@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { formatDateTime } from "../common/date-time";
 import { JSON_KEY_DISCOVERY_SQL } from "../common/power-log-json-preset";
 import {
   type LogCapture,
@@ -307,13 +308,16 @@ it.each([false, true])("copies complete structured JSON and reports clipboard fa
     });
   const view = await mount();
   fireEvent.click(view.container.querySelector(".power-log-open")!);
-  const severity = screen.getByLabelText("Log line details").querySelector(".power-logs-muted .power-logs-level-label");
+  const severity = screen
+    .getByLabelText("Log line details")
+    .querySelector(".power-logs-detail-level .power-logs-level-label");
   expect(severity?.textContent).toBe("INFO");
   expect(severity?.getAttribute("data-level")).toBe("info");
   const copy = screen.getByRole("button", { name: "Copy structured JSON" });
   fireEvent.click(copy);
   expect(mocks.copy).toHaveBeenCalledWith(JSON.stringify(json, null, 2));
   expect(tooltipText(copy)).toBe(fails ? "Unable to copy JSON" : "Copied");
+  expect(copy.querySelector(`[data-icon="${fails ? "content_copy" : "check"}"]`)).toBeTruthy();
   if (fails) expect(screen.queryByText("Copied")).toBeNull();
 });
 
@@ -454,7 +458,13 @@ it("adds nested field columns to every live row and removes them from either act
   fireEvent.click(within(detail).getByRole("button", { name: "Show field as column" }));
   const values = () => [...view.container.querySelectorAll(".power-log-column-value")].map((cell) => cell.textContent);
   expect(values()).toEqual(["200", "null", "—"]);
-  expect(screen.getByRole("button", { name: 'Remove column $["request"]["status"]' })).toBeTruthy();
+  const firstValue = view.container.querySelector(".power-log-column-value")!;
+  expect(firstValue.hasAttribute("title")).toBe(false);
+  expect(tooltipText(firstValue)).toBe("200");
+  const statusHeading = screen.getByRole("button", { name: 'Remove column $["request"]["status"]' });
+  expect(within(statusHeading).getByText("status")).toBeTruthy();
+  expect(statusHeading.hasAttribute("title")).toBe(false);
+  expect(tooltipText(statusHeading)).toBe('$["request"]["status"]');
   expect(screen.queryByLabelText("Live JSON filters")?.textContent ?? "").not.toContain("status");
   fireEvent.focus(within(detail).getByText('"request.status"'));
   fireEvent.click(within(detail).getByRole("button", { name: "Show field as column" }));
@@ -1295,4 +1305,163 @@ it.each([false, true])("uses distinct snapshot pin icons for persistent state %s
   });
   expect(button.getAttribute("aria-pressed")).toBe(String(persistent));
   expect(button.querySelector(`[data-icon="${persistent ? "push_off" : "push_pin"}"]`)).toBeTruthy();
+});
+
+it("shows live source metadata in separate labeled rows and places the full timestamp before fields", async () => {
+  const liveTarget = { ...target, namespace: "live-space" };
+  window.history.replaceState({}, "", `/?target=${encodeURIComponent(JSON.stringify(liveTarget))}`);
+  mocks.objects = [{ kind: liveTarget.kind, metadata: { ...liveTarget } }];
+  const line = record(0, { fieldsJson: '{"nested":{"value":1}}' });
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([line]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  const detail = screen.getByLabelText("Log line details");
+  const pod = detail.querySelector(".power-logs-detail-pod")!;
+  const namespace = detail.querySelector(".power-logs-detail-namespace")!;
+  const level = detail.querySelector(".power-logs-detail-level")!;
+  expect(pod.querySelector("strong")?.textContent).toBe("Pod:");
+  expect(namespace.querySelector("strong")?.textContent).toBe("Namespace:");
+  expect(level.querySelector("strong")?.textContent).toBe("Level:");
+  expect(new Set([pod, namespace, level]).size).toBe(3);
+  expect(pod.textContent).toContain(line.pod);
+  expect(namespace.textContent).toContain("live-space");
+  expect(level.textContent).toContain("INFO");
+  expect(detail.textContent).not.toContain("Container:");
+  expect(
+    Array.from(pod.querySelectorAll("[title]"))
+      .map((node) => node.getAttribute("title"))
+      .join(" "),
+  ).toContain(`Container: ${line.container}`);
+  const separator = detail.querySelector("hr.power-logs-detail-separator")!;
+  const message = within(detail).getByText(line.message);
+  expect(separator.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const separators = detail.querySelectorAll("hr.power-logs-detail-separator");
+  expect(separators).toHaveLength(2);
+  expect(message.compareDocumentPosition(separators[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(
+    separators[1].compareDocumentPosition(within(detail).getByText("Structured fields")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  const time = detail.querySelector(".power-logs-detail-time")!;
+  expect(level.compareDocumentPosition(time) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(time.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect([...time.querySelectorAll(".power-logs-detail-timestamp > span")].map((part) => part.textContent)).toEqual(
+    formatDateTime(line.timestamp!).split("  "),
+  );
+  expect(time.querySelector("strong")?.textContent).toBe("Time:");
+  expect(time.textContent).toContain(formatDateTime(line.timestamp!));
+  expect(
+    time.compareDocumentPosition(within(detail).getByText("Structured fields")) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+it.each([
+  false,
+  true,
+])("copies only the pod name without changing JSON and handles clipboard failures (fails: %s)", async (fails) => {
+  const fieldsJson = '{"nested":{"value":1}}';
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0, { fieldsJson })]);
+    return { notes: [], partial: false };
+  });
+  if (fails)
+    mocks.copy.mockImplementationOnce(() => {
+      throw new Error("private clipboard diagnostic");
+    });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  const detail = screen.getByLabelText("Log line details");
+  const json = detail.querySelector(".power-log-json")!.textContent;
+  const copy = within(detail).getByRole("button", { name: "Copy pod name" });
+  fireEvent.click(copy);
+  expect(mocks.copy).toHaveBeenCalledTimes(1);
+  expect(mocks.copy).toHaveBeenCalledWith(source.pod);
+  expect(tooltipText(copy)).toBe(fails ? "Unable to copy pod name" : "Copied");
+  expect(copy.querySelector('[data-icon="check"]') !== null).toBe(!fails);
+  expect(detail.textContent).not.toContain("private clipboard diagnostic");
+  expect(detail.querySelector(".power-log-json")!.textContent).toBe(json);
+  expect(JSON.parse(json!)).toEqual(JSON.parse(fieldsJson));
+  expect(tooltipText(within(detail).getByRole("button", { name: "Copy structured JSON" }))).toBe(
+    "Copy structured JSON",
+  );
+});
+
+it.each([
+  null,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+])("shows unavailable time for invalid live timestamps (%s)", async (timestamp) => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0, { timestamp })]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  expect(screen.getByLabelText("Log line details").querySelector(".power-logs-detail-time")?.textContent).toContain(
+    "Unavailable",
+  );
+});
+
+it("uses the selected SQL capture namespace and suppresses copying absent pod names", async () => {
+  const captured = { ...snapshot, target: { ...snapshot.target, namespace: "capture-space" } };
+  mocks.list.mockResolvedValue([captured]);
+  mocks.query.mockResolvedValue({ columns: ["message"], rows: [["query row"]], elapsedMs: 1, truncated: false });
+  await mount();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: captured.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
+  fireEvent.click(await screen.findByLabelText("Open SQL row 1"));
+  const detail = screen.getByLabelText("Log line details");
+  expect(detail.querySelector(".power-logs-detail-namespace")?.textContent).toContain("capture-space");
+  expect(detail.querySelector(".power-logs-detail-namespace")?.textContent).not.toContain(target.namespace);
+  expect(within(detail).queryByRole("button", { name: "Copy pod name" })).toBeNull();
+  expect(detail.querySelector(".power-logs-detail-time")?.textContent).toContain("Unavailable");
+});
+
+it("copies namespace and displayed level independently with success feedback", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0, { level: "error" })]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  const detail = screen.getByLabelText("Log line details");
+  const buttons = [
+    ["Copy pod name", source.pod],
+    ["Copy namespace", target.namespace],
+    ["Copy log level", "ERROR"],
+  ];
+  for (const [name, value] of buttons) {
+    const copy = within(detail).getByRole("button", { name });
+    expect(tooltipText(copy)).toBe(name);
+    fireEvent.click(copy);
+    expect(mocks.copy).toHaveBeenLastCalledWith(value);
+    expect(tooltipText(copy)).toBe("Copied");
+    expect(copy.querySelector('[data-icon="check"]')).toBeTruthy();
+  }
+  expect(mocks.copy).toHaveBeenCalledTimes(3);
+});
+
+it.each([
+  ["Copy namespace", "namespace"],
+  ["Copy log level", "log level"],
+])("reports safe clipboard errors for %s", async (name, field) => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0)]);
+    return { notes: [], partial: false };
+  });
+  mocks.copy.mockImplementationOnce(() => {
+    throw new Error("private clipboard diagnostic");
+  });
+  const view = await mount();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  const detail = screen.getByLabelText("Log line details");
+  const copy = within(detail).getByRole("button", { name });
+  fireEvent.click(copy);
+  expect(tooltipText(copy)).toBe(`Unable to copy ${field}`);
+  expect(copy.querySelector('[data-icon="check"]')).toBeNull();
+  expect(detail.textContent).not.toContain("private clipboard diagnostic");
 });
