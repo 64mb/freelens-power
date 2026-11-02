@@ -1094,7 +1094,11 @@ extensionTest(
         const shortcut = session.window.locator(".freelens-power-settings-icon");
         if (await shortcut.isVisible()) await shortcut.click();
         else {
-          await session.window.keyboard.press("Control+,");
+          await session.app.evaluate(({ Menu }) => {
+            const preferences = Menu.getApplicationMenu()?.getMenuItemById("navigate-to-preferences");
+            if (!preferences) throw new Error("Native Preferences menu item is unavailable");
+            preferences.click();
+          });
           await session.window
             .locator("[data-preference-tab-link-test]")
             .filter({ hasText: "@64mb/freelens-power" })
