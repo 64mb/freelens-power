@@ -13,6 +13,7 @@ import {
 } from "../common/node-bulk";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
+import { AiIcon } from "./ai-icon";
 import { startNodeBulkSelection } from "./node-bulk-selection";
 
 const labels: Record<NodeBulkAction, string> = { cordon: "Cordon", uncordon: "Uncordon", drain: "Drain" };
@@ -109,7 +110,7 @@ function NodeActionsMenu({
           }}
         >
           <span aria-hidden="true">
-            <Renderer.Component.Icon material="more_horiz" size={18} />
+            <AiIcon material="more_horiz" size={18} />
           </span>
           <span className="power-node-bulk-count" aria-hidden="true">
             {count}
@@ -348,7 +349,7 @@ export function NodeBulkToolbar({
                 onClick={() => void begin(action)}
               >
                 <span aria-hidden="true">
-                  <Renderer.Component.Icon material={icons[action]} size={18} />
+                  <AiIcon material={icons[action]} size={18} />
                 </span>
                 <span className="title">{labels[action]}</span>
               </NodeActionItem>
@@ -361,7 +362,7 @@ export function NodeBulkToolbar({
               }}
             >
               <span aria-hidden="true">
-                <Renderer.Component.Icon material="clear" size={18} />
+                <AiIcon material="clear" size={18} />
               </span>
               <span className="title">Clear selection</span>
             </NodeActionItem>

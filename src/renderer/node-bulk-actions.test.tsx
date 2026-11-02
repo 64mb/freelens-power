@@ -32,7 +32,9 @@ vi.mock("@freelensapp/extensions", async () => {
         MenuItem: () => {
           throw new Error("native MenuItem requires host menu context");
         },
-        Icon: () => <i />,
+        Icon: () => {
+          throw new Error("native Icon requires host DI context");
+        },
         ConfirmDialog: { open: mocks.confirm },
       },
     },
@@ -324,8 +326,13 @@ it("supports standalone selection and menu without host dependency injection", a
   try {
     fireEvent.click(fixture.querySelector<HTMLInputElement>('.TableRow input[type="checkbox"]')!);
     await flush();
-    expect(screen.getByRole("button", { name: "Actions for 1 selected nodes" })).toBeTruthy();
-    clickAction("Cordon");
+    const trigger = screen.getByRole("button", { name: "Actions for 1 selected nodes" });
+    expect(trigger.querySelector(".Icon.material .icon")?.textContent).toBe("more_horiz");
+    fireEvent.click(trigger);
+    const cordon = screen.getByRole("menuitem", { name: "Cordon" });
+    expect(cordon.querySelector(".Icon.material .icon")?.textContent).toBe("pause_circle_filled");
+    expect(screen.getByRole("menuitem", { name: "Drain" }).querySelector(".icon")?.textContent).toBe("delete_sweep");
+    fireEvent.click(cordon);
     await flush();
     expect(mocks.confirm).toHaveBeenCalledOnce();
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(NODE_BULK_CHANNEL, {
