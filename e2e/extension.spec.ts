@@ -1101,7 +1101,7 @@ extensionTest(
           });
           await session.window
             .locator("[data-preference-tab-link-test]")
-            .filter({ hasText: "@64mb/freelens-power" })
+            .filter({ hasText: "Freelens Power" })
             .click();
         }
         const settings = session.window.locator(".freelens-power-preferences");
