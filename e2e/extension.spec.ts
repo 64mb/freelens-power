@@ -1099,10 +1099,7 @@ extensionTest(
             if (!preferences) throw new Error("Native Preferences menu item is unavailable");
             preferences.click();
           });
-          await session.window
-            .locator("[data-preference-tab-link-test]")
-            .filter({ hasText: "Freelens Power" })
-            .click();
+          await session.window.locator("[data-preference-tab-link-test]").filter({ hasText: "Freelens Power" }).click();
         }
         const settings = session.window.locator(".freelens-power-preferences");
         const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: label });
