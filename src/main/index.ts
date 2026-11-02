@@ -24,6 +24,7 @@ import { startDockIconOverride } from "./dock-icon";
 import { startExtensionUpdates } from "./extension-updates";
 import { startPowerHelm } from "./helm-ipc";
 import { startMonitoringHistory } from "./monitoring-history";
+import { startNodeBulk } from "./node-bulk";
 import { startPowerLogs } from "./power-logs-ipc";
 import { startResourceSearchIndex } from "./resource-search";
 import { startSettingsExport } from "./settings-export";
@@ -69,6 +70,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
               startResourceSearchIndex(),
               startPowerLogs(),
               startPowerHelm(),
+              startNodeBulk(),
               startDiagnosticsMenuOrder(),
               startAiIpc(),
               startAiModels(),

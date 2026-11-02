@@ -10,6 +10,31 @@ export function startPowerButtonStyles(): () => void {
     ${hover} { background-color: color-mix(in srgb, var(--contentColor) 88%, var(--textColorPrimary) 12%); color: var(--textColorAccent); border-color: var(--borderColor); }
     :root ${scope} .Button.primary:not(.disabled):hover { background-color: color-mix(in srgb, var(--primary) 88%, white 12%); }
     :root .power-dashboard-card-header a, :root .freelens-power-settings-icon { border-radius: 6px; }
+    :root .AddRemoveButtons .Button.remove-button {
+      box-sizing: border-box;
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      min-height: 38px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid color-mix(in srgb, var(--borderColor) 75%, var(--textColorSecondary) 25%);
+      border-radius: 6px;
+      background: var(--contentColor);
+      color: var(--textColorSecondary);
+      box-shadow: none;
+      transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+    }
+    :root .AddRemoveButtons .Button.remove-button .Icon { --size: 18px; width: 18px; height: 18px; font-size: 18px; }
+    :root .AddRemoveButtons .Button.remove-button:not(.disabled):not(:disabled):hover {
+      border-color: var(--textColorAccent);
+      color: var(--textColorAccent);
+      background: color-mix(in srgb, var(--contentColor) 92%, var(--primary) 8%);
+    }
+    :root .AddRemoveButtons .Button.remove-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { :root .AddRemoveButtons .Button.remove-button { transition: none; } }
     @media (prefers-reduced-motion: reduce) { ${controls} { transition: none; } }
   `;
   document.head.append(style);

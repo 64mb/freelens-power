@@ -10,16 +10,30 @@ Check node readiness and pressure, workload availability, rollout progress, unhe
 Prioritize concrete issues by impact and urgency. Separate current symptoms, supported explanations and hypotheses. If no issue is visible in the inspected sample, say so without claiming the entire cluster is healthy. Explain missing, capped, redacted or unavailable evidence.
 Finish with a concise health summary, the most important findings and practical next checks. Do not change resources or ask for environment values or Secret contents.`;
 
-export const DEFAULT_AI_SYSTEM_PROMPT = LEGACY_AI_SYSTEM_PROMPT.replace(
+export const PREVIOUS_AI_SYSTEM_PROMPT = LEGACY_AI_SYSTEM_PROMPT.replace(
   "Do not request or expose environment values, Secret payloads or withheld strings. Environment and Secret key names are sufficient. Log results contain bounded numeric counters, not raw log lines; do not invent log messages or causes from counters alone.",
   "Secret and ConfigMap payload values are hidden while their keys remain available. Other resource metadata, environment literals, specifications, status and bounded log lines are available as evidence. Never infer hidden payload values or claim copied values in arbitrary text are guaranteed removed.",
 );
-export const DEFAULT_AI_CLUSTER_PROMPT = LEGACY_AI_CLUSTER_PROMPT.replace(
+export const PREVIOUS_AI_CLUSTER_PROMPT = LEGACY_AI_CLUSTER_PROMPT.replace(
   "Do not change resources or ask for environment values or Secret contents.",
   "Do not change resources or ask for hidden Secret or ConfigMap payload values.",
 );
+export const DEFAULT_AI_SYSTEM_PROMPT = PREVIOUS_AI_SYSTEM_PROMPT.replace(
+  "Use clear Markdown with a short conclusion, relevant evidence and prioritized next checks. Explain the impact of a recommendation. Put commands in fenced shell blocks for manual review; never execute them or change resources. Prefer a few useful checks over a long generic checklist.",
+  `Keep every final answer concise and respond in the user's language. By default, use 4-6 short Markdown bullets and about 120-180 words; use fewer bullets and words when sufficient. Expand only when the user explicitly requests more detail.
+Start with one bold summary bullet stating the observed impact and inspected scope. Then list at most three confirmed problems, ordered by availability impact, latency impact and urgency. Highlight each real problem with a bold severity and finding, the exact affected resource, one decisive piece of evidence and its practical impact. Assign severity only when supported by evidence; distinguish hypotheses from confirmed problems and never present missing evidence as a confirmed outage.
+Finish with one or two focused next checks for further investigation. For each check, state what question it resolves and what result would support or rule out the suspected explanation. Include material missing, stale, capped or redacted evidence briefly in the relevant bullet. If no problem is confirmed, say so for the inspected sample and do not invent findings or pad the answer to meet a bullet count.
+Avoid long introductions, exhaustive inventories, repeated conclusions, generic checklists and tables unless explicitly requested. Put any suggested commands in fenced shell blocks for manual review; never execute them or change resources.`,
+);
+export const DEFAULT_AI_CLUSTER_PROMPT = PREVIOUS_AI_CLUSTER_PROMPT.replace(
+  "Finish with a concise health summary, the most important findings and practical next checks. Do not change resources or ask for hidden Secret or ConfigMap payload values.",
+  "Return a brief Markdown bullet summary: one bold verdict with the inspected scope, up to three evidence-backed problems prioritized by availability and latency impact, then one or two targeted next checks. Bold confirmed problems and their severity; give one decisive observation and impact for each. State hypotheses as hypotheses. Each next check must explain what evidence it would establish or rule out. Mention material evidence limits without an exhaustive inventory. If no problem is confirmed, say so only for the inspected sample and keep the answer shorter. Aim for 120-180 words unless the user explicitly requests more detail. Do not change resources or ask for hidden Secret or ConfigMap payload values.",
+);
+
 export function upgradeBundledAiPrompt(value: string, field: "systemPrompt" | "clusterPrompt"): string {
-  if (field === "systemPrompt" && value === LEGACY_AI_SYSTEM_PROMPT) return DEFAULT_AI_SYSTEM_PROMPT;
-  if (field === "clusterPrompt" && value === LEGACY_AI_CLUSTER_PROMPT) return DEFAULT_AI_CLUSTER_PROMPT;
+  if (field === "systemPrompt" && [LEGACY_AI_SYSTEM_PROMPT, PREVIOUS_AI_SYSTEM_PROMPT].includes(value))
+    return DEFAULT_AI_SYSTEM_PROMPT;
+  if (field === "clusterPrompt" && [LEGACY_AI_CLUSTER_PROMPT, PREVIOUS_AI_CLUSTER_PROMPT].includes(value))
+    return DEFAULT_AI_CLUSTER_PROMPT;
   return value;
 }
