@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Frame, type Locator, type TestInfo, test } from "@playwright/test";
 import { FreelensSession } from "./app";
 import { applyFixtures, mutateConfigMap, secretSentinel } from "./fixtures";
+import { createNodeBulkFixtures } from "./node-bulk-fixtures";
 import {
   applyPowerLogsFixtures,
   logsConfigMapSentinel,
@@ -1030,3 +1031,100 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     await closeSettings();
   }
 });
+
+extensionTest(
+  "Nodes select and safely cordon, uncordon and drain isolated empty fixtures",
+  async (session, frame, info) => {
+    const fixtures = createNodeBulkFixtures();
+    try {
+      await frame.locator('[data-testid="link-for-sidebar-item-nodes"]').click();
+      const nodesPage = frame.locator(".Nodes");
+      const filter = nodesPage.locator('input[type="search"], input[placeholder*="Search" i]').first();
+      await filter.fill(fixtures.prefix);
+      const selectAll = nodesPage.getByRole("checkbox", { name: "Select visible nodes", exact: true });
+      const row = (index: number) =>
+        nodesPage.getByRole("checkbox", { name: `Select node ${fixtures.nodes[index].metadata.name}`, exact: true });
+      await expect(row(0)).toBeVisible();
+      await expect(row(1)).toBeVisible();
+      await expect(nodesPage.locator(".TableRow[id]")).toHaveCount(2);
+      await row(0).check();
+      await expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+      await expect(frame.locator(".Drawer")).toHaveCount(0);
+      await selectAll.check();
+      const toolbar = frame.getByRole("region", { name: "Bulk node actions", exact: true });
+      const actions = frame.getByRole("button", { name: "Actions for 2 selected nodes", exact: true });
+      await expect(actions).toBeVisible();
+      await session.screenshot(info, "node-bulk-selection", frame);
+      const confirmation = frame.getByTestId("confirmation-dialog");
+      const actionsBox = await actions.boundingBox();
+      expect(actionsBox?.width).toBe(38);
+      expect(actionsBox?.height).toBe(38);
+      await expect(actions).toHaveCSS("border-radius", "6px");
+      await actions.click();
+      await frame.getByRole("menuitem", { name: "Drain", exact: true }).click();
+      await expect(confirmation.locator(".power-node-bulk-confirmation")).toContainText(
+        "respecting disruption budgets",
+      );
+      await expect(confirmation).toContainText(fixtures.nodes[0].metadata.name);
+      await expect(confirmation).toContainText(fixtures.nodes[1].metadata.name);
+      await session.screenshot(info, "node-bulk-drain-confirmation", frame);
+      await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+      expect(fixtures.nodes.map((node) => fixtures.read(node).spec.unschedulable === true)).toEqual([false, false]);
+      const perform = async (action: "Cordon" | "Uncordon" | "Drain", unschedulable: boolean) => {
+        if (action === "Drain") fixtures.assertEmpty();
+        await selectAll.check();
+        await expect(actions).toBeVisible();
+        await actions.click();
+        await frame.getByRole("menuitem", { name: action, exact: true }).click();
+        await expect(confirmation).toBeVisible();
+        await confirmation.getByRole("button", { name: `${action} 2 nodes`, exact: true }).click();
+        await expect(toolbar.getByRole("status")).toContainText(`${action} · succeeded · 2 / 2 completed`, {
+          timeout: 60_000,
+        });
+        expect(fixtures.nodes.map((node) => fixtures.read(node).spec.unschedulable === true)).toEqual([
+          unschedulable,
+          unschedulable,
+        ]);
+        await session.screenshot(info, `node-bulk-${action.toLowerCase()}-completed`, frame);
+      };
+      await perform("Cordon", true);
+      await perform("Uncordon", false);
+      await perform("Drain", true);
+      const setSwitch = async (label: string, enabled: boolean) => {
+        const shortcut = session.window.locator(".freelens-power-settings-icon");
+        if (await shortcut.isVisible()) await shortcut.click();
+        else {
+          await session.app.evaluate(({ Menu }) => {
+            const preferences = Menu.getApplicationMenu()?.getMenuItemById("navigate-to-preferences");
+            if (!preferences) throw new Error("Native Preferences menu item is unavailable");
+            preferences.click();
+          });
+          await session.window.locator("[data-preference-tab-link-test]").filter({ hasText: "Freelens Power" }).click();
+        }
+        const settings = session.window.locator(".freelens-power-preferences");
+        const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: label });
+        if ((await toggle.locator("input").isChecked()) !== enabled) await toggle.click();
+        await expect(toggle.locator("input")).toBeChecked({ checked: enabled });
+        await session.window.getByTestId("close-preferences").click();
+      };
+      await setSwitch("Read-only mode", true);
+      await expect(selectAll).toHaveCount(0);
+      await expect(toolbar).toHaveCount(0);
+      await expect(nodesPage.locator(".Table")).toBeVisible();
+      await session.screenshot(info, "node-bulk-read-only", frame);
+      await setSwitch("Read-only mode", false);
+      await expect(selectAll).toBeVisible();
+      await expect(selectAll).not.toBeChecked();
+      await setSwitch("Enable Freelens Power", false);
+      await expect(nodesPage.locator("[data-power-node-selection]")).toHaveCount(0);
+      await expect(toolbar).toHaveCount(0);
+      await expect(nodesPage.locator(".Table")).toBeVisible();
+      await session.screenshot(info, "node-bulk-native-restored", frame);
+      await setSwitch("Enable Freelens Power", true);
+      await expect(selectAll).toBeVisible();
+      await expect(selectAll).not.toBeChecked();
+    } finally {
+      fixtures.cleanup();
+    }
+  },
+);

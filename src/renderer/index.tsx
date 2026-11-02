@@ -40,6 +40,7 @@ import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
 import { startMonitoringHistoryCollection } from "./monitoring-history-collection";
+import { startNodeBulkActions } from "./node-bulk-actions";
 import { NodeMonitoringDetails } from "./node-monitoring";
 import { startNodeShellEntrypoints } from "./node-shell-entrypoints";
 import { startPodDetailsEnhancements } from "./pod-details-enhancements";
@@ -103,6 +104,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
           for (const start of [
             startReadOnlyMode,
             startNodeShellEntrypoints,
+            startNodeBulkActions,
             startMonitoringCollector,
             startMonitoringHistoryCollection,
             startMonitoring,
