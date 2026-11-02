@@ -1091,7 +1091,15 @@ extensionTest(
       await perform("Uncordon", false);
       await perform("Drain", true);
       const setSwitch = async (label: string, enabled: boolean) => {
-        await session.window.locator(".freelens-power-settings-icon").click();
+        const shortcut = session.window.locator(".freelens-power-settings-icon");
+        if (await shortcut.isVisible()) await shortcut.click();
+        else {
+          await session.window.keyboard.press("Control+,");
+          await session.window
+            .locator("[data-preference-tab-link-test]")
+            .filter({ hasText: "@64mb/freelens-power" })
+            .click();
+        }
         const settings = session.window.locator(".freelens-power-preferences");
         const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: label });
         if ((await toggle.locator("input").isChecked()) !== enabled) await toggle.click();
