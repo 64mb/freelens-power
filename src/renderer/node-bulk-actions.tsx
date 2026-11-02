@@ -2,7 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { ipcRenderer } from "electron";
 import { reaction } from "mobx";
 import { useEffect, useRef, useState } from "react";
-import { render, unmountComponentAtNode } from "react-dom";
+import { createPortal, render, unmountComponentAtNode } from "react-dom";
 import {
   NODE_BULK_CHANNEL,
   NODE_BULK_LIMIT,
@@ -48,6 +48,143 @@ async function invoke(clusterId: string, request: object): Promise<NodeBulkRespo
   const response = (await ipcRenderer.invoke(NODE_BULK_CHANNEL, { clusterId, ...request })) as NodeBulkResponse;
   if (!response?.ok) throw new Error(response?.error?.message || "Node operation unavailable");
   return response;
+}
+
+function NodeActionsMenu({
+  disabled,
+  count,
+  children,
+}: {
+  disabled: boolean;
+  count: number;
+  children: import("react").ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLUListElement>(null);
+  const close = (focus = false) => {
+    setOpen(false);
+    if (focus) trigger.current?.querySelector("button")?.focus();
+  };
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')?.focus();
+    const outside = (event: MouseEvent) => {
+      if (
+        event.target instanceof Node &&
+        !menu.current?.contains(event.target) &&
+        !trigger.current?.contains(event.target)
+      )
+        close();
+    };
+    const reposition = () => close();
+    document.addEventListener("mousedown", outside);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open]);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+  const rect = trigger.current?.getBoundingClientRect();
+  return (
+    <>
+      <div ref={trigger}>
+        <Renderer.Component.Button
+          className="power-node-bulk-fab"
+          aria-label={`Actions for ${count} selected nodes`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => setOpen(!open)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setOpen(true);
+            }
+          }}
+        >
+          <span aria-hidden="true">
+            <Renderer.Component.Icon material="more_horiz" size={18} />
+          </span>
+          <span className="power-node-bulk-count" aria-hidden="true">
+            {count}
+          </span>
+        </Renderer.Component.Button>
+      </div>
+      {open &&
+        createPortal(
+          <ul
+            ref={menu}
+            role="menu"
+            aria-label="Selected node actions"
+            className="Menu MenuActions flex power-node-bulk-menu"
+            style={{
+              position: "fixed",
+              right: Math.max(8, window.innerWidth - (rect?.right ?? window.innerWidth)),
+              bottom: Math.max(8, window.innerHeight - (rect?.top ?? window.innerHeight) + 8),
+              margin: 0,
+            }}
+            onClick={(event) => {
+              if ((event.target as Element).closest('[role="menuitem"]:not([aria-disabled="true"])')) close(true);
+            }}
+            onKeyDown={(event) => {
+              const items = [
+                ...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? []),
+              ];
+              const index = items.indexOf(document.activeElement as HTMLElement);
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                close(true);
+              } else if (event.key === "Tab") close();
+              else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? items.length - 1
+                      : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                items[next]?.focus();
+              }
+            }}
+          >
+            {children}
+          </ul>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function NodeActionItem({
+  disabled = false,
+  onClick,
+  children,
+}: {
+  disabled?: boolean;
+  onClick: () => void;
+  children: import("react").ReactNode;
+}) {
+  return (
+    <li role="none">
+      <button
+        type="button"
+        role="menuitem"
+        className={`MenuItem${disabled ? " disabled" : ""}`}
+        disabled={disabled}
+        aria-disabled={disabled}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </li>
+  );
 }
 
 export function NodeBulkToolbar({
@@ -203,27 +340,9 @@ export function NodeBulkToolbar({
     <section className="power-node-bulk" aria-label="Bulk node actions">
       {selected.length > 0 && (
         <div className="power-node-bulk-floating AddRemoveButtons">
-          <Renderer.Component.MenuActions
-            className="power-node-bulk-menu"
-            triggerIcon={
-              <Renderer.Component.Button
-                className="power-node-bulk-fab"
-                aria-label={`Actions for ${selected.length} selected nodes`}
-                aria-haspopup="menu"
-                disabled={preparing || running}
-              >
-                <span aria-hidden="true">
-                  <Renderer.Component.Icon material="more_horiz" size={18} />
-                </span>
-                <span className="power-node-bulk-count" aria-hidden="true">
-                  {selected.length}
-                </span>
-              </Renderer.Component.Button>
-            }
-          >
+          <NodeActionsMenu disabled={preparing || running} count={selected.length}>
             {(["cordon", "uncordon", "drain"] as const).map((action) => (
-              <Renderer.Component.MenuItem
-                role="menuitem"
+              <NodeActionItem
                 key={action}
                 disabled={preparing || running || selected.length > NODE_BULK_LIMIT}
                 onClick={() => void begin(action)}
@@ -232,10 +351,9 @@ export function NodeBulkToolbar({
                   <Renderer.Component.Icon material={icons[action]} size={18} />
                 </span>
                 <span className="title">{labels[action]}</span>
-              </Renderer.Component.MenuItem>
+              </NodeActionItem>
             ))}
-            <Renderer.Component.MenuItem
-              role="menuitem"
+            <NodeActionItem
               onClick={() => {
                 onClear();
                 setJob(undefined);
@@ -246,8 +364,8 @@ export function NodeBulkToolbar({
                 <Renderer.Component.Icon material="clear" size={18} />
               </span>
               <span className="title">Clear selection</span>
-            </Renderer.Component.MenuItem>
-          </Renderer.Component.MenuActions>
+            </NodeActionItem>
+          </NodeActionsMenu>
         </div>
       )}
       {(job || error || preparing || selected.length > NODE_BULK_LIMIT) && (
@@ -313,7 +431,7 @@ export function startNodeBulkActions(): () => void {
   };
   const style = document.createElement("style");
   style.dataset.freelensPower = "node-bulk";
-  style.textContent = `.power-node-bulk{flex-shrink:0}.power-node-bulk-panel{padding:8px 12px;border:1px solid var(--borderColor);border-radius:6px;background:var(--contentColor);margin:4px 0}.power-node-bulk-toolbar{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.power-node-bulk-panel .Button{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;min-height:30px}.power-node-bulk p{margin:6px 0}.power-node-bulk [role=alert]{color:var(--colorError)}.power-node-bulk ul,.power-node-bulk-confirmation ul{max-height:180px;overflow:auto;padding-left:20px}.power-node-bulk-confirmation code{overflow-wrap:anywhere}.power-node-bulk-floating .Button.power-node-bulk-fab{position:relative;overflow:visible;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:38px;height:38px;min-width:38px;min-height:38px;padding:0;border-radius:6px;border:1px solid color-mix(in srgb,var(--borderColor) 75%,var(--textColorSecondary) 25%);background:var(--contentColor);color:var(--textColorSecondary);box-shadow:none;transition:color 160ms ease,border-color 160ms ease}.power-node-bulk-floating .Button.power-node-bulk-fab:hover{color:var(--textColorAccent);border-color:var(--textColorAccent);background:color-mix(in srgb,var(--contentColor) 92%,var(--primary) 8%)}.power-node-bulk-floating .Button.power-node-bulk-fab:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.power-node-bulk-count{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;background:var(--contentColor);color:var(--textColorPrimary);border:1px solid var(--textColorSecondary)}body:has(.power-node-bulk-floating) .power-ai-launcher{display:none}.Nodes:has(.power-node-bulk-floating) .AddRemoveButtons:not(.power-node-bulk-floating){display:none}@media(prefers-reduced-motion:reduce){.power-node-bulk-floating .Button.power-node-bulk-fab{transition:none}}`;
+  style.textContent = `.power-node-bulk{flex-shrink:0}.power-node-bulk-panel{padding:8px 12px;border:1px solid var(--borderColor);border-radius:6px;background:var(--contentColor);margin:4px 0}.power-node-bulk-toolbar{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.power-node-bulk-panel .Button{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;min-height:30px}.power-node-bulk p{margin:6px 0}.power-node-bulk [role=alert]{color:var(--colorError)}.power-node-bulk ul,.power-node-bulk-confirmation ul{max-height:180px;overflow:auto;padding-left:20px}.power-node-bulk-confirmation code{overflow-wrap:anywhere}.power-node-bulk-floating .Button.power-node-bulk-fab{position:relative;overflow:visible;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:38px;height:38px;min-width:38px;min-height:38px;padding:0;border-radius:6px;border:1px solid color-mix(in srgb,var(--borderColor) 75%,var(--textColorSecondary) 25%);background:var(--contentColor);color:var(--textColorSecondary);box-shadow:none;transition:color 160ms ease,border-color 160ms ease}.power-node-bulk-floating .Button.power-node-bulk-fab:hover{color:var(--textColorAccent);border-color:var(--textColorAccent);background:color-mix(in srgb,var(--contentColor) 92%,var(--primary) 8%)}.power-node-bulk-floating .Button.power-node-bulk-fab:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.power-node-bulk-menu{padding:4px;min-width:180px}.power-node-bulk-menu button.MenuItem{width:100%;font:inherit;text-align:left;background:var(--bgc);gap:8px}.power-node-bulk-menu button.MenuItem:hover:not(.disabled),.power-node-bulk-menu button.MenuItem:focus{background:var(--menuActiveBackground);color:white}.power-node-bulk-count{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;background:var(--contentColor);color:var(--textColorPrimary);border:1px solid var(--textColorSecondary)}body:has(.power-node-bulk-floating) .power-ai-launcher{display:none}.Nodes:has(.power-node-bulk-floating) .AddRemoveButtons:not(.power-node-bulk-floating){display:none}@media(prefers-reduced-motion:reduce){.power-node-bulk-floating .Button.power-node-bulk-fab{transition:none}}`;
   document.head.append(style);
   const stop = reaction(
     () => [readOnly.enabled, activeScope()?.key],

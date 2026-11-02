@@ -16,39 +16,22 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", async () => {
-  const { useState, cloneElement } = await import("react");
   return {
     Renderer: {
       Catalog: { activeCluster: { get: () => mocks.cluster } },
-      K8sApi: { nodesStore: { loadAll: mocks.loadAll } },
+      K8sApi: {
+        nodesStore: { loadAll: mocks.loadAll, contextItems: [{ getId: () => "node-uid-a", getName: () => "node-a" }] },
+      },
       Component: {
         Button: ({ children, ...props }: import("react").ButtonHTMLAttributes<HTMLButtonElement>) => (
           <button {...props}>{children}</button>
         ),
-        MenuActions: ({
-          triggerIcon,
-          children,
-        }: {
-          triggerIcon: import("react").ReactElement;
-          children: import("react").ReactNode;
-        }) => {
-          const [open, setOpen] = useState(false);
-          return (
-            <>
-              {cloneElement(triggerIcon, { onClick: () => setOpen(!open) })}
-              {open && (
-                <div role="menu" onClick={() => setOpen(false)}>
-                  {children}
-                </div>
-              )}
-            </>
-          );
+        MenuActions: () => {
+          throw new Error("native MenuActions requires host DI context");
         },
-        MenuItem: ({ children, ...props }: import("react").ButtonHTMLAttributes<HTMLButtonElement>) => (
-          <button role="menuitem" {...props}>
-            {children}
-          </button>
-        ),
+        MenuItem: () => {
+          throw new Error("native MenuItem requires host menu context");
+        },
         Icon: () => <i />,
         ConfirmDialog: { open: mocks.confirm },
       },
@@ -65,7 +48,7 @@ vi.mock("./native-tooltip", () => ({
   NativeTooltip: ({ children }: { children: import("react").ReactNode }) => <>{children}</>,
 }));
 
-import { NodeBulkToolbar } from "./node-bulk-actions";
+import { NodeBulkToolbar, startNodeBulkActions } from "./node-bulk-actions";
 
 const selected = [
   { uid: "node-uid-a", name: "node-a" },
@@ -327,4 +310,64 @@ it("shows a floating actions trigger only when nodes are selected", () => {
   fireEvent.click(screen.getByRole("menuitem", { name: "Clear selection" }));
   expect(onClear).toHaveBeenCalledOnce();
   expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("supports standalone selection and menu without host dependency injection", async () => {
+  const fixture = document.createElement("div");
+  fixture.innerHTML =
+    '<div class="Nodes"><div class="Table"><div class="TableHead"></div><div class="TableRow" id="menu-actions-for-kube-object-menu-for-node-uid-a"></div></div></div>';
+  document.body.append(fixture);
+  let stop!: () => void;
+  act(() => {
+    stop = startNodeBulkActions();
+  });
+  try {
+    fireEvent.click(fixture.querySelector<HTMLInputElement>('.TableRow input[type="checkbox"]')!);
+    await flush();
+    expect(screen.getByRole("button", { name: "Actions for 1 selected nodes" })).toBeTruthy();
+    clickAction("Cordon");
+    await flush();
+    expect(mocks.confirm).toHaveBeenCalledOnce();
+    expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(NODE_BULK_CHANNEL, {
+      clusterId: "cluster",
+      operation: "context",
+    });
+  } finally {
+    act(() => stop());
+    fixture.remove();
+  }
+});
+
+it("supports menu keyboard navigation, escape focus return and outside dismissal", () => {
+  setup();
+  const trigger = screen.getByRole("button", { name: "Actions for 2 selected nodes" });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  const cordon = screen.getByRole("menuitem", { name: "Cordon" });
+  expect(document.activeElement).toBe(cordon);
+  fireEvent.keyDown(cordon, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Uncordon" }));
+  fireEvent.keyDown(document.activeElement!, { key: "End" });
+  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Clear selection" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Home" });
+  expect(document.activeElement).toBe(cordon);
+  fireEvent.keyDown(cordon, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  fireEvent.mouseDown(document.body);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+it("skips disabled menu actions and removes its portal on unmount", () => {
+  const many = Array.from({ length: 101 }, (_, index) => ({ uid: `uid-${index}`, name: `node-${index}` }));
+  const view = render(<NodeBulkToolbar clusterId="cluster" scope={scope} selected={many} onClear={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for 101 selected nodes" }));
+  const cordon = screen.getByRole("menuitem", { name: "Cordon" }) as HTMLButtonElement;
+  expect(cordon.disabled).toBe(true);
+  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Clear selection" }));
+  fireEvent.click(cordon);
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  view.unmount();
+  expect(screen.queryByRole("menu")).toBeNull();
 });
