@@ -1,7 +1,8 @@
 import WebSocket from "ws";
-import type { AiFailureCode } from "../common/ai";
 import { CODEX_API_MODELS, CODEX_API_REASONING_EFFORTS } from "../common/ai-models";
 import { readAiApiKey } from "./ai-api-key";
+
+import type { AiFailureCode } from "../common/ai";
 
 const maximumResponseBytes = 2 * 1024 * 1024;
 const maximumEventBytes = 1024 * 1024;
