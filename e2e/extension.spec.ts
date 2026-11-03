@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Frame, type Locator, type TestInfo, test } from "@playwright/test";
 import { FreelensSession } from "./app";
-import { applyFixtures, mutateConfigMap, secretSentinel } from "./fixtures";
+import { applyFixtures, mutateConfigMap, namespace, secretSentinel } from "./fixtures";
 import { createNodeBulkFixtures } from "./node-bulk-fixtures";
 import {
   applyPowerLogsFixtures,
@@ -1040,6 +1040,10 @@ extensionTest(
       await frame.getByTestId("link-for-sidebar-item-workloads").click();
       await frame.getByTestId("link-for-sidebar-item-pods").click();
       const pods = frame.locator(".Pods");
+      const namespaces = pods.getByTestId("namespace-select-filter");
+      await namespaces.getByRole("combobox").click();
+      await frame.getByRole("option").filter({ hasText: namespace }).click();
+      await expect(namespaces).toContainText(namespace);
       await expect(pods.locator(".TableRow[id]").first()).toBeVisible();
       await pods.locator(".TableHead .Checkbox").click();
       await pods.locator(".AddRemoveButtons .remove-button").click();
