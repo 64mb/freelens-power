@@ -3,7 +3,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { aiFailureCode, runAiChat } from "./ai";
 import { createCodexApiSession } from "./ai-codex-api";
 
-const mocks = vi.hoisted(() => ({ key: vi.fn(), fetch: vi.fn(), spawn: vi.fn(), socket: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  key: vi.fn(),
+  fetch: vi.fn(),
+  spawn: vi.fn(),
+  socket: vi.fn(),
+  certificates: vi.fn((type: string) =>
+    type === "system" ? ["test-system-ca", "test-shared-ca"] : ["test-default-ca", "test-shared-ca"],
+  ),
+}));
+vi.mock("electron", () => ({ net: { fetch: mocks.fetch } }));
+vi.mock("node:tls", () => ({ getCACertificates: mocks.certificates }));
 vi.mock("./ai-api-key", () => ({ readAiApiKey: mocks.key }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 vi.mock("ws", () => ({
@@ -73,7 +83,7 @@ it("uses streaming native read functions without an answer schema and keeps medi
     input: [{ role: "user", content: "bounded evidence" }],
     include: ["reasoning.encrypted_content"],
     max_output_tokens: 12000,
-    reasoning: { mode: "standard", effort: "medium" },
+    reasoning: { effort: "medium" },
     text: { verbosity: "low" },
     parallel_tool_calls: true,
     tools: [{ type: "function", name: "read_context", description: expect.any(String), strict: true, parameters }],
@@ -142,9 +152,9 @@ it("replays native output and encrypted reasoning with matching parallel call ou
 
 it.each([
   [401, "API_AUTHENTICATION"],
-  [403, "API_AUTHENTICATION"],
+  [403, "API_PERMISSION"],
   [429, "API_RATE_LIMIT"],
-  [500, "API_FAILURE"],
+  [500, "API_SERVER_UNAVAILABLE"],
 ])("reports safe failure code for HTTP %s", async (status, code) => {
   mocks.fetch.mockResolvedValue(new Response("private upstream headers or credentials", { status: status as number }));
   let failure: unknown;
@@ -341,7 +351,7 @@ it("keeps one authenticated WebSocket for native read rounds with incremental ca
   expect(first.type).toBe("response.create");
   expect(first.stream).toBeUndefined();
   expect(first.service_tier).toBe("fast");
-  expect(first.reasoning).toEqual({ mode: "standard", effort: "medium" });
+  expect(first.reasoning).toEqual({ effort: "medium" });
   expect(first.text).toEqual({ verbosity: "low" });
   expect(next.previous_response_id).toBe("resp_a");
   expect(next.input).toEqual([{ type: "function_call_output", call_id: "read_a", output: '{"items":["evidence"]}' }]);
@@ -371,7 +381,7 @@ it("does not retry a charged WebSocket generation over HTTP and closes on chat c
     queueMicrotask(() => socket.emit("close"));
   });
   const api = session("", { webSocket: true });
-  await expect(api.next(false)).rejects.toThrow("incomplete response");
+  await expect(api.next(false)).rejects.toThrow("AI API request failed");
   expect(mocks.fetch).not.toHaveBeenCalled();
   api.close();
   expect(socket.terminate).toHaveBeenCalledOnce();
@@ -388,4 +398,153 @@ it("does not retry a charged WebSocket generation over HTTP and closes on chat c
   controller.abort();
   await cancelled;
   expect(active.terminate).toHaveBeenCalledOnce();
+});
+
+it("accepts a healthy synchronous burst of more than nineteen small WebSocket events", async () => {
+  const socket = mockSocket();
+  const text = "a".repeat(80);
+  socket.send.mockImplementation((_body, callback) => {
+    callback();
+    queueMicrotask(() => {
+      for (let index = 0; index < 80; index++)
+        socket.emit("message", Buffer.from(JSON.stringify({ type: "response.output_text.delta", delta: "a" })), false);
+      socket.emit("message", Buffer.from(JSON.stringify(completed([message(text)]))), false);
+    });
+  });
+  const api = session("", { webSocket: true });
+  try {
+    expect(JSON.parse(await api.next(false))).toEqual({ tool: null, text });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  } finally {
+    api.close();
+  }
+});
+
+it("preserves an already queued completed response when its socket closes immediately afterwards", async () => {
+  const socket = mockSocket();
+  socket.send.mockImplementation((_body, callback) => {
+    callback();
+    queueMicrotask(() => {
+      socket.emit("message", Buffer.from(JSON.stringify(completed([message("Completed before close")]))), false);
+      socket.emit("close", 1000);
+    });
+  });
+  const api = session("", { webSocket: true });
+  try {
+    expect(JSON.parse(await api.next(false)).text).toBe("Completed before close");
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  } finally {
+    api.close();
+  }
+});
+
+it("keeps a queued API rejection more specific than the following socket close", async () => {
+  const socket = mockSocket();
+  socket.send.mockImplementation((_body, callback) => {
+    callback();
+    queueMicrotask(() => {
+      socket.emit(
+        "message",
+        Buffer.from(JSON.stringify({ type: "error", error: { code: "model_not_found", message: "private" } })),
+        false,
+      );
+      socket.emit("close", 1000);
+    });
+  });
+  const api = session("", { webSocket: true });
+  try {
+    let failure: unknown;
+    try {
+      await api.next(false);
+    } catch (error) {
+      failure = error;
+    }
+    expect(aiFailureCode(failure)).toBe("API_MODEL_UNAVAILABLE");
+    expect(String(failure)).not.toContain("private");
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  } finally {
+    api.close();
+  }
+});
+
+it("reports an active WebSocket stream interruption without replaying the generation", async () => {
+  const socket = mockSocket();
+  socket.send.mockImplementation((_body, callback) => {
+    callback();
+    queueMicrotask(() => {
+      socket.emit(
+        "message",
+        Buffer.from(JSON.stringify({ type: "response.output_text.delta", delta: "partial" })),
+        false,
+      );
+      socket.emit("close", 1006);
+    });
+  });
+  const api = session("", { webSocket: true });
+  try {
+    let failure: unknown;
+    try {
+      await api.next(false);
+    } catch (error) {
+      failure = error;
+    }
+    expect(aiFailureCode(failure)).toBe("API_STREAM_INTERRUPTED");
+    expect(socket.send).toHaveBeenCalledOnce();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  } finally {
+    api.close();
+  }
+});
+
+it.each([
+  [Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }), "API_NETWORK"],
+  [new TypeError("unexpected local operation"), "API_FAILURE"],
+])("separates known connection errors from unexpected local failures", async (error, expected) => {
+  mocks.fetch.mockRejectedValueOnce(error);
+  let failure: unknown;
+  try {
+    await session().next(false);
+  } catch (value) {
+    failure = value;
+  }
+  expect(aiFailureCode(failure)).toBe(expected);
+  expect(String(failure)).not.toContain("unexpected local operation");
+});
+
+it("uses the host HTTP networking stack and an explicit verified union of default and system WebSocket roots", async () => {
+  const socket = mockSocket();
+  socket.send.mockImplementation((_body, callback) => {
+    callback();
+    queueMicrotask(() =>
+      socket.emit("message", Buffer.from(JSON.stringify(completed([message("Trusted connection")]))), false),
+    );
+  });
+  const api = session("", { webSocket: true });
+  try {
+    expect(JSON.parse(await api.next(false)).text).toBe("Trusted connection");
+    const options = mocks.socket.mock.calls[0][1];
+    expect(options.ca).toEqual(["test-default-ca", "test-shared-ca", "test-system-ca"]);
+    expect(options.rejectUnauthorized).toBe(true);
+    expect(mocks.certificates).toHaveBeenCalledWith("default");
+    expect(mocks.certificates).toHaveBeenCalledWith("system");
+  } finally {
+    api.close();
+  }
+  expect(JSON.parse(await session().next(false)).text).toBe("Ready");
+  expect(mocks.fetch.mock.calls.at(-1)![1].credentials).toBe("omit");
+});
+
+it.each([
+  Object.assign(new TypeError("fetch failed"), { cause: { code: "SELF_SIGNED_CERT_IN_CHAIN" } }),
+  new Error("net::ERR_CERT_AUTHORITY_INVALID"),
+])("reports a finite TLS trust failure without exposing certificate or network details", async (error) => {
+  mocks.fetch.mockRejectedValueOnce(error);
+  let failure: unknown;
+  try {
+    await session().next(false);
+  } catch (value) {
+    failure = value;
+  }
+  expect(aiFailureCode(failure)).toBe("API_TLS");
+  expect(String(failure)).not.toContain("CERT");
 });

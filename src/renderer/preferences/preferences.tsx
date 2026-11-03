@@ -16,6 +16,12 @@ import { SettingsExport } from "./settings-export";
 const styles = `
   .power-preferences-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .power-preferences-header-actions { display: inline-flex; margin-left: auto; flex-shrink: 0; }
+  .freelens-power-preferences .power-ai-key-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .freelens-power-preferences .power-ai-key-input { flex:1 1 240px; min-width:0; }
+  .freelens-power-preferences .power-ai-key-input .Input { width:100%; }
+  .freelens-power-preferences .power-ai-key-input .Input > .input-area { box-sizing:border-box; min-height:32px; padding:0 10px; border:1px solid var(--borderColor); border-radius:4px; background:var(--contentColor); }
+  .freelens-power-preferences .power-ai-key-input .Input > .input-area:focus-within { border-color:var(--primary); }
+  .freelens-power-preferences .power-ai-key-controls > .Button { box-sizing:border-box; height:32px; margin:0; white-space:nowrap; }
   #freelens-power-settings > .SubTitle,
   #freelens-power-settings > .hint,
   #freelens-power-settings + hr { display: none; }

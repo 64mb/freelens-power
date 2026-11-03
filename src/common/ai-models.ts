@@ -24,12 +24,12 @@ export function piModelEfforts(id: string): string[] {
   return [];
 }
 
-export const CODEX_API_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+export const CODEX_API_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const CODEX_API_MODELS: AiModel[] = [
   {
     id: "gpt-6.1-sol",
     label: "GPT-6.1 Sol",
-    reasoningEfforts: CODEX_API_REASONING_EFFORTS,
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     defaultReasoningEffort: "medium",
   },
 ];

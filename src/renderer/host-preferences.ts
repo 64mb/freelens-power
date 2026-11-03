@@ -30,6 +30,7 @@ export function startHostPreferencesStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-preferences";
   style.textContent = `
+    .Preferences.SettingLayout > .contentRegion > .content:has(.freelens-power-preferences) { box-sizing:border-box; width:100%; max-width:740px; min-width:0; }
     .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header { gap: 8px; }
     .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header > .Icon { margin: 0; flex: 0 0 18px; --size: 18px; }
     .Preferences.SettingLayout > .sidebarRegion :is([data-preference-tab-group-test="general-tab-group"], [data-preference-tab-group-test="extensions-tab-group"]) > [data-preference-tab-link-test] { margin-left: 12px; width: calc(100% - 12px); box-sizing: border-box; }

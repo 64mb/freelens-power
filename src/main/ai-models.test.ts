@@ -80,12 +80,21 @@ describe("local AI model catalog", () => {
   });
 });
 
-it("offers a static API catalog without reading local CLI metadata or invoking an API request", async () => {
+it("uses the CLI model catalog for API while retaining metadata for the explicit default", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ai-api-models-"));
+  await writeFile(join(directory, "models_cache.json"), JSON.stringify({ models: [model] }));
+  vi.stubEnv("CODEX_HOME", directory);
   const stop = startAiModels();
   try {
     const handler = ipc.handle.mock.calls.at(-1)![1];
     const models = await handler({ sender: {}, senderFrame: { url: "https://renderer.freelens.app/" } }, "codex-api");
     expect(models).toEqual([
+      {
+        id: "example-model",
+        label: "Example model",
+        reasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      },
       {
         id: "gpt-6.1-sol",
         label: "GPT-6.1 Sol",
@@ -95,5 +104,7 @@ it("offers a static API catalog without reading local CLI metadata or invoking a
     ]);
   } finally {
     stop();
+    vi.unstubAllEnvs();
+    await rm(directory, { recursive: true, force: true });
   }
 });

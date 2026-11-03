@@ -439,9 +439,9 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
     .filter({ hasText: /^OpenAI API$/ })
     .click();
   await expect(settings.getByLabel("OpenAI API key", { exact: true })).toHaveAttribute("type", "password");
-  await expect(settings.getByText(/Restricted key: Model capabilities/)).toBeVisible();
+  await expect(settings.getByText("Requires a restricted API key with write access to Responses API.")).toBeVisible();
   await expect(provider.locator('[data-provider="codex-api"]')).toHaveAttribute("src", /^data:image\/svg\+xml/);
-  await expect(settings.getByRole("button", { name: "Save key", exact: true })).toBeDisabled();
+  await expect(settings.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await provider.locator(".Select__control").click();
   await session.window
     .getByRole("option")
@@ -1220,7 +1220,7 @@ extensionTest(
         await frame.getByRole("menuitem", { name: action, exact: true }).click();
         await expect(confirmation).toBeVisible();
         await confirmation.getByRole("button", { name: `${action} 2 nodes`, exact: true }).click();
-        await expect(toolbar.getByRole("status")).toContainText(`${action} · succeeded · 2 / 2 completed`, {
+        await expect(toolbar.getByRole("status")).toContainText(new RegExp(`${action}.*succeeded.*2 / 2 completed`), {
           timeout: 60_000,
         });
         expect(fixtures.nodes.map((node) => fixtures.read(node).spec.unschedulable === true)).toEqual([

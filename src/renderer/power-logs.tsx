@@ -1798,27 +1798,10 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
               </button>
             )}
           </div>
-          {errorNotice}
           <FieldFilters
             filters={fieldFilters}
             onRemove={(index) => setFieldFilters(fieldFilters.filter((_, item) => item !== index))}
           />
-          <NativeTooltip
-            title={`${status} · Viewer retains up to ${limits.liveRows.toLocaleString()} lines / ${limits.liveBytes / 1048576} MiB`}
-          >
-            <div className="power-logs-muted power-logs-status" role="status">
-              <span>{filtered.length.toLocaleString()} matching lines</span>
-              {showContext && (
-                <span>
-                  {" "}
-                  · {(displayedRecords.length - filtered.length).toLocaleString()} context lines (loaded only)
-                </span>
-              )}{" "}
-              · {status}
-              {liveCoverage && live ? ` · ${liveCoverage.active}/${liveCoverage.total} active sources` : ""} · Viewer
-              retains up to {limits.liveRows.toLocaleString()} lines / {limits.liveBytes / 1048576} MiB
-            </div>
-          </NativeTooltip>
           <div className="power-logs-workspace">
             <LogRows
               initialScrollTop={session.values.get("scrollTop") as number | undefined}
@@ -2168,38 +2151,61 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
           )}
         </>
       )}
-      <div className="power-logs-muted power-logs-footer">
-        <NativeTooltip
-          title={`Gentle collection: ${limits.requestsPerSecond} requests/s, ${limits.bytesPerSecond / 1048576} MiB/s. Captures: ${limits.captureSourceLines.toLocaleString()} lines / ${limits.captureSourceBytes / 1048576} MiB per source, ${limits.captureBytes / 1048576} MiB total. Up to ${limits.captures} snapshots retained for ${limits.ttlMs / 60000} minutes.`}
-        >
-          <span className="power-logs-caption">
-            Collection · {limits.requestsPerSecond} req/s · {limits.bytesPerSecond / 1048576} MiB/s ·{" "}
-            {limits.captureBytes / 1048576} MiB/snapshot · Retention {limits.ttlMs / 60000} min
-          </span>
-        </NativeTooltip>
-        {tab === "live" && collectionNotes.length > 0 && (
-          <NativeTooltip title={collectionNotes.join("\n")}>
-            <span role="note" className="power-logs-notice power-logs-collection-note">
-              <Icon material="warning_amber" size={14} />
-              <span>{collectionNotes.join(" · ")}</span>
+      <div className="power-logs-muted power-logs-bottom">
+        {tab === "live" && (
+          <>
+            <NativeTooltip
+              title={`${status} · Viewer retains up to ${limits.liveRows.toLocaleString()} lines / ${limits.liveBytes / 1048576} MiB`}
+            >
+              <div className="power-logs-muted power-logs-status" role="status">
+                <span>{filtered.length.toLocaleString()} matching lines</span>
+                {showContext && (
+                  <span>
+                    {" "}
+                    · {(displayedRecords.length - filtered.length).toLocaleString()} context lines (loaded only)
+                  </span>
+                )}{" "}
+                · {status}
+                {liveCoverage && live ? ` · ${liveCoverage.active}/${liveCoverage.total} active sources` : ""} · Viewer
+                retains up to {limits.liveRows.toLocaleString()} lines / {limits.liveBytes / 1048576} MiB
+              </div>
+            </NativeTooltip>
+            {errorNotice}
+          </>
+        )}
+        <div className="power-logs-footer">
+          <NativeTooltip
+            title={`Gentle collection: ${limits.requestsPerSecond} requests/s, ${limits.bytesPerSecond / 1048576} MiB/s. Captures: ${limits.captureSourceLines.toLocaleString()} lines / ${limits.captureSourceBytes / 1048576} MiB per source, ${limits.captureBytes / 1048576} MiB total. Up to ${limits.captures} snapshots retained for ${limits.ttlMs / 60000} minutes.`}
+          >
+            <span className="power-logs-caption">
+              Collection · {limits.requestsPerSecond} req/s · {limits.bytesPerSecond / 1048576} MiB/s ·{" "}
+              {limits.captureBytes / 1048576} MiB/snapshot · Retention {limits.ttlMs / 60000} min
             </span>
           </NativeTooltip>
-        )}
-        {tab === "captures" &&
-          chosenCapture &&
-          (chosenCapture.state === "partial" || chosenCapture.notes.length > 0) && (
-            <NativeTooltip
-              title={
-                chosenCapture.notes.join("\n") ||
-                "Collection stopped or a source was unavailable; this snapshot may be incomplete"
-              }
-            >
+          {tab === "live" && collectionNotes.length > 0 && (
+            <NativeTooltip title={collectionNotes.join("\n")}>
               <span role="note" className="power-logs-notice power-logs-collection-note">
                 <Icon material="warning_amber" size={14} />
-                <span>Incomplete snapshot</span>
+                <span>{collectionNotes.join(" · ")}</span>
               </span>
             </NativeTooltip>
           )}
+          {tab === "captures" &&
+            chosenCapture &&
+            (chosenCapture.state === "partial" || chosenCapture.notes.length > 0) && (
+              <NativeTooltip
+                title={
+                  chosenCapture.notes.join("\n") ||
+                  "Collection stopped or a source was unavailable; this snapshot may be incomplete"
+                }
+              >
+                <span role="note" className="power-logs-notice power-logs-collection-note">
+                  <Icon material="warning_amber" size={14} />
+                  <span>Incomplete snapshot</span>
+                </span>
+              </NativeTooltip>
+            )}
+        </div>
       </div>
     </div>
   );

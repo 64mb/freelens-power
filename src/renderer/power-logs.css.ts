@@ -169,8 +169,9 @@ export const powerLogsStyles = `
 .power-logs-sql-tools button { min-height:24px; font-size:12px; }
 .power-logs-pagination { justify-content:flex-end; gap:8px; }
 .power-logs-pagination button { width:28px; padding:3px; }
-.power-logs-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; min-height:38px; padding-inline-end:88px; }
-.power-logs[data-details-open=true] .power-logs-footer { padding-inline-start:88px; padding-inline-end:0; }
+.power-logs-bottom { display:flex; flex-direction:column; justify-content:center; gap:2px; min-height:38px; min-width:0; padding-inline-end:88px; }
+.power-logs-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; }
+.power-logs[data-details-open=true] .power-logs-bottom { padding-inline-start:88px; padding-inline-end:0; }
 .power-logs-caption { flex:1; min-width:0; font-size:11px!important; }
 .power-logs .power-logs-collection-note { display:flex; align-items:center; gap:5px; min-width:0; max-width:55%; padding:1px 6px; font-size:11px; }
 .power-logs-collection-note > :first-child { color:var(--colorWarning,#d9a441); flex-shrink:0; }

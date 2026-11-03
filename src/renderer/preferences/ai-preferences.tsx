@@ -4,8 +4,9 @@ import { runInAction } from "mobx";
 import { observer } from "mobx-react";
 import { useEffect, useRef, useState } from "react";
 import { AI_API_KEY_SET_CHANNEL, AI_API_KEY_STATUS_CHANNEL, type AiApiKeyStatus } from "../../common/ai";
-import { AI_MODELS_CHANNEL, type AiModel, piModelLabel } from "../../common/ai-models";
+import { AI_MODELS_CHANNEL, type AiModel, CODEX_API_MODELS, piModelLabel } from "../../common/ai-models";
 import { AiPreferencesStore } from "../../common/store/ai-preferences-store";
+import { AiIcon } from "../ai-icon";
 import { AiProviderIcon } from "../ai-provider-icon";
 import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
 
@@ -69,19 +70,21 @@ function CodexApiKeyPreferences({ disabled }: { disabled: boolean }) {
   return (
     <div>
       <label htmlFor="power-ai-api-key">OpenAI API key</label>
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-        <Input
-          id="power-ai-api-key"
-          aria-label="OpenAI API key"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={key}
-          disabled={disabled || busy || !status?.available}
-          onChange={setKey}
-          style={{ flex: "1 1 220px", minWidth: 0 }}
-          placeholder="Enter a new API key"
-        />
+      <div className="power-ai-key-controls">
+        <div className="power-ai-key-input">
+          <Input
+            id="power-ai-api-key"
+            aria-label="OpenAI API key"
+            type="password"
+            theme="round"
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            disabled={disabled || busy || !status?.available}
+            onChange={setKey}
+            placeholder="Enter a new API key"
+          />
+        </div>
         <Button
           type="button"
           className="Button"
@@ -90,7 +93,8 @@ function CodexApiKeyPreferences({ disabled }: { disabled: boolean }) {
             void save(key.trim());
           }}
         >
-          Save key
+          <AiIcon material="save" size={14} />
+          Save
         </Button>
         <Button
           type="button"
@@ -100,20 +104,21 @@ function CodexApiKeyPreferences({ disabled }: { disabled: boolean }) {
             void save("");
           }}
         >
-          Clear key
+          <AiIcon material="delete_outline" size={14} />
+          Clear
         </Button>
       </div>
       <div className="power-settings-hint">
-        Restricted key: Model capabilities → Responses API → Write. Other permissions are not required.
-      </div>
-      <div className="power-settings-hint" role="status">
-        {status
-          ? !status.available
-            ? "Secure key storage is unavailable. OpenAI API cannot be used."
-            : status.configured
-              ? "API key configured in secure storage."
-              : "No API key configured."
-          : "Checking secure key storage…"}
+        Requires a restricted API key with write access to Responses API.{" "}
+        <span role="status">
+          {status
+            ? !status.available
+              ? "Secure key storage is unavailable. OpenAI API cannot be used."
+              : status.configured
+                ? "API key configured in secure storage."
+                : "No API key configured."
+            : "Checking secure key storage…"}
+        </span>
       </div>
       {error && <div role="alert">{error}</div>}
     </div>
@@ -158,7 +163,7 @@ export const AiPreferences = observer(() => {
   const isClaude = preferences.provider === "claude";
   const providerLabel = isApi ? "OpenAI API" : isPi ? "Pi" : isClaude ? "Claude" : "Codex";
   const currentModel = isApi
-    ? preferences.codexApiModel
+    ? preferences.codexApiModel || CODEX_API_MODELS[0].id
     : isPi
       ? preferences.piModel
       : isClaude
@@ -174,7 +179,7 @@ export const AiPreferences = observer(() => {
   const currentSpeed = isApi ? preferences.codexApiServiceTier : isClaude ? preferences.claudeSpeed : preferences.speed;
   const modelOptions = withCurrent(
     [
-      ...(!isPi ? [{ value: "", label: `${providerLabel} default` }] : []),
+      ...(!isPi && !isApi ? [{ value: "", label: `${providerLabel} default` }] : []),
       ...models.map((model) => ({ value: model.id, label: model.label })),
     ],
     currentModel,
@@ -183,7 +188,7 @@ export const AiPreferences = observer(() => {
   const effortOptions = withCurrent(
     [
       { value: "", label: "Default" },
-      ...effortsFor(models, isApi && !currentModel ? (models[0]?.id ?? "") : currentModel).map((effort) => ({
+      ...effortsFor(models, currentModel).map((effort) => ({
         value: effort,
         label: effortLabel(effort),
       })),
@@ -192,7 +197,7 @@ export const AiPreferences = observer(() => {
     effortLabel(currentEffort),
   );
   const modelHint = isApi
-    ? "OpenAI API models. API usage is billed separately."
+    ? "Codex model catalog. API access may differ."
     : isPi
       ? currentModel
         ? "Local Pi model catalog."
