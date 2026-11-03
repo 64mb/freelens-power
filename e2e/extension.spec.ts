@@ -1059,6 +1059,7 @@ extensionTest(
         await expect(toggle.locator("input")).toBeChecked({ checked: enabled });
         await session.window.getByTestId("close-preferences").click();
       };
+      await setSwitch("Enable AI features", true);
       await frame.getByTestId("link-for-sidebar-item-workloads").click();
       await frame.getByTestId("link-for-sidebar-item-pods").click();
       const pods = frame.locator(".Pods");
