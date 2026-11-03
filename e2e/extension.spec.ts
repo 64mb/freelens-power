@@ -1067,8 +1067,27 @@ extensionTest(
       await frame.getByRole("option").filter({ hasText: namespace }).click();
       await expect(namespaces).toContainText(namespace);
       await expect(pods.locator(".TableRow[id]").first()).toBeVisible();
+      const launcher = frame.getByRole("button", { name: "Open AI assistant", exact: true });
+      await expect(launcher).toBeVisible();
+      await expect(launcher).toHaveCSS("height", "38px");
+      await expect
+        .poll(async () => {
+          const slot = await pods.locator(".AddRemoveButtons").boundingBox();
+          const button = await launcher.boundingBox();
+          return (
+            !!slot &&
+            !!button &&
+            Math.abs(button.x - (slot.x + slot.width - 38)) < 1 &&
+            Math.abs(button.y - (slot.y + slot.height - 38)) < 1
+          );
+        })
+        .toBe(true);
+      const launcherBox = await launcher.boundingBox();
       await pods.locator(".TableHead .Checkbox").click();
       const podActions = pods.locator(".AddRemoveButtons .remove-button");
+      const podActionsBox = await podActions.boundingBox();
+      expect(podActionsBox?.x).toBeCloseTo(launcherBox!.x, 1);
+      expect(podActionsBox?.y).toBeCloseTo(launcherBox!.y, 1);
       await podActions.hover();
       const hoverBorder = await podActions.evaluate((element) => {
         const probe = document.createElement("span");

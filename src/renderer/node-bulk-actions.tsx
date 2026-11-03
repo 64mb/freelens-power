@@ -282,7 +282,7 @@ export function NodeBulkToolbar({
             <strong>{labels[action]} selected nodes?</strong>
             <p>
               {action === "drain"
-                ? "Evicts pods one node at a time, respecting disruption budgets. Pods requiring force deletion or emptyDir data removal will block the operation. Stops on the first failure; completed changes remain."
+                ? "Evicts pods sequentially and respects disruption budgets. Pods requiring force deletion or emptyDir removal block the operation. Stops on the first failure. Completed changes remain."
                 : action === "cordon"
                   ? "Marks these nodes unschedulable. Existing pods keep running."
                   : "Allows new pods to be scheduled on these nodes."}
@@ -295,7 +295,7 @@ export function NodeBulkToolbar({
               ))}
             </ul>
             {action === "drain" && (
-              <p>Cancelling stops further work; affected nodes may remain cordoned. Refresh nodes before retrying.</p>
+              <p>Cancelling stops further work. Nodes may remain cordoned. Refresh nodes before retrying.</p>
             )}
           </div>
         ),

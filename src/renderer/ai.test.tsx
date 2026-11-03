@@ -5,7 +5,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
 import { act } from "react-dom/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { aiLauncherBottom, aiLauncherLeft, readAiContext, startAiChat } from "./ai";
+import { aiLauncherBottom, aiLauncherFloatLeft, aiLauncherLeft, readAiContext, startAiChat } from "./ai";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
 import type { AiMessage } from "../common/store/ai-preferences-store";
@@ -603,6 +603,22 @@ describe("AI chat", () => {
     await act(async () => finish({ text: "Ready" }));
     expect(messages.scrollTop).toBe(100);
   });
+  it("aligns the launcher with the native floating-action slot, including while details move it left", () => {
+    document.body.innerHTML = '<div class="AddRemoveButtons"></div>';
+    const controls = document.querySelector<HTMLElement>(".AddRemoveButtons")!;
+    vi.spyOn(controls, "getBoundingClientRect").mockReturnValue({ right: 850, bottom: 600 } as DOMRect);
+    expect(aiLauncherFloatLeft()).toBe(812);
+    expect(aiLauncherBottom()).toBe(window.innerHeight - 600);
+    stop = startAiChat(() => true);
+    const launcher = screen.getByLabelText("Open AI assistant");
+    expect(launcher.style.left).toBe("812px");
+    const bottom = launcher.style.bottom;
+    window.history.replaceState({}, "", "/pods?kube-details=legacy-resource");
+    fireEvent(window, new PopStateEvent("popstate"));
+    expect(launcher.style.left).toBe("16px");
+    expect(launcher.style.bottom).toBe(bottom);
+  });
+
   it("keeps a 16px launcher gap above the visible Dock and falls back when hidden", () => {
     document.body.innerHTML = '<div class="Dock"></div>';
     const dock = document.querySelector<HTMLElement>(".Dock")!;
@@ -923,8 +939,8 @@ it("keeps the launcher right normally and moves it left only while resource deta
   vi.spyOn(dock, "getBoundingClientRect").mockReturnValue({ left: 220, top: 500, width: 700, height: 30 } as DOMRect);
   stop = startAiChat(() => true);
   const launcher = screen.getByLabelText("Open AI assistant");
-  expect(launcher.style.right).toBe("16px");
-  expect(launcher.style.left).toBe("auto");
+  expect(launcher.style.right).toBe("auto");
+  expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`);
   window.history.replaceState({}, "", "/pods?kube-details=legacy-resource");
   fireEvent(window, new PopStateEvent("popstate"));
   expect(launcher.style.left).toBe("236px");
@@ -932,15 +948,15 @@ it("keeps the launcher right normally and moves it left only while resource deta
   expect(launcher.style.bottom).toBe(`${window.innerHeight - 500 + 16}px`);
   window.history.replaceState({}, "", "/pods");
   fireEvent(window, new PopStateEvent("popstate"));
-  expect(launcher.style.left).toBe("auto");
-  expect(launcher.style.right).toBe("16px");
+  expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`);
+  expect(launcher.style.right).toBe("auto");
   const details = document.createElement("div");
   details.className = "Drawer KubeObjectDetails";
   vi.spyOn(details, "getBoundingClientRect").mockReturnValue({ width: 500, height: 700 } as DOMRect);
   document.body.append(details);
   await waitFor(() => expect(launcher.style.left).toBe("236px"));
   details.hidden = true;
-  await waitFor(() => expect(launcher.style.right).toBe("16px"));
+  await waitFor(() => expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`));
 });
 
 it("filters previously persisted related resources against the saved answer without rewriting history", () => {
@@ -1533,23 +1549,23 @@ it("moves the launcher left for a visible native Helm drawer and restores it whe
   vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({ right: 220, width: 220, height: 500 } as DOMRect);
   stop = startAiChat(() => true);
   const launcher = screen.getByLabelText("Open AI assistant");
-  expect(launcher.style.left).toBe("auto");
-  expect(launcher.style.right).toBe("16px");
+  expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`);
+  expect(launcher.style.right).toBe("auto");
   const drawer = document.createElement("div");
   drawer.className = "Drawer helm-native-drawer";
   drawer.style.display = "none";
   vi.spyOn(drawer, "getBoundingClientRect").mockReturnValue({ width: 500, height: 700 } as DOMRect);
   document.body.append(drawer);
-  await waitFor(() => expect(launcher.style.right).toBe("16px"));
+  await waitFor(() => expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`));
   drawer.style.display = "block";
   await waitFor(() => expect(launcher.style.left).toBe("236px"));
   expect(launcher.style.right).toBe("auto");
   drawer.hidden = true;
-  await waitFor(() => expect(launcher.style.right).toBe("16px"));
-  expect(launcher.style.left).toBe("auto");
+  await waitFor(() => expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`));
+  expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`);
   drawer.hidden = false;
   await waitFor(() => expect(launcher.style.left).toBe("236px"));
   drawer.remove();
-  await waitFor(() => expect(launcher.style.right).toBe("16px"));
-  expect(launcher.style.left).toBe("auto");
+  await waitFor(() => expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`));
+  expect(launcher.style.left).toBe(`${window.innerWidth - 70}px`);
 });
