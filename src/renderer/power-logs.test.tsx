@@ -14,8 +14,10 @@ import {
 } from "../common/power-logs";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 import { PowerLogsPage } from "./power-logs";
+import { clearPowerLogsSessions } from "./power-logs-session";
 
 const mocks = vi.hoisted(() => ({
+  clusterId: "cluster-a",
   copy: vi.fn(),
   confirm: vi.fn(),
   setPersistent: vi.fn(),
@@ -28,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   discover: vi.fn(),
   cancel: vi.fn(),
   history: vi.fn(),
+  live: vi.fn(),
   resolve: vi.fn(),
   nativeWorkload: vi.fn(),
   nativePod: vi.fn(),
@@ -51,9 +54,6 @@ vi.mock("./power-logs-client", () => ({
 vi.mock("./power-logs-transport", () => ({ createPowerLogsTransport: () => ({}) }));
 vi.mock("./resource-search-client", () => ({ searchContextId: () => "context-a" }));
 vi.mock("./ai-diagnostic-handoff", () => ({ explainDiagnosticFinding: mocks.explain }));
-vi.mock("./diagnostic-explain-button", () => ({
-  DiagnosticExplainButton: ({ children, ...props }: any) => <button {...props}>{children}</button>,
-}));
 vi.mock("./power-logs-entrypoints", () => ({
   parsePowerLogsTarget: (value: any) => (value?.uid ? value : undefined),
   openPowerLogs: vi.fn(),
@@ -61,12 +61,12 @@ vi.mock("./power-logs-entrypoints", () => ({
 vi.mock("./power-logs-collector", () => ({
   collectHistoricalLogs: (...args: any[]) => mocks.history(...args),
   resolveLogSources: (...args: any[]) => mocks.resolve(...args),
-  startLiveLogs: () => ({ coverage: {}, done: new Promise(() => {}) }),
+  startLiveLogs: (...args: any[]) => mocks.live(...args),
 }));
 vi.mock("@freelensapp/extensions", () => {
   return {
     Renderer: {
-      Catalog: { activeCluster: { get: () => ({ metadata: { uid: "cluster-a" } }) } },
+      Catalog: { activeCluster: { get: () => ({ metadata: { uid: mocks.clusterId } }) } },
       K8sApi: {
         namespaceStore: { onContextChange: () => () => {}, loadAll: (...args: any[]) => mocks.namespaceLoad(...args) },
         ...Object.fromEntries(
@@ -171,7 +171,10 @@ async function mount() {
   return view;
 }
 beforeEach(() => {
+  clearPowerLogsSessions();
+  mocks.clusterId = "cluster-a";
   vi.clearAllMocks();
+  mocks.live.mockImplementation(() => ({ coverage: {}, done: new Promise(() => {}) }));
   mocks.namespaceLoad.mockResolvedValue([]);
   window.history.replaceState({}, "", `/?target=${encodeURIComponent(JSON.stringify(target))}`);
   vi.stubGlobal(
@@ -673,7 +676,9 @@ it("shows SQL errors below the editor and includes the executed failure in AI co
   const editor = screen.getByLabelText("SQL query");
   expect(editor.compareDocumentPosition(screen.getByRole("alert")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.change(editor, { target: { value: "SELECT changed_draft FROM logs" } });
-  fireEvent.click(screen.getByRole("button", { name: "Open AI assistant" }));
+  act(() => {
+    window.dispatchEvent(new Event("power-logs-attach-ai"));
+  });
   const finding = mocks.explain.mock.calls[0][0];
   expect(finding.source).toBe("logs");
   expect(finding.summary).toContain("Query failed");
@@ -710,7 +715,9 @@ it("reviews executed SQL and its capture identity with ordinary values after edi
   });
   await waitFor(() => expect(screen.queryByText("Stop loading")).toBeNull());
   fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open AI assistant" }));
+  act(() => {
+    window.dispatchEvent(new Event("power-logs-attach-ai"));
+  });
   const preview = mocks.explain.mock.calls[0][0].summary as string;
   expect(preview).toContain("SELECT token FROM logs");
   expect(preview).not.toContain("SELECT edited FROM logs");
@@ -791,7 +798,9 @@ it("attaches a bounded draft context after clearing an executed snapshot", async
   await screen.findByText("captured log message");
   fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: "" } });
   fireEvent.change(screen.getByLabelText("SQL query"), { target: { value: 'SELECT "' + "x".repeat(65000) + '"' } });
-  fireEvent.click(screen.getByRole("button", { name: "Open AI assistant" }));
+  act(() => {
+    window.dispatchEvent(new Event("power-logs-attach-ai"));
+  });
   const finding = mocks.explain.mock.calls[0][0];
   expect(finding.resource.name).toBe(target.name);
   expect(finding.summary.length).toBeLessThanOrEqual(6000);
@@ -1464,4 +1473,203 @@ it.each([
   expect(tooltipText(copy)).toBe(`Unable to copy ${field}`);
   expect(copy.querySelector('[data-icon="check"]')).toBeNull();
   expect(detail.textContent).not.toContain("private clipboard diagnostic");
+});
+
+it("restores loaded lines, filters and details after leaving and returning to Power Logs", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0, { message: "retained line" })]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "retained" } });
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  view.unmount();
+  window.history.replaceState({}, "", "/");
+  render(<PowerLogsPage />);
+  expect((screen.getByLabelText("Search log messages") as HTMLInputElement).value).toBe("retained");
+  expect(screen.getByLabelText("Log line details").textContent).toContain("retained line");
+  expect(mocks.history).toHaveBeenCalledOnce();
+});
+
+it("keeps SQL drafts, results and details when returning without rerunning the query", async () => {
+  const view = await mount();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL" }));
+  fireEvent.change(screen.getByLabelText("Capture snapshot"), { target: { value: snapshot.id } });
+  fireEvent.change(screen.getByLabelText("SQL query"), { target: { value: "SELECT message FROM logs LIMIT 7" } });
+  fireEvent.click(screen.getByRole("button", { name: "Run query" }));
+  await waitFor(() => expect(view.container.querySelector("tbody tr")).not.toBeNull());
+  fireEvent.click(view.container.querySelector("tbody tr")!);
+  view.unmount();
+  window.history.replaceState({}, "", "/");
+  render(<PowerLogsPage />);
+  expect(screen.getByRole("tab", { name: "SQL" }).getAttribute("aria-selected")).toBe("true");
+  expect((screen.getByLabelText("SQL query") as HTMLTextAreaElement).value).toBe("SELECT message FROM logs LIMIT 7");
+  expect(screen.getByLabelText("Log line details").textContent).toContain("captured log message");
+  expect(mocks.query).toHaveBeenCalledOnce();
+  expect(mocks.history).toHaveBeenCalledOnce();
+});
+
+it("opens an explicitly requested resource instead of restoring a different cached target", async () => {
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "old filter" } });
+  view.unmount();
+  const next = { ...target, name: "application-b", uid: "workload-b" };
+  window.history.replaceState({}, "", `/?target=${encodeURIComponent(JSON.stringify(next))}`);
+  render(<PowerLogsPage />);
+  await waitFor(() => expect(mocks.resolve).toHaveBeenLastCalledWith(next, expect.anything(), expect.any(AbortSignal)));
+  expect((screen.getByLabelText("Search log messages") as HTMLInputElement).value).toBe("");
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+});
+
+it("isolates workspace state by cluster and clears retained state on disposal", async () => {
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Search log messages"), { target: { value: "cluster a filter" } });
+  view.unmount();
+  window.history.replaceState({}, "", "/");
+  mocks.clusterId = "cluster-b";
+  const second = render(<PowerLogsPage />);
+  expect((screen.getByLabelText("Search log messages") as HTMLInputElement).value).toBe("");
+  second.unmount();
+  mocks.clusterId = "cluster-a";
+  const restored = render(<PowerLogsPage />);
+  expect((screen.getByLabelText("Search log messages") as HTMLInputElement).value).toBe("cluster a filter");
+  restored.unmount();
+  clearPowerLogsSessions();
+  render(<PowerLogsPage />);
+  expect((screen.getByLabelText("Search log messages") as HTMLInputElement).value).toBe("");
+});
+
+it("aborts live streams while away and resumes following with retained lines on return", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0)]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Live" }));
+  expect(mocks.live).toHaveBeenCalledOnce();
+  const original = mocks.live.mock.calls[0][2];
+  expect(original.signal.aborted).toBe(false);
+  view.unmount();
+  expect(original.signal.aborted).toBe(true);
+  window.history.replaceState({}, "", "/");
+  render(<PowerLogsPage />);
+  await waitFor(() => expect(mocks.live).toHaveBeenCalledTimes(2));
+  expect(mocks.live.mock.calls[1][2].initialRecords).toHaveLength(1);
+  expect(mocks.live.mock.calls[1][2].signal.aborted).toBe(false);
+  expect(screen.getByRole("button", { name: "Pause" }).getAttribute("aria-pressed")).toBe("true");
+  expect(mocks.history).toHaveBeenCalledOnce();
+});
+
+it("attaches only on launcher requests, uses the current selection and removes the listener on unmount", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0, { message: "selected current line" })]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  expect(screen.queryByRole("button", { name: "Open AI assistant" })).toBeNull();
+  expect(mocks.explain).not.toHaveBeenCalled();
+  act(() => {
+    window.dispatchEvent(new Event("power-ai-open-only"));
+  });
+  expect(mocks.explain).not.toHaveBeenCalled();
+  fireEvent.click(view.container.querySelector(".power-log-open")!);
+  expect(mocks.explain).not.toHaveBeenCalled();
+  act(() => {
+    window.dispatchEvent(new Event("power-logs-attach-ai"));
+  });
+  expect(mocks.explain).toHaveBeenCalledOnce();
+  expect(mocks.explain.mock.calls[0][0].title).toBe("Log line");
+  expect(mocks.explain.mock.calls[0][0].summary).toContain("selected current line");
+  view.unmount();
+  act(() => {
+    window.dispatchEvent(new Event("power-logs-attach-ai"));
+  });
+  expect(mocks.explain).toHaveBeenCalledOnce();
+});
+
+it("validates resource ownership before resuming cached live sources", async () => {
+  const view = await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Live" }));
+  view.unmount();
+  const validation = deferred<{ sources: (typeof source)[]; notes: string[]; partial: boolean }>();
+  mocks.resolve.mockReturnValueOnce(validation.promise);
+  window.history.replaceState({}, "", "/");
+  render(<PowerLogsPage />);
+  expect(mocks.live).toHaveBeenCalledOnce();
+  expect(mocks.resolve).toHaveBeenCalledTimes(2);
+  const replacementSource = { ...source, pod: "application-b", podUid: "pod-b" };
+  await act(async () => validation.resolve({ sources: [replacementSource], notes: [], partial: false }));
+  await waitFor(() => expect(mocks.live).toHaveBeenCalledTimes(2));
+  expect(mocks.live.mock.calls[1][0]).toEqual([replacementSource]);
+});
+
+it("keeps cached lines but stops following when the restored resource fails UID validation", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords([record(0)]);
+    return { notes: [], partial: false };
+  });
+  const view = await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Live" }));
+  view.unmount();
+  mocks.resolve.mockRejectedValueOnce(new Error("The selected workload has changed"));
+  window.history.replaceState({}, "", "/");
+  render(<PowerLogsPage />);
+  await waitFor(() => expect(screen.getByText(/Could not resume live logs/)).toBeTruthy());
+  expect(mocks.live).toHaveBeenCalledOnce();
+  expect(screen.getByText("message 0")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Live" }).getAttribute("aria-pressed")).toBe("false");
+});
+
+it("applies an explicit container request for the same cached resource", async () => {
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Container source"), { target: { value: "container:application" } });
+  view.unmount();
+  window.history.replaceState({}, "", `/?target=${encodeURIComponent(JSON.stringify(target))}&container=sidecar`);
+  render(<PowerLogsPage />);
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(2));
+  expect((screen.getByLabelText("Container source") as HTMLSelectElement).value).toBe("container:sidecar");
+});
+
+it.each([false, true])("restores incomplete history with an explicit status (failed: %s)", async (failed) => {
+  if (failed) mocks.history.mockRejectedValueOnce(new Error("Unavailable"));
+  else mocks.history.mockReturnValueOnce(new Promise(() => {}));
+  const view = render(<PowerLogsPage />);
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledOnce());
+  if (failed) await waitFor(() => expect(screen.getByText(/Could not read this resource/)).toBeTruthy());
+  view.unmount();
+  window.history.replaceState({}, "", "/");
+  render(<PowerLogsPage />);
+  expect(screen.getByText(/Log loading incomplete/)).toBeTruthy();
+  expect(screen.queryByText(/Discovering owned containers/)).toBeNull();
+  expect(screen.queryByText(/Reading 2 container sources/)).toBeNull();
+  if (failed) expect(screen.getByText(/Could not read this resource/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh" }).hasAttribute("disabled")).toBe(false);
+});
+
+it("restores a manually scrolled live viewport without overriding follow tail", async () => {
+  mocks.history.mockImplementation(async (_sources, _transport, options) => {
+    await options.onRecords(Array.from({ length: 100 }, (_, index) => record(index)));
+    return { notes: [], partial: false };
+  });
+  const scrollHeight = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(3400);
+  try {
+    const view = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Follow tail" }));
+    const viewport = screen.getByLabelText("Log lines");
+    viewport.scrollTop = 680;
+    fireEvent.scroll(viewport);
+    view.unmount();
+    window.history.replaceState({}, "", "/");
+    const restored = render(<PowerLogsPage />);
+    expect(screen.getByLabelText("Log lines").scrollTop).toBe(680);
+    expect(screen.getByRole("button", { name: "Follow tail" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Follow tail" }));
+    expect(screen.getByLabelText("Log lines").scrollTop).toBe(3400);
+    restored.unmount();
+    render(<PowerLogsPage />);
+    expect(screen.getByLabelText("Log lines").scrollTop).toBe(3400);
+    expect(screen.getByRole("button", { name: "Follow tail" }).getAttribute("aria-pressed")).toBe("true");
+  } finally {
+    scrollHeight.mockRestore();
+  }
 });

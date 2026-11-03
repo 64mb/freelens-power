@@ -6,6 +6,7 @@ import {
   AI_MODELS_CHANNEL,
   type AiModel,
   CLAUDE_REASONING_EFFORTS,
+  CODEX_API_MODELS,
   CODEX_REASONING_EFFORTS,
 } from "../common/ai-models";
 import { readPiAiModels } from "./ai-pi-models";
@@ -84,6 +85,7 @@ export function startAiModels(): () => void {
         !(url.hostname === "renderer.freelens.app" || url.hostname.endsWith(".renderer.freelens.app"))
       )
         return [];
+      if (provider === "codex-api") return CODEX_API_MODELS;
       if (provider === "claude")
         return ["sonnet", "opus", "haiku", "fable"].map((id) => ({
           id,

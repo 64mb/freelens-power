@@ -1,3 +1,5 @@
+import { nativeResourceRemovals } from "./native-resource-removals";
+
 interface RemovalSummary {
   count: number;
   names: string[];
@@ -16,7 +18,7 @@ function summary(message: HTMLElement): RemovalSummary | undefined {
     !Number.isSafeInteger(remaining) ||
     remaining < 0 ||
     names.length + remaining !== count ||
-    names.some((name) => !/^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$/.test(name))
+    names.some((name) => !name || name.length > 1024 || /[\u0000-\u001f\u007f]/.test(name))
   )
     return;
   const expected =
@@ -28,7 +30,11 @@ function summary(message: HTMLElement): RemovalSummary | undefined {
 }
 
 export function startPodRemovalConfirmation(
-  options: { getSelectedNames?: () => readonly string[] | undefined } = {},
+  options: {
+    getSelectedNames?: () => readonly string[] | undefined;
+    getSelectedSecretNames?: () => readonly string[] | undefined;
+    getSelectedResourceNames?: (root: string) => readonly string[] | undefined;
+  } = {},
 ): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "pod-removal-confirmation";
@@ -52,6 +58,7 @@ export function startPodRemovalConfirmation(
   document.head.append(style);
   let selectedNames: readonly string[] | undefined;
   let armed = false;
+  let resource = nativeResourceRemovals.Pods;
   let stopped = false;
   let expiration: number | undefined;
   let current:
@@ -86,7 +93,7 @@ export function startPodRemovalConfirmation(
     const replacement = document.createElement("div");
     replacement.className = "power-pod-removal-summary";
     const heading = document.createElement("p");
-    heading.textContent = `Remove ${parsed.count} ${parsed.count === 1 ? "pod" : "pods"}?`;
+    heading.textContent = `Remove ${parsed.count} ${parsed.count === 1 ? resource.singular : resource.plural}?`;
     const list = document.createElement("ul");
     list.id = "power-pod-removal-names";
     const fullNames =
@@ -145,10 +152,22 @@ export function startPodRemovalConfirmation(
   const arm = (event: MouseEvent) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const button = target.closest<HTMLButtonElement>(".Pods .AddRemoveButtons .remove-button");
+    const button = target.closest<HTMLButtonElement>(
+      Object.keys(nativeResourceRemovals)
+        .map((root) => `.${root} .AddRemoveButtons .remove-button`)
+        .join(", "),
+    );
     if (!button || button.disabled || button.classList.contains("disabled")) return;
     try {
-      const names = options.getSelectedNames?.();
+      const root = Object.keys(nativeResourceRemovals).find((name) => button.closest(`.${name}`))!;
+      resource = nativeResourceRemovals[root];
+      const names =
+        options.getSelectedResourceNames?.(root) ??
+        (root === "Secrets"
+          ? options.getSelectedSecretNames?.()
+          : root === "Pods"
+            ? options.getSelectedNames?.()
+            : undefined);
       selectedNames = names ? [...names] : undefined;
     } catch {
       selectedNames = undefined;

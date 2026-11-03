@@ -1,6 +1,12 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { AI_CHAT_CHANNEL, AI_PROGRESS_CHANNEL, AI_READ_ACTIVITY_CHANNEL } from "../common/ai";
+import {
+  AI_API_KEY_SET_CHANNEL,
+  AI_API_KEY_STATUS_CHANNEL,
+  AI_CHAT_CHANNEL,
+  AI_PROGRESS_CHANNEL,
+  AI_READ_ACTIVITY_CHANNEL,
+} from "../common/ai";
 import { AI_CANCEL_CHANNEL } from "../common/ai-extras";
 import { startAiIpc } from "./ai-ipc";
 
@@ -32,12 +38,16 @@ const mocks = vi.hoisted(() => {
     handle: vi.fn(),
     removeHandler: vi.fn(),
     runAiChat: vi.fn(),
+    apiKeyStatus: vi.fn(),
+    setApiKey: vi.fn(),
     getClusterById: vi.fn(() => ({ id: "example-cluster" })),
     stopReaction: vi.fn(),
     onEnabledChange: undefined as undefined | ((enabled: boolean) => void),
     preferences: {
       enabled: true,
       provider: "codex",
+      codexApiModel: "gpt-6.1-sol",
+      codexApiReasoningEffort: "high",
       piModel: "example/glm-5-3",
       piReasoningEffort: "high",
       claudeModel: "sonnet",
@@ -72,6 +82,7 @@ vi.mock("@freelensapp/extensions", () => ({
 vi.mock("../common/store/ai-preferences-store", () => ({
   AiPreferencesStore: { getInstanceOrCreate: () => mocks.preferences },
 }));
+vi.mock("./ai-api-key", () => ({ aiApiKeyStatus: mocks.apiKeyStatus, setAiApiKey: mocks.setApiKey }));
 vi.mock("./ai", () => ({ runAiChat: mocks.runAiChat, aiFailureCode: () => "UNAVAILABLE" }));
 vi.mock("./power-logs-budget", () => ({
   requestPowerLogPermit: mocks.permit,
@@ -380,5 +391,68 @@ it("routes progress only to the active originating frame and forwards read cance
     await rejected;
   } finally {
     stop();
+  }
+});
+
+it("limits API key status and updates to trusted main frames and never returns submitted credentials", async () => {
+  vi.clearAllMocks();
+  mocks.apiKeyStatus.mockResolvedValue({ configured: false, available: true });
+  mocks.setApiKey.mockResolvedValue({ configured: true, available: true });
+  const stop = startAiIpc();
+  try {
+    const status = mocks.handle.mock.calls.find(([channel]) => channel === AI_API_KEY_STATUS_CHANNEL)![1];
+    const set = mocks.handle.mock.calls.find(([channel]) => channel === AI_API_KEY_SET_CHANNEL)![1];
+    const frame = { url: "https://renderer.freelens.app/" };
+    const event = { sender: { mainFrame: frame }, senderFrame: frame };
+    await expect(status(event)).resolves.toEqual({ configured: false, available: true });
+    await expect(set(event, "sk-example-key-not-real-123456789")).resolves.toEqual({
+      configured: true,
+      available: true,
+    });
+    expect(mocks.setApiKey).toHaveBeenCalledWith("sk-example-key-not-real-123456789");
+    await expect(set({ ...event, senderFrame: { ...frame } }, "blocked")).rejects.toThrow("unavailable");
+    const untrustedFrame = { url: "https://example.invalid/" };
+    await expect(status({ sender: { mainFrame: untrustedFrame }, senderFrame: untrustedFrame })).rejects.toThrow(
+      "unavailable",
+    );
+    expect(mocks.setApiKey).toHaveBeenCalledOnce();
+    mocks.setApiKey.mockRejectedValueOnce(new Error("private secret content"));
+    await expect(set(event, "invalid")).rejects.toThrow("Could not update the API key securely");
+  } finally {
+    stop();
+  }
+  expect(mocks.removeHandler).toHaveBeenCalledWith(AI_API_KEY_STATUS_CHANNEL);
+  expect(mocks.removeHandler).toHaveBeenCalledWith(AI_API_KEY_SET_CHANNEL);
+});
+
+it("uses only saved API model/provider preferences instead of renderer overrides", async () => {
+  vi.clearAllMocks();
+  mocks.preferences.provider = "codex-api";
+  mocks.preferences.enabled = true;
+  mocks.runAiChat.mockResolvedValue({ text: "Ready", provider: "codex-api" });
+  const stop = startAiIpc();
+  try {
+    const chat = mocks.handle.mock.calls.find(([channel]) => channel === AI_CHAT_CHANNEL)![1];
+    const event = {
+      sender: Object.assign(new EventEmitter(), { id: 112 }),
+      senderFrame: { url: "https://renderer.freelens.app/" },
+    };
+    await chat(event, {
+      provider: "codex",
+      model: "renderer-model",
+      speed: "fast",
+      reasoningEffort: "ultra",
+      messages: [],
+      context: {},
+    });
+    expect(mocks.runAiChat.mock.calls[0][0]).toMatchObject({
+      provider: "codex-api",
+      model: "gpt-6.1-sol",
+      speed: "default",
+      reasoningEffort: "high",
+    });
+  } finally {
+    stop();
+    mocks.preferences.provider = "codex";
   }
 });

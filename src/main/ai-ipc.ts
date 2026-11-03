@@ -3,6 +3,8 @@ import { Common, Main } from "@freelensapp/extensions";
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from "electron";
 import { reaction } from "mobx";
 import {
+  AI_API_KEY_SET_CHANNEL,
+  AI_API_KEY_STATUS_CHANNEL,
   AI_CHAT_CHANNEL,
   AI_PROGRESS_CHANNEL,
   AI_READ_ACTIVITY_CHANNEL,
@@ -13,9 +15,11 @@ import { AI_CANCEL_CHANNEL } from "../common/ai-extras";
 import { piModelEfforts } from "../common/ai-models";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { aiFailureCode, runAiChat } from "./ai";
+import { aiApiKeyStatus, setAiApiKey } from "./ai-api-key";
 import { discoverAiResources } from "./ai-discovery";
 import { PiAiResponseError } from "./ai-pi";
 import { aiReadPath } from "./ai-resources";
+import { getDashboardAiAccess } from "./dashboard-ai";
 import {
   acquirePowerLogStream,
   releasePowerLogStream,
@@ -67,26 +71,32 @@ export function startAiIpc(): () => void {
         {
           ...request,
           provider: preferences.provider ?? "codex",
+          apiWebSocket: true,
+          apiServiceTier: preferences.codexApiServiceTier ?? "default",
           model:
-            preferences.provider === "pi"
-              ? preferences.piModel
-              : preferences.provider === "claude"
-                ? preferences.claudeModel
-                : preferences.model,
+            preferences.provider === "codex-api"
+              ? preferences.codexApiModel
+              : preferences.provider === "pi"
+                ? preferences.piModel
+                : preferences.provider === "claude"
+                  ? preferences.claudeModel
+                  : preferences.model,
           speed:
-            preferences.provider === "pi"
+            preferences.provider === "codex-api" || preferences.provider === "pi"
               ? "default"
               : preferences.provider === "claude"
                 ? preferences.claudeSpeed
                 : preferences.speed,
           reasoningEffort:
-            preferences.provider === "pi"
-              ? piModelEfforts(preferences.piModel).includes(preferences.piReasoningEffort)
-                ? preferences.piReasoningEffort
-                : ""
-              : preferences.provider === "claude"
-                ? preferences.claudeReasoningEffort
-                : preferences.reasoningEffort,
+            preferences.provider === "codex-api"
+              ? preferences.codexApiReasoningEffort
+              : preferences.provider === "pi"
+                ? piModelEfforts(preferences.piModel).includes(preferences.piReasoningEffort)
+                  ? preferences.piReasoningEffort
+                  : ""
+                : preferences.provider === "claude"
+                  ? preferences.claudeReasoningEffort
+                  : preferences.reasoningEffort,
           systemPrompt: [preferences.systemPrompt, request?.context?.clusterId ? preferences.clusterPrompt : ""]
             .filter(Boolean)
             .join("\n\n"),
@@ -182,6 +192,7 @@ export function startAiIpc(): () => void {
             /* the originating frame may have closed */
           }
         },
+        request.context?.clusterId ? undefined : getDashboardAiAccess(event.sender),
       );
       controller.signal.throwIfAborted();
       return response;
@@ -196,6 +207,20 @@ export function startAiIpc(): () => void {
       event.sender.removeListener("destroyed", abort);
       pending.delete(event.sender.id);
       origins.delete(event.sender.id);
+    }
+  });
+  ipcMain.handle(AI_API_KEY_STATUS_CHANNEL, async (event) => {
+    if (!trusted(event) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame)
+      throw new Error("AI API key settings are unavailable");
+    return aiApiKeyStatus();
+  });
+  ipcMain.handle(AI_API_KEY_SET_CHANNEL, async (event, key: unknown) => {
+    if (!trusted(event) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame)
+      throw new Error("AI API key settings are unavailable");
+    try {
+      return await setAiApiKey(key);
+    } catch {
+      throw new Error("Could not update the API key securely");
     }
   });
   ipcMain.handle(AI_CANCEL_CHANNEL, (event, requestId: unknown) => {
@@ -216,6 +241,8 @@ export function startAiIpc(): () => void {
   return () => {
     stop();
     abortAll();
+    ipcMain.removeHandler(AI_API_KEY_STATUS_CHANNEL);
+    ipcMain.removeHandler(AI_API_KEY_SET_CHANNEL);
     ipcMain.removeHandler(AI_CHAT_CHANNEL);
     ipcMain.removeHandler(AI_CANCEL_CHANNEL);
   };

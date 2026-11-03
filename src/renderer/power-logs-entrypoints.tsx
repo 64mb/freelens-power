@@ -4,6 +4,7 @@ import { observer } from "mobx-react";
 import { EXTENSION_ID } from "../common/extension-info";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
+import { clearPowerLogsSessions } from "./power-logs-session";
 
 import type { LogTarget, LogWorkloadKind } from "../common/power-logs";
 
@@ -122,6 +123,7 @@ export function startPowerLogsEntrypoints(): () => void {
   };
   const synchronize = () => {
     const active = !stopped && enabled();
+    if (!active) clearPowerLogsSessions();
     for (const [element, state] of hidden) {
       if (!active || !state.replacement.isConnected || !element.isConnected) restore(element);
     }
@@ -175,6 +177,7 @@ export function startPowerLogsEntrypoints(): () => void {
   const stopReaction = reaction(enabled, synchronize, { fireImmediately: true });
   return () => {
     stopped = true;
+    clearPowerLogsSessions();
     observer.disconnect();
     stopReaction();
     document.removeEventListener("click", click, true);

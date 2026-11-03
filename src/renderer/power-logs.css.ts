@@ -5,8 +5,8 @@ export const powerLogsStyles = `
 .ConfirmDialog .power-logs-confirmation { display:block; min-width:0; overflow-wrap:anywhere; }
 .ConfirmDialog .power-logs-confirm-label { display:inline-flex; align-items:center; gap:6px; }
 .ConfirmDialog:has(.power-logs-confirmation) .Button.power-logs-confirm-delete { background:var(--colorError); color:#fff !important; }
-body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { display:none; }
 .power-logs { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; box-sizing:border-box; overflow:hidden; padding:12px; gap:6px; color:var(--textColorPrimary); container-type:inline-size; }
+.power-logs[data-testid="power-logs-page"] { margin:16px; height:calc(100% - 32px); padding:16px; background:var(--contentColor); }
 .power-logs header, .power-logs-toolbar, .power-logs-filters, .power-logs-source { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .power-logs header h1 { margin:0; font-size:16px; display:flex; align-items:center; gap:10px; }
 .power-logs header .power-logs-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }

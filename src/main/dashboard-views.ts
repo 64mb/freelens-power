@@ -14,7 +14,9 @@ import {
   WebContentsView,
 } from "electron";
 import { reaction } from "mobx";
+import { redactAiTerminalText } from "../common/ai-terminal-context";
 import { sanitizeDashboardCards } from "../common/dashboard";
+import { dashboardAiWidgets, dashboardDocumentReadScript } from "../common/dashboard-ai";
 import { dashboardReadinessScript } from "../common/dashboard-readiness";
 import { dashboardSelectorScript } from "../common/dashboard-selector";
 import {
@@ -25,6 +27,7 @@ import {
   type DashboardSiteIcon,
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { setDashboardAiReader, waitForDashboardAiRead } from "./dashboard-ai";
 import { boundedDashboardIcons, loadDashboardIcons, saveDashboardIcons } from "./dashboard-icon-cache";
 import { observeDashboardNetwork } from "./dashboard-network";
 
@@ -136,6 +139,7 @@ type CardView = {
     selectorChanged: () => void;
     stop: () => void;
     isPreparing: () => boolean;
+    generation: () => number;
   };
 };
 type Owner = { window: BrowserWindow; cards: Map<string, CardView>; cleanup: () => void };
@@ -211,6 +215,99 @@ export function startDashboardViews(): () => void {
   websiteSession.setPermissionCheckHandler(() => false);
   const owners = new Map<WebContents, Owner>();
   const icons = new Map<string, DashboardSiteIcon>();
+  setDashboardAiReader((sender) => {
+    if (!dashboardUrl(sender.getURL()) || sender.isDestroyed()) return;
+    const cards = sanitizeDashboardCards(
+      DashboardPreferencesStore.getInstanceOrCreate<DashboardPreferencesStore>().cards,
+    );
+    return {
+      widgets: dashboardAiWidgets(cards),
+      read: async (alias, signal) => {
+        signal?.throwIfAborted();
+        const index = /^widget-[1-9][0-9]*$/.test(alias) ? Number(alias.slice(7)) - 1 : -1;
+        const snapshot = cards.slice(0, 100)[index];
+        if (!snapshot) throw new Error("Widget is unavailable");
+        const id = snapshot.id;
+        const configured = sanitizeDashboardCards(
+          DashboardPreferencesStore.getInstanceOrCreate<DashboardPreferencesStore>().cards,
+        ).find((item) => item.id === id);
+        if (!configured || configured.url !== snapshot.url || configured.selector !== snapshot.selector)
+          throw new Error("Widget is unavailable");
+        if (owners.has(sender) && !owners.get(sender)?.cards.has(id)) {
+          await waitForDashboardAiRead(
+            syncViews(
+              { sender, senderFrame: sender.mainFrame } as IpcMainInvokeEvent,
+              {
+                cards: [
+                  {
+                    id,
+                    bounds: { x: 0, y: 0, width: 1024, height: 768 },
+                    clip: { x: 0, y: 0, width: 1024, height: 768 },
+                  },
+                ],
+              },
+              true,
+            ),
+            signal,
+          );
+          signal?.throwIfAborted();
+        }
+        const owner = owners.get(sender);
+        const card = owner?.cards.get(id);
+        if (
+          !configured ||
+          !card ||
+          card.url !== configured.url ||
+          (card.floating
+            ? card.floating.isDestroyed() || card.floatingPreparation?.isPreparing()
+            : card.failed || card.loading) ||
+          !dashboardUrl(sender.getURL()) ||
+          card.view.webContents.isDestroyed()
+        )
+          throw new Error("Widget is unavailable");
+        const generation = card.generation;
+        const floating = card.floating;
+        const floatingPreparation = card.floatingPreparation;
+        const floatingGeneration = floatingPreparation?.generation();
+        const contents = floating ? floating.webContents : card.view.webContents;
+        if (contents.isDestroyed() || contents.isLoading()) throw new Error("Widget is unavailable");
+        const pageUrl = contents.getURL();
+        const result = (await waitForDashboardAiRead(
+          contents.executeJavaScriptInIsolatedWorld(1005, [{ code: dashboardDocumentReadScript(configured.selector) }]),
+          signal,
+        )) as { text?: unknown; truncated?: unknown } | undefined;
+        signal?.throwIfAborted();
+        const latest = sanitizeDashboardCards(
+          DashboardPreferencesStore.getInstanceOrCreate<DashboardPreferencesStore>().cards,
+        ).find((item) => item.id === id);
+        if (!latest || latest.url !== snapshot.url || latest.selector !== snapshot.selector)
+          throw new Error("Widget changed during read");
+        if (
+          owners.get(sender) !== owner ||
+          owner?.cards.get(id) !== card ||
+          card.url !== configured.url ||
+          card.generation !== generation ||
+          card.floating !== floating ||
+          floating?.isDestroyed() ||
+          card.floatingPreparation !== floatingPreparation ||
+          floatingPreparation?.generation() !== floatingGeneration ||
+          floatingPreparation?.isPreparing() ||
+          contents.isDestroyed() ||
+          contents.isLoading() ||
+          contents.getURL() !== pageUrl
+        )
+          throw new Error("Widget changed during read");
+        if (!result || typeof result.text !== "string") throw new Error("Invalid widget content");
+        return {
+          id: alias,
+          text: redactAiTerminalText(result.text.slice(0, 24000)),
+          truncated: result.truncated === true,
+          source: "untrusted visible widget text",
+        };
+      },
+    };
+  });
+
   const remove = (owner: Owner, id: string) => {
     const card = owner.cards.get(id);
     if (!card) return;
@@ -485,7 +582,7 @@ export function startDashboardViews(): () => void {
       return icon?.pageUrl === card.url ? [icon] : [];
     });
   });
-  ipcMain.handle(syncChannel, async (event, payload: unknown) => {
+  const syncViews = async (event: IpcMainInvokeEvent, payload: unknown, prepareHidden = false) => {
     if (!trusted(event)) return;
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window || window.isDestroyed()) return;
@@ -571,6 +668,7 @@ export function startDashboardViews(): () => void {
       if (!card) {
         const container = new View();
         container.setBackgroundColor("#00000000");
+        if (prepareHidden) container.setVisible(false);
         const view = new WebContentsView({
           webPreferences: {
             nodeIntegration: false,
@@ -744,9 +842,9 @@ export function startDashboardViews(): () => void {
         card.scrollbars = item.scrollbars === true;
         void applyWebsiteStyles(card);
       }
-      card.visible = true;
+      card.visible = !prepareHidden;
       card.skeleton.view.setVisible(card.loading);
-      card.container.setVisible(!card.failed && (card.loading || card.url === configured.url));
+      card.container.setVisible(!prepareHidden && !card.failed && (card.loading || card.url === configured.url));
       const zoom = event.sender.getZoomFactor();
       card.container.setBorderRadius(Math.round(12 * zoom));
       card.view.setBorderRadius(Math.round(12 * zoom));
@@ -771,7 +869,7 @@ export function startDashboardViews(): () => void {
     }
     for (const [id, card] of owner.cards) {
       if (!cards.some((configured) => configured.id === id)) remove(owner, id);
-      else if (!visible.has(id)) {
+      else if (!prepareHidden && !visible.has(id)) {
         card.visible = false;
         card.container.setVisible(false);
       }
@@ -782,7 +880,8 @@ export function startDashboardViews(): () => void {
       failed: [...owner.cards.entries()].filter(([, card]) => card.failed).map(([id]) => id),
       pinned: [...owner.cards].filter(([, card]) => card.floating).map(([id]) => id),
     };
-  });
+  };
+  ipcMain.handle(syncChannel, (event, payload: unknown) => syncViews(event, payload));
   const publishPinned = (sender: WebContents, owner: Owner) => {
     if (!sender.isDestroyed())
       sender.send(
@@ -947,6 +1046,7 @@ export function startDashboardViews(): () => void {
       card.floatingPreparation = {
         refresh,
         isPreparing: () => floatingPreparing,
+        generation: () => generation,
         selectorChanged: () => {
           const preparation = begin();
           void preparation.finish();
@@ -1025,6 +1125,7 @@ export function startDashboardViews(): () => void {
     return { failed: card.failed || floatingFailed ? [payload.id] : [] };
   });
   return () => {
+    setDashboardAiReader(undefined);
     stopSettingsReaction();
     ipcMain.removeHandler(DASHBOARD_VIEWS_PIN);
     ipcMain.removeHandler(DASHBOARD_SITE_ICONS);

@@ -493,7 +493,7 @@ export function piAiOutputDiagnostics(output: string) {
           textType = envelope.text === null ? "null" : typeof envelope.text;
           toolType = envelope.tool === null ? "null" : Array.isArray(envelope.tool) ? "array" : typeof envelope.tool;
           const method = envelope.tool?.method;
-          toolMethod = ["pods", "nodes", "resources", "logs"].includes(method)
+          toolMethod = ["pods", "nodes", "resources", "logs", "dashboard"].includes(method)
             ? method
             : method === undefined
               ? "missing"

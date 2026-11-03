@@ -432,6 +432,22 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   const settings = session.window.locator(".freelens-power-preferences");
   const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: "Enable AI features" });
   if (!(await toggle.locator("input").isChecked())) await toggle.click();
+  const provider = settings.locator(".Select").filter({ has: settings.locator("#power-ai-cli") });
+  await provider.getByRole("combobox").click();
+  await session.window
+    .getByRole("option")
+    .filter({ hasText: /^OpenAI API$/ })
+    .click();
+  await expect(settings.getByLabel("OpenAI API key", { exact: true })).toHaveAttribute("type", "password");
+  await expect(settings.getByText(/Restricted key: Model capabilities/)).toBeVisible();
+  await expect(provider.locator('[data-provider="codex-api"]')).toHaveAttribute("src", /^data:image\/svg\+xml/);
+  await expect(settings.getByRole("button", { name: "Save key", exact: true })).toBeDisabled();
+  await provider.getByRole("combobox").click();
+  await session.window
+    .getByRole("option")
+    .filter({ hasText: /^Codex$/ })
+    .click();
+  await expect(settings.getByLabel("OpenAI API key", { exact: true })).toHaveCount(0);
   await session.window.locator('div[class*="close-button-module__closeButton--"][aria-label="Close"]').click();
   await frame.getByText("Workloads", { exact: true }).first().click();
   await frame.getByText("Pods", { exact: true }).first().click();
@@ -543,7 +559,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   expect(menuFits).toBe(true);
   await session.screenshot(info, "power-logs-source-selector");
   await sourceFilter.press("Escape");
-  await page.getByRole("button", { name: "Open AI assistant", exact: true }).click();
+  await frame.getByRole("button", { name: "Open AI assistant", exact: true }).click();
   const initialAssistant = frame.getByRole("complementary", { name: "AI assistant" });
   await expect(initialAssistant).toBeVisible();
   await expect(initialAssistant.locator(".power-ai-message")).toHaveCount(0);
@@ -712,7 +728,7 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await page.locator(".power-log-open").first().click();
   await expect(detail).toBeVisible();
   await session.screenshot(info, "power-logs-filtered-line");
-  await page.getByRole("button", { name: "Open AI assistant", exact: true }).click();
+  await frame.getByRole("button", { name: "Open AI assistant", exact: true }).click();
   const assistant = frame.getByLabel("AI assistant", { exact: true });
   await expect(assistant).toBeVisible();
   const finding = assistant.getByLabel("Selected diagnostic finding");
@@ -1071,24 +1087,17 @@ extensionTest(
       const launcher = frame.getByRole("button", { name: "Open AI assistant", exact: true });
       await expect(launcher).toBeVisible();
       await expect(launcher).toHaveCSS("height", "38px");
-      await expect
-        .poll(async () => {
-          const slot = await pods.locator(".AddRemoveButtons").boundingBox();
-          const button = await launcher.boundingBox();
-          return (
-            !!slot &&
-            !!button &&
-            Math.abs(button.x - (slot.x + slot.width - 38)) < 1 &&
-            Math.abs(button.y - (slot.y + slot.height - 38)) < 1
-          );
-        })
-        .toBe(true);
+      const card = await pods.boundingBox();
       const launcherBox = await launcher.boundingBox();
+      expect(card).toBeTruthy();
+      expect(launcherBox).toBeTruthy();
+      expect(card!.x + card!.width - launcherBox!.x - launcherBox!.width).toBeCloseTo(16, 1);
+      expect(card!.y + card!.height - launcherBox!.y - launcherBox!.height).toBeCloseTo(16, 1);
       await pods.locator(".TableHead .Checkbox").click();
       const podActions = pods.locator(".AddRemoveButtons .remove-button");
       const podActionsBox = await podActions.boundingBox();
-      expect(podActionsBox?.x).toBeCloseTo(launcherBox!.x, 1);
-      expect(podActionsBox?.y).toBeCloseTo(launcherBox!.y, 1);
+      expect(card!.x + card!.width - podActionsBox!.x - podActionsBox!.width).toBeCloseTo(16, 1);
+      expect(card!.y + card!.height - podActionsBox!.y - podActionsBox!.height).toBeCloseTo(16, 1);
       await podActions.hover();
       const hoverBorder = await podActions.evaluate((element) => {
         const probe = document.createElement("span");

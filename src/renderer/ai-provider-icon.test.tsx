@@ -25,6 +25,12 @@ it("uses distinct bundled brand assets and native tooltips without browser title
   const pi = view.getByRole("img", { name: "Pi" });
   expect(pi.getAttribute("data-provider")).toBe("pi");
   expect(tooltipText(pi)).toBe("Pi");
+  view.rerender(<AiProviderIcon provider="codex-api" />);
+  const api = view.getByRole("img", { name: "OpenAI API" });
+  expect(api.getAttribute("data-provider")).toBe("codex-api");
+  expect(api.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
+  expect(decodeURIComponent(api.getAttribute("src")!)).toContain("#0285ff");
+  expect(tooltipText(api)).toBe("OpenAI API");
   view.unmount();
 });
 

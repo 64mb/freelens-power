@@ -32,7 +32,7 @@ export class AiUnsupportedResourceError extends Error {
 export interface AiReadRequest {
   apiVersion?: string | null;
   kind?: string | null;
-  method: "pods" | "nodes" | "resources" | "logs";
+  method: "pods" | "nodes" | "resources" | "logs" | "dashboard";
   resource?: string;
   ref?: string | null;
   namespace?: string;
