@@ -15,25 +15,9 @@ export const OtherPreferences = observer(() => {
             preferences.nodeBulkActions = value;
           }}
         >
-          Bulk node actions
+          Bulk resource actions
         </Renderer.Component.Switch>
-        <div className="power-settings-hint">
-          Show node selection checkboxes and bulk actions. Turning this off restores the native Nodes list.
-        </div>
-      </div>
-      <div>
-        <Renderer.Component.Switch
-          checked={preferences.podBulkActions}
-          onChange={(value) => {
-            preferences.podBulkActions = value;
-          }}
-        >
-          Customize Pod bulk actions
-        </Renderer.Component.Switch>
-        <div className="power-settings-hint">
-          Use Power styling and removal confirmation for Pod bulk actions. Turning this off restores native Pod bulk
-          actions.
-        </div>
+        <div className="power-settings-hint">Select nodes for bulk actions and customize Pod removal.</div>
       </div>
       <div>
         <Renderer.Component.Switch

@@ -15,7 +15,7 @@ export function startPodBulkCustomization(): () => void {
     stopButtons = undefined;
   };
   const stop = reaction(
-    () => preferences.podBulkActions !== false,
+    () => preferences.nodeBulkActions !== false,
     (enabled) => {
       dispose();
       stopButtons = startPowerButtonStyles(enabled);

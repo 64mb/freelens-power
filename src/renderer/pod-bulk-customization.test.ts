@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   selectedItems: [{ getName: (): string => "pod-a" }],
-  preferences: { podBulkActions: true },
+  preferences: { nodeBulkActions: true },
   buttons: vi.fn(),
   confirmation: vi.fn(),
   stopButtons: vi.fn(),
@@ -22,7 +22,7 @@ import { startPodBulkCustomization } from "./pod-bulk-customization";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.preferences = observable({ podBulkActions: true });
+  mocks.preferences = observable({ nodeBulkActions: true });
   mocks.buttons.mockReturnValue(mocks.stopButtons);
   mocks.confirmation.mockReturnValue(mocks.stopConfirmation);
 });
@@ -32,14 +32,14 @@ it("restores native Pod actions immediately and reenables customization without 
   expect(mocks.buttons).toHaveBeenLastCalledWith(true);
   expect(mocks.confirmation).toHaveBeenCalledOnce();
   runInAction(() => {
-    mocks.preferences.podBulkActions = false;
+    mocks.preferences.nodeBulkActions = false;
   });
   expect(mocks.stopButtons).toHaveBeenCalledOnce();
   expect(mocks.stopConfirmation).toHaveBeenCalledOnce();
   expect(mocks.buttons).toHaveBeenLastCalledWith(false);
   expect(mocks.confirmation).toHaveBeenCalledOnce();
   runInAction(() => {
-    mocks.preferences.podBulkActions = true;
+    mocks.preferences.nodeBulkActions = true;
   });
   expect(mocks.stopButtons).toHaveBeenCalledTimes(2);
   expect(mocks.confirmation).toHaveBeenCalledTimes(2);
@@ -47,13 +47,13 @@ it("restores native Pod actions immediately and reenables customization without 
   expect(mocks.stopButtons).toHaveBeenCalledTimes(3);
   expect(mocks.stopConfirmation).toHaveBeenCalledTimes(2);
   runInAction(() => {
-    mocks.preferences.podBulkActions = false;
+    mocks.preferences.nodeBulkActions = false;
   });
   expect(mocks.buttons).toHaveBeenCalledTimes(3);
 });
 
 it("starts disabled with native Pod actions and retains other button styling", () => {
-  mocks.preferences.podBulkActions = false;
+  mocks.preferences.nodeBulkActions = false;
   const stop = startPodBulkCustomization();
   expect(mocks.buttons).toHaveBeenCalledExactlyOnceWith(false);
   expect(mocks.confirmation).not.toHaveBeenCalled();

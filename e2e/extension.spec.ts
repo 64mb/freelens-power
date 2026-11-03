@@ -1068,7 +1068,23 @@ extensionTest(
       await expect(namespaces).toContainText(namespace);
       await expect(pods.locator(".TableRow[id]").first()).toBeVisible();
       await pods.locator(".TableHead .Checkbox").click();
-      await pods.locator(".AddRemoveButtons .remove-button").click();
+      const podActions = pods.locator(".AddRemoveButtons .remove-button");
+      await podActions.hover();
+      const hoverBorder = await podActions.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--textColorAccent)";
+        element.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      await expect(podActions).toHaveCSS("border-color", hoverBorder);
+      const feedbackProperties = ["background-color", "border-color", "color", "transition", "overflow"];
+      const podFeedback = await podActions.evaluate((element, properties) => {
+        const style = getComputedStyle(element);
+        return properties.map((property) => style.getPropertyValue(property));
+      }, feedbackProperties);
+      await podActions.click();
       const podConfirmation = frame.getByTestId("confirmation-dialog");
       await expect(podConfirmation.locator(".power-pod-removal-summary")).toBeVisible();
       await expect(podConfirmation.locator(".power-pod-removal-original")).toBeHidden();
@@ -1087,13 +1103,13 @@ extensionTest(
       await expect(removePods).toHaveCSS("background-color", errorColor);
       await session.screenshot(info, "pod-removal-confirmation", frame);
       await podConfirmation.getByRole("button", { name: "Cancel", exact: true }).click();
-      await setSwitch("Customize Pod bulk actions", false);
+      await setSwitch("Bulk resource actions", false);
       await expect(pods.locator(".AddRemoveButtons .remove-button")).toHaveCSS("border-radius", "50%");
       await pods.locator(".AddRemoveButtons .remove-button").click();
       await expect(podConfirmation.locator(".power-pod-removal-summary")).toHaveCount(0);
       await expect(podConfirmation.locator(".power-pod-removal-trash")).toHaveCount(0);
       await podConfirmation.getByRole("button", { name: "Cancel", exact: true }).click();
-      await setSwitch("Customize Pod bulk actions", true);
+      await setSwitch("Bulk resource actions", true);
       await expect(pods.locator(".AddRemoveButtons .remove-button")).toHaveCSS("border-radius", "6px");
       await frame.locator('[data-testid="link-for-sidebar-item-nodes"]').click();
       const nodesPage = frame.locator(".Nodes");
@@ -1113,6 +1129,14 @@ extensionTest(
       const actions = frame.getByRole("button", { name: "Actions for 2 selected nodes", exact: true });
       await expect(actions).toBeVisible();
       await actions.hover();
+      await expect
+        .poll(() =>
+          actions.evaluate((element, properties) => {
+            const style = getComputedStyle(element);
+            return properties.map((property) => style.getPropertyValue(property));
+          }, feedbackProperties),
+        )
+        .toEqual(podFeedback);
       const actionsTooltip = frame.getByRole("tooltip").filter({ hasText: "Actions for selected nodes (2)" });
       await expect(actionsTooltip).toBeVisible();
       await session.screenshot(info, "node-bulk-selection", frame);
@@ -1123,10 +1147,19 @@ extensionTest(
       await expect(actions).toHaveCSS("border-radius", "6px");
       await stablePress(actions, async (state) => {
         if (state === "pressed")
-          expect(await actions.evaluate((element) => getComputedStyle(element, "::before").display)).toBe("none");
+          expect(await actions.evaluate((element) => getComputedStyle(element, "::before").pointerEvents)).toBe("none");
       });
       await expect(actionsTooltip).toHaveCount(0);
-      await expect(actions).toHaveCSS("outline-width", "2px");
+      await expect(actions).toHaveCSS("overflow", "hidden");
+      const openBorder = await actions.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--primary)";
+        element.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      await expect(actions).toHaveCSS("border-color", openBorder);
       const cordonMenu = frame.getByRole("menuitem", { name: "Cordon", exact: true });
       await cordonMenu.hover();
       const accent = await cordonMenu.evaluate((element) => {
@@ -1171,11 +1204,11 @@ extensionTest(
       await perform("Cordon", true);
       await perform("Uncordon", false);
       await perform("Drain", true);
-      await setSwitch("Bulk node actions", false);
+      await setSwitch("Bulk resource actions", false);
       await expect(selectAll).toHaveCount(0);
       await expect(toolbar).toHaveCount(0);
       await expect(nodesPage.locator(".Table")).toBeVisible();
-      await setSwitch("Bulk node actions", true);
+      await setSwitch("Bulk resource actions", true);
       await expect(selectAll).toBeVisible();
       await expect(selectAll).not.toBeChecked();
       await setSwitch("Read-only mode", true);

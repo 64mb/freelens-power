@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 const stores = vi.hoisted(() => ({
-  power: { nodeBulkActions: true, podBulkActions: true },
+  power: { nodeBulkActions: true },
   monitoring: { resourceSearchEnabled: true, relationshipsVisible: true },
 }));
 vi.mock("../../common/store/power-preferences-store", () => ({
@@ -38,13 +38,12 @@ import { OtherPreferences } from "./other-preferences";
 
 afterEach(cleanup);
 
-it("controls node and Pod bulk actions independently", () => {
+it("uses one switch for Node actions and Pod customization", () => {
   render(<OtherPreferences />);
-  fireEvent.click(screen.getByRole("checkbox", { name: "Bulk node actions" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Bulk resource actions" }));
   expect(stores.power.nodeBulkActions).toBe(false);
-  expect(stores.power.podBulkActions).toBe(true);
-  fireEvent.click(screen.getByRole("checkbox", { name: "Customize Pod bulk actions" }));
-  expect(stores.power.podBulkActions).toBe(false);
+  expect(screen.getByText("Select nodes for bulk actions and customize Pod removal.")).toBeTruthy();
+  expect(screen.getAllByRole("checkbox")).toHaveLength(2);
 });
 
 it("uses the existing resource search setting with an ASCII shortcut label", () => {
