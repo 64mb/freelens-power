@@ -1037,6 +1037,28 @@ extensionTest(
   async (session, frame, info) => {
     const fixtures = createNodeBulkFixtures();
     try {
+      const setSwitch = async (label: string, enabled: boolean) => {
+        const shortcut = session.window.locator(".freelens-power-settings-icon");
+        if (await shortcut.isVisible()) await shortcut.click();
+        else {
+          await session.app.evaluate(({ Menu }) => {
+            const preferences = Menu.getApplicationMenu()?.getMenuItemById("navigate-to-preferences");
+            if (!preferences) throw new Error("Native Preferences menu item is unavailable");
+            preferences.click();
+          });
+          await session.window.locator("[data-preference-tab-link-test]").filter({ hasText: "Freelens Power" }).click();
+        }
+        const settings = session.window.locator(".freelens-power-preferences");
+        await expect(
+          settings
+            .getByRole("navigation", { name: "Settings sections" })
+            .getByRole("button", { name: "Other", exact: true }),
+        ).toHaveCount(0);
+        const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: label });
+        if ((await toggle.locator("input").isChecked()) !== enabled) await toggle.click();
+        await expect(toggle.locator("input")).toBeChecked({ checked: enabled });
+        await session.window.getByTestId("close-preferences").click();
+      };
       await frame.getByTestId("link-for-sidebar-item-workloads").click();
       await frame.getByTestId("link-for-sidebar-item-pods").click();
       const pods = frame.locator(".Pods");
@@ -1065,6 +1087,14 @@ extensionTest(
       await expect(removePods).toHaveCSS("background-color", errorColor);
       await session.screenshot(info, "pod-removal-confirmation", frame);
       await podConfirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+      await setSwitch("Customize Pod bulk actions", false);
+      await expect(pods.locator(".AddRemoveButtons .remove-button")).toHaveCSS("border-radius", "50%");
+      await pods.locator(".AddRemoveButtons .remove-button").click();
+      await expect(podConfirmation.locator(".power-pod-removal-summary")).toHaveCount(0);
+      await expect(podConfirmation.locator(".power-pod-removal-trash")).toHaveCount(0);
+      await podConfirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+      await setSwitch("Customize Pod bulk actions", true);
+      await expect(pods.locator(".AddRemoveButtons .remove-button")).toHaveCSS("border-radius", "6px");
       await frame.locator('[data-testid="link-for-sidebar-item-nodes"]').click();
       const nodesPage = frame.locator(".Nodes");
       const filter = nodesPage.locator('input[type="search"], input[placeholder*="Search" i]').first();
@@ -1082,6 +1112,9 @@ extensionTest(
       const toolbar = frame.getByRole("region", { name: "Bulk node actions", exact: true });
       const actions = frame.getByRole("button", { name: "Actions for 2 selected nodes", exact: true });
       await expect(actions).toBeVisible();
+      await actions.hover();
+      const actionsTooltip = frame.getByRole("tooltip").filter({ hasText: "Actions for selected nodes (2)" });
+      await expect(actionsTooltip).toBeVisible();
       await session.screenshot(info, "node-bulk-selection", frame);
       const confirmation = frame.getByTestId("confirmation-dialog");
       const actionsBox = await actions.boundingBox();
@@ -1092,6 +1125,8 @@ extensionTest(
         if (state === "pressed")
           expect(await actions.evaluate((element) => getComputedStyle(element, "::before").display)).toBe("none");
       });
+      await expect(actionsTooltip).toHaveCount(0);
+      await expect(actions).toHaveCSS("outline-width", "2px");
       const cordonMenu = frame.getByRole("menuitem", { name: "Cordon", exact: true });
       await cordonMenu.hover();
       const accent = await cordonMenu.evaluate((element) => {
@@ -1136,23 +1171,13 @@ extensionTest(
       await perform("Cordon", true);
       await perform("Uncordon", false);
       await perform("Drain", true);
-      const setSwitch = async (label: string, enabled: boolean) => {
-        const shortcut = session.window.locator(".freelens-power-settings-icon");
-        if (await shortcut.isVisible()) await shortcut.click();
-        else {
-          await session.app.evaluate(({ Menu }) => {
-            const preferences = Menu.getApplicationMenu()?.getMenuItemById("navigate-to-preferences");
-            if (!preferences) throw new Error("Native Preferences menu item is unavailable");
-            preferences.click();
-          });
-          await session.window.locator("[data-preference-tab-link-test]").filter({ hasText: "Freelens Power" }).click();
-        }
-        const settings = session.window.locator(".freelens-power-preferences");
-        const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: label });
-        if ((await toggle.locator("input").isChecked()) !== enabled) await toggle.click();
-        await expect(toggle.locator("input")).toBeChecked({ checked: enabled });
-        await session.window.getByTestId("close-preferences").click();
-      };
+      await setSwitch("Bulk node actions", false);
+      await expect(selectAll).toHaveCount(0);
+      await expect(toolbar).toHaveCount(0);
+      await expect(nodesPage.locator(".Table")).toBeVisible();
+      await setSwitch("Bulk node actions", true);
+      await expect(selectAll).toBeVisible();
+      await expect(selectAll).not.toBeChecked();
       await setSwitch("Read-only mode", true);
       await expect(selectAll).toHaveCount(0);
       await expect(toolbar).toHaveCount(0);

@@ -19,7 +19,6 @@ import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { startAiChat } from "./ai";
 import { startAppearanceOverride } from "./appearance";
-import { startPowerButtonStyles } from "./button-styles";
 import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
 import { HpaDiagnosticsDetails } from "./details/hpa-diagnostics-details";
@@ -43,9 +42,9 @@ import { startMonitoringHistoryCollection } from "./monitoring-history-collectio
 import { startNodeBulkActions } from "./node-bulk-actions";
 import { NodeMonitoringDetails } from "./node-monitoring";
 import { startNodeShellEntrypoints } from "./node-shell-entrypoints";
+import { startPodBulkCustomization } from "./pod-bulk-customization";
 import { startPodDetailsEnhancements } from "./pod-details-enhancements";
 import { startPodMonitoring } from "./pod-monitoring";
-import { startPodRemovalConfirmation } from "./pod-removal-confirmation";
 import { PowerLogsPage } from "./power-logs";
 import { PowerLogsMenu, startPowerLogsEntrypoints } from "./power-logs-entrypoints";
 import { PowerPreferences } from "./preferences/preferences";
@@ -111,8 +110,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startMonitoring,
             startPodMonitoring,
             startPodDetailsEnhancements,
-            startPodRemovalConfirmation,
-            startPowerButtonStyles,
+            startPodBulkCustomization,
             startHostLayoutStyles,
             startHostPreferencesStyles,
             startHostExtensionsStyles,

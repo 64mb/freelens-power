@@ -52,19 +52,6 @@ export const MonitoringPreferences = observer(() => {
       </div>
       <div>
         <Renderer.Component.Switch
-          checked={preferences.resourceSearchEnabled}
-          onChange={(value) => {
-            preferences.resourceSearchEnabled = value;
-          }}
-        >
-          Enable resource search (Shift–Shift)
-        </Renderer.Component.Switch>
-        <div className="power-settings-hint">
-          Search resources with Shift–Shift. Turning this off stops keyboard search and background indexing.
-        </div>
-      </div>
-      <div>
-        <Renderer.Component.Switch
           checked={preferences.enabled}
           onChange={(value) => {
             preferences.enabled = value;

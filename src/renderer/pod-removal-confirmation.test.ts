@@ -170,3 +170,108 @@ it("keeps the native message hidden when the host rewrites the dialog classes", 
   expect(dialog.className).toBe("ConfirmDialog modal native-open");
   expect(getComputedStyle(original).display).not.toBe("none");
 });
+
+it("expands the captured selection in the same dialog and collapses it without invoking native actions", async () => {
+  const fixture = mount();
+  const names = [
+    "pod-a",
+    "pod-b",
+    "pod-c",
+    "pod-d",
+    "pod-e",
+    ...Array.from({ length: 19 }, (_, i) => `pod-extra-${i}`),
+  ];
+  const expected = [...names];
+  const getSelectedNames = vi.fn(() => names);
+  const nativeOpen = fixture.remove.onclick!;
+  fixture.remove.onclick = (event) => {
+    names.splice(0, names.length, "pod-changed");
+    nativeOpen.call(fixture.remove, event);
+  };
+  stop = startPodRemovalConfirmation({ getSelectedNames });
+  fixture.remove.click();
+  await flush();
+  const dialog = document.querySelector(".ConfirmDialog")!;
+  const toggle = dialog.querySelector<HTMLButtonElement>(".power-pod-removal-toggle")!;
+  expect(getSelectedNames).toHaveBeenCalledOnce();
+  expect(toggle.type).toBe("button");
+  expect(toggle.textContent).toBe("and 19 more");
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  toggle.focus();
+  expect(document.activeElement).toBe(toggle);
+  expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBe(dialog.querySelector("ul"));
+  // native buttons provide keyboard activation through the browser
+  toggle.click();
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(toggle.textContent).toBe("Show fewer");
+  expect([...dialog.querySelectorAll("li")].map((item) => item.textContent)).toEqual(expected);
+  expect(getComputedStyle(dialog.querySelector("ul")!).maxHeight).toBe("40vh");
+  expect(fixture.confirm).not.toHaveBeenCalled();
+  expect(fixture.cancel).not.toHaveBeenCalled();
+  toggle.click();
+  expect(dialog.querySelectorAll("li")).toHaveLength(5);
+  expect(toggle.textContent).toBe("and 19 more");
+  stop();
+  stop = undefined;
+  expect(dialog.querySelector(".power-pod-removal-toggle")).toBeNull();
+  fixture.remove.click();
+  await flush();
+  expect(getSelectedNames).toHaveBeenCalledOnce();
+});
+
+it.each([
+  "count",
+  "preview",
+  "unavailable",
+  "throws",
+])("keeps a static remainder when the selection snapshot has %s mismatch", async (kind) => {
+  const fixture = mount();
+  const names = [
+    "pod-a",
+    "pod-b",
+    "pod-c",
+    "pod-d",
+    "pod-e",
+    ...Array.from({ length: 19 }, (_, i) => `pod-extra-${i}`),
+  ];
+  if (kind === "count") names.pop();
+  if (kind === "preview") names[0] = "another-pod";
+  stop = startPodRemovalConfirmation({
+    getSelectedNames: () => {
+      if (kind === "throws") throw new Error("selection unavailable");
+      return kind === "unavailable" ? undefined : names;
+    },
+  });
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(5);
+  expect(document.querySelector(".power-pod-removal-toggle")).toBeNull();
+  expect(document.querySelector(".power-pod-removal-remaining")?.parentElement?.textContent).toBe("and 19 more");
+});
+
+it("captures a fresh selection for each removal and clears pending capture on disposal", async () => {
+  const fixture = mount();
+  let names = ["pod-a", "pod-b", "pod-c", "pod-d", "pod-e", ...Array.from({ length: 19 }, (_, i) => `pod-extra-${i}`)];
+  const getSelectedNames = vi.fn(() => names);
+  stop = startPodRemovalConfirmation({ getSelectedNames });
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-toggle")).not.toBeNull();
+  document.querySelector(".ConfirmDialog")!.remove();
+  await flush();
+  names = ["pod-changed"];
+  fixture.remove.click();
+  await flush();
+  expect(getSelectedNames).toHaveBeenCalledTimes(2);
+  expect(document.querySelector(".power-pod-removal-toggle")).toBeNull();
+  document.querySelector(".ConfirmDialog")!.remove();
+  fixture.remove.onclick = null;
+  const clearTimeout = vi.spyOn(window, "clearTimeout");
+  fixture.remove.click();
+  stop();
+  stop = undefined;
+  expect(clearTimeout.mock.calls.at(-1)?.[0]).toBeDefined();
+  clearTimeout.mockRestore();
+  await new Promise((resolve) => window.setTimeout(resolve, 0));
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+});

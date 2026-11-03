@@ -11,11 +11,12 @@ const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   loadAll: vi.fn(),
   cluster: { metadata: { uid: "cluster" }, spec: { kubeconfigContext: "context-a" } },
-  power: { enabled: true },
+  power: { enabled: true, nodeBulkActions: true },
   readOnly: { enabled: false },
 }));
 vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", async () => {
+  const { MockTooltip } = await import("./native-tooltip.test-utils");
   return {
     Renderer: {
       Catalog: { activeCluster: { get: () => mocks.cluster } },
@@ -35,6 +36,7 @@ vi.mock("@freelensapp/extensions", async () => {
         Icon: () => {
           throw new Error("native Icon requires host DI context");
         },
+        Tooltip: MockTooltip,
         ConfirmDialog: { open: mocks.confirm },
       },
     },
@@ -46,10 +48,8 @@ vi.mock("../common/store/power-preferences-store", () => ({
 vi.mock("../common/store/read-only-preferences-store", () => ({
   ReadOnlyPreferencesStore: { getInstanceOrCreate: () => mocks.readOnly },
 }));
-vi.mock("./native-tooltip", () => ({
-  NativeTooltip: ({ children }: { children: import("react").ReactNode }) => <>{children}</>,
-}));
 
+import { tooltipText } from "./native-tooltip.test-utils";
 import { NodeBulkToolbar, startNodeBulkActions } from "./node-bulk-actions";
 
 const selected = [
@@ -94,6 +94,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.cluster.spec.kubeconfigContext = "context-a";
   mocks.power.enabled = true;
+  mocks.power.nodeBulkActions = true;
   mocks.readOnly.enabled = false;
   mocks.loadAll.mockResolvedValue(undefined);
   mocks.invoke.mockImplementation(async (_channel, request) =>
@@ -166,9 +167,10 @@ it.each(["selection", "context"])("rejects confirmation when %s changes", async 
   expect(screen.getByRole("alert").textContent).toContain("changed");
 });
 
-it.each(["power", "readOnly"])("blocks mutations while %s guard is active", async (guard) => {
+it.each(["power", "readOnly", "nodeBulkActions"])("blocks mutations while %s guard is active", async (guard) => {
   setup();
   if (guard === "power") mocks.power.enabled = false;
+  else if (guard === "nodeBulkActions") mocks.power.nodeBulkActions = false;
   else mocks.readOnly.enabled = true;
   clickAction("Cordon");
   await flush();
@@ -275,11 +277,12 @@ it("opens one confirmation for repeated action clicks and begins once for repeat
   expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "begin")).toHaveLength(1);
 });
 
-it.each(["power", "readOnly"])("rejects an open confirmation after %s changes", async (guard) => {
+it.each(["power", "readOnly", "nodeBulkActions"])("rejects an open confirmation after %s changes", async (guard) => {
   setup();
   clickAction("Cordon");
   await flush();
   if (guard === "power") mocks.power.enabled = false;
+  else if (guard === "nodeBulkActions") mocks.power.nodeBulkActions = false;
   else mocks.readOnly.enabled = true;
   await act(async () => {
     await confirmation().ok();
@@ -323,11 +326,14 @@ it("shows a floating actions trigger only when nodes are selected", () => {
   expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull();
   view.rerender(<NodeBulkToolbar clusterId="cluster" scope={scope} selected={selected} onClear={onClear} />);
   const trigger = screen.getByRole("button", { name: "Actions for 2 selected nodes" });
+  expect(tooltipText(trigger)).toBe("Actions for selected nodes (2)");
+  expect(trigger.getAttribute("title")).toBeNull();
   expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
   expect(trigger.classList.contains("power-node-bulk-fab")).toBe(true);
   expect(screen.queryByRole("menuitem", { name: "Cordon" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Cordon" })).toBeNull();
   fireEvent.click(trigger);
+  expect(tooltipText(trigger)).toBe("");
   expect(screen.getByRole("menuitem", { name: "Cordon" })).toBeTruthy();
   expect(screen.getByRole("menuitem", { name: "Uncordon" })).toBeTruthy();
   expect(screen.getByRole("menuitem", { name: "Drain" })).toBeTruthy();
