@@ -432,7 +432,7 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   const settings = session.window.locator(".freelens-power-preferences");
   const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: "Enable AI features" });
   if (!(await toggle.locator("input").isChecked())) await toggle.click();
-  const provider = settings.locator(".Select").filter({ has: settings.locator("#power-ai-cli") });
+  const provider = settings.locator(".Select:has(#power-ai-cli)");
   await provider.getByRole("combobox").click();
   await session.window
     .getByRole("option")
@@ -1078,7 +1078,7 @@ extensionTest(
       await setSwitch("Enable AI features", true);
       await frame.getByTestId("link-for-sidebar-item-workloads").click();
       await frame.getByTestId("link-for-sidebar-item-pods").click();
-      const pods = frame.locator(".Pods");
+      const pods = frame.locator(".ItemListLayout.Pods");
       const namespaces = pods.getByTestId("namespace-select-filter");
       await namespaces.getByRole("combobox").click();
       await frame.getByRole("option").filter({ hasText: namespace }).click();
