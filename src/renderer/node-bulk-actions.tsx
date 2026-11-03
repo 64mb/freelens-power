@@ -97,7 +97,7 @@ function NodeActionsMenu({
   const rect = trigger.current?.getBoundingClientRect();
   return (
     <>
-      <div ref={trigger}>
+      <div ref={trigger} className="power-node-bulk-trigger">
         <NativeTooltip title={open || disabled ? undefined : `Actions for selected nodes (${count})`}>
           <Renderer.Component.Button
             className="power-node-bulk-fab"
@@ -116,11 +116,11 @@ function NodeActionsMenu({
             <span aria-hidden="true">
               <AiIcon material="more_horiz" size={18} />
             </span>
-            <span className="power-node-bulk-count" aria-hidden="true">
-              {count}
-            </span>
           </Renderer.Component.Button>
         </NativeTooltip>
+        <span className="power-node-bulk-count" aria-hidden="true">
+          {count}
+        </span>
       </div>
       {open &&
         createPortal(
@@ -444,7 +444,7 @@ export function startNodeBulkActions(): () => void {
   };
   const style = document.createElement("style");
   style.dataset.freelensPower = "node-bulk";
-  style.textContent = `.power-node-bulk{flex-shrink:0}.power-node-bulk-panel{padding:8px 12px;border:1px solid var(--borderColor);border-radius:6px;background:var(--contentColor);margin:4px 0}.power-node-bulk-toolbar{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.power-node-bulk-panel .Button{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;min-height:30px}.power-node-bulk p{margin:6px 0}.power-node-bulk [role=alert]{color:var(--colorError)}.power-node-bulk ul,.power-node-bulk-confirmation ul{max-height:180px;overflow:auto;padding-left:20px}.power-node-bulk-confirmation ul{list-style:disc}.power-node-bulk-confirmation li{display:list-item}.Button.power-node-bulk-destructive,.Button.power-node-bulk-destructive:hover,.Button.power-node-bulk-destructive:focus{background:var(--colorError)!important;color:#fff!important}.power-node-bulk-confirmation-label{display:inline-flex;align-items:center;gap:6px}.power-node-bulk-confirmation code{overflow-wrap:anywhere}.power-node-bulk-floating .Button.power-node-bulk-fab{position:relative;overflow:visible;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:38px;height:38px;min-width:38px;min-height:38px;padding:0;border-radius:6px;border:1px solid color-mix(in srgb,var(--borderColor) 75%,var(--textColorSecondary) 25%);background:var(--contentColor);color:var(--textColorSecondary);box-shadow:none;transition:background-color 160ms ease,color 160ms ease,border-color 160ms ease,box-shadow 350ms ease}.power-node-bulk-floating .Button.power-node-bulk-fab:hover{color:var(--textColorAccent);border-color:var(--textColorAccent);background:color-mix(in srgb,var(--contentColor) 92%,var(--primary) 8%)}.power-node-bulk-floating .Button.power-node-bulk-fab::before{animation:none;transform:none;display:none}.power-node-bulk-floating .Button.power-node-bulk-fab:is(:focus-visible,[aria-expanded=true]){box-shadow:inset 0 0 0 2px #ffffff80;outline:2px solid var(--primary);outline-offset:2px;background:color-mix(in srgb,var(--contentColor) 92%,var(--primary) 8%)}.power-node-bulk-floating .Button.power-node-bulk-fab:active:not(:disabled){box-shadow:inset 0 0 0 2px #ffffff80;background:color-mix(in srgb,var(--contentColor) 84%,var(--primary) 16%)}.power-node-bulk-floating .Button.power-node-bulk-fab:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.power-node-bulk-menu{padding:4px;min-width:180px}.power-node-bulk-menu button.MenuItem{width:100%;font:inherit;text-align:left;background:var(--bgc);gap:8px}.power-node-bulk-menu button.MenuItem:hover:not(.disabled),.power-node-bulk-menu button.MenuItem:focus:not(.disabled){background:var(--primary);color:var(--freelens-power-accent-foreground,#fff)}.power-node-bulk-count{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;background:var(--contentColor);color:var(--textColorPrimary);border:1px solid var(--textColorSecondary)}body:has(.power-node-bulk-floating) .power-ai-launcher{display:none}.Nodes:has(.power-node-bulk-floating) .AddRemoveButtons:not(.power-node-bulk-floating){display:none}@media(prefers-reduced-motion:reduce){.power-node-bulk-floating .Button.power-node-bulk-fab{transition:none}}`;
+  style.textContent = `.power-node-bulk{flex-shrink:0}.power-node-bulk-panel{padding:8px 12px;border:1px solid var(--borderColor);border-radius:6px;background:var(--contentColor);margin:4px 0}.power-node-bulk-toolbar{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.power-node-bulk-panel .Button{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;min-height:30px}.power-node-bulk p{margin:6px 0}.power-node-bulk [role=alert]{color:var(--colorError)}.power-node-bulk ul,.power-node-bulk-confirmation ul{max-height:180px;overflow:auto;padding-left:20px}.power-node-bulk-confirmation ul{list-style:disc}.power-node-bulk-confirmation li{display:list-item}.Button.power-node-bulk-destructive,.Button.power-node-bulk-destructive:hover,.Button.power-node-bulk-destructive:focus{background:var(--colorError)!important;color:#fff!important}.power-node-bulk-confirmation-label{display:inline-flex;align-items:center;gap:6px}.power-node-bulk-confirmation code{overflow-wrap:anywhere}.power-node-bulk-trigger{position:relative}.power-node-bulk-menu{padding:4px;min-width:180px}.power-node-bulk-menu button.MenuItem{width:100%;font:inherit;text-align:left;background:var(--bgc);gap:8px}.power-node-bulk-menu button.MenuItem:hover:not(.disabled),.power-node-bulk-menu button.MenuItem:focus:not(.disabled){background:var(--primary);color:var(--freelens-power-accent-foreground,#fff)}.power-node-bulk-count{pointer-events:none;position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;background:var(--contentColor);color:var(--textColorPrimary);border:1px solid var(--textColorSecondary)}body:has(.power-node-bulk-floating) .power-ai-launcher{display:none}.Nodes:has(.power-node-bulk-floating) .AddRemoveButtons:not(.power-node-bulk-floating){display:none}`;
   document.head.append(style);
   const stop = reaction(
     () => [readOnly.enabled, power.nodeBulkActions, activeScope()?.key],

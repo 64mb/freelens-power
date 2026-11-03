@@ -5,25 +5,22 @@ interface PowerPreferences {
   enabled: boolean;
   checkUpdates: boolean;
   nodeBulkActions: boolean;
-  podBulkActions: boolean;
 }
 
 export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPreferences> {
   enabled = true;
   checkUpdates = true;
   nodeBulkActions = true;
-  podBulkActions = true;
 
   constructor() {
     super({
       configName: "power-preferences",
-      defaults: { enabled: true, checkUpdates: true, nodeBulkActions: true, podBulkActions: true },
+      defaults: { enabled: true, checkUpdates: true, nodeBulkActions: true },
     });
     makeObservable(this, {
       enabled: observable,
       checkUpdates: observable,
       nodeBulkActions: observable,
-      podBulkActions: observable,
     });
   }
 
@@ -31,7 +28,6 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
     this.enabled = data.enabled !== false;
     this.checkUpdates = data.checkUpdates !== false;
     this.nodeBulkActions = data.nodeBulkActions !== false;
-    this.podBulkActions = data.podBulkActions !== false;
   }
 
   toJSON() {
@@ -39,7 +35,6 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
       enabled: this.enabled,
       checkUpdates: this.checkUpdates,
       nodeBulkActions: this.nodeBulkActions,
-      podBulkActions: this.podBulkActions,
     };
   }
 }

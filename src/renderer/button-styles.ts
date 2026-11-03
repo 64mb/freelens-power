@@ -5,7 +5,7 @@ export function startPowerButtonStyles(customizePods = true): () => void {
     ":is(.freelens-power-preferences, .freelens-power-dashboard, .power-dashboard-dialog, .power-ai-panel, .power-ai-overview-actions)";
   const controls = `:root ${scope} :is(button, .Button), :root .power-ai-launcher, :root .power-dashboard-card-header a, :root .freelens-power-settings-icon`;
   const hover = `:root ${scope} :is(button, .Button):not(:disabled):not(.disabled):hover, :root .power-ai-launcher:hover, :root .power-dashboard-card-header a:hover, :root .freelens-power-settings-icon:hover`;
-  const remove = `:root .AddRemoveButtons .Button.remove-button${customizePods ? "" : ":not(.Pods .remove-button)"}`;
+  const remove = `:root :is(.AddRemoveButtons .Button.remove-button${customizePods ? "" : ":not(.Pods .remove-button)"}, .power-node-bulk-floating .Button.power-node-bulk-fab)`;
   style.textContent = `
     ${controls} { transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
     ${hover} { background-color: color-mix(in srgb, var(--contentColor) 88%, var(--textColorPrimary) 12%); color: var(--textColorAccent); border-color: var(--borderColor); }
@@ -34,6 +34,7 @@ export function startPowerButtonStyles(customizePods = true): () => void {
       color: var(--textColorAccent);
       background: color-mix(in srgb, var(--contentColor) 92%, var(--primary) 8%);
     }
+    ${remove}.power-node-bulk-fab[aria-expanded=true]:not(.disabled):not(:disabled) { border-color: var(--primary); }
     ${remove}:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { ${remove} { transition: none; } }
     @media (prefers-reduced-motion: reduce) { ${controls} { transition: none; } }
