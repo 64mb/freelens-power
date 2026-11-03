@@ -1192,9 +1192,8 @@ extensionTest(
       });
       await expect(cordonMenu).toHaveCSS("background-color", accent);
       await frame.getByRole("menuitem", { name: "Drain", exact: true }).click();
-      await expect(confirmation.locator(".power-node-bulk-confirmation")).toContainText(
-        "respecting disruption budgets",
-      );
+      await expect(confirmation.locator(".power-node-bulk-confirmation")).toContainText("disruption budgets");
+      await expect(confirmation.locator(".power-node-bulk-confirmation")).not.toContainText(";");
       await expect(confirmation).toContainText(fixtures.nodes[0].metadata.name);
       await expect(confirmation).toContainText(fixtures.nodes[1].metadata.name);
       await expect(confirmation.locator(".power-node-bulk-confirmation ul")).toHaveCSS("list-style-type", "disc");
