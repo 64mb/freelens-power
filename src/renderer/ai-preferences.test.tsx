@@ -281,11 +281,7 @@ it("keeps API credentials in the password field and secure IPC only", async () =
     expect(screen.queryByLabelText("WebSocket mode")).toBeNull();
     const field = screen.getByLabelText("OpenAI API key") as HTMLInputElement;
     expect(field.type).toBe("password");
-    expect(
-      screen.getByText(
-        "Restricted key: Model capabilities → Responses API → Write. Other permissions are not required.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText("Requires a restricted API key with write access to Responses API.")).toBeTruthy();
     fireEvent.change(field, { target: { value: "example-test-credential" } });
     fireEvent.click(screen.getByText("Save key"));
     expect(field.value).toBe("");

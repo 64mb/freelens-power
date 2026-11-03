@@ -23,6 +23,24 @@ const icons: Record<NodeBulkAction, string> = {
   uncordon: "play_circle_filled",
   drain: "delete_sweep",
 };
+const statusIcons: Record<NodeBulkJob["nodes"][number]["status"], string> = {
+  succeeded: "check_circle",
+  failed: "error",
+  running: "autorenew",
+  pending: "schedule",
+  cancelled: "cancel",
+  skipped: "skip_next",
+};
+
+function NodeStatusBadge({ status }: { status: NodeBulkJob["nodes"][number]["status"] }) {
+  return (
+    <span className="power-node-bulk-status" data-status={status}>
+      <AiIcon material={statusIcons[status]} size={14} />
+      {status}
+    </span>
+  );
+}
+
 const signature = (nodes: readonly NodeBulkTarget[]) =>
   JSON.stringify(nodes.map((node) => [node.uid, node.name]).sort());
 
@@ -347,6 +365,7 @@ export function NodeBulkToolbar({
       if (alive.current) setError("Unable to confirm cancellation. Refresh nodes to verify their current state.");
     }
   };
+  const completed = job?.nodes.filter((node) => node.status !== "pending" && node.status !== "running").length ?? 0;
   if (!selected.length && !job && !error && !preparing) return null;
   return (
     <section className="power-node-bulk" aria-label="Bulk node actions">
@@ -383,18 +402,29 @@ export function NodeBulkToolbar({
       {(job || error || preparing || selected.length > NODE_BULK_LIMIT) && (
         <div className="power-node-bulk-panel">
           <div className="power-node-bulk-toolbar">
-            <strong>{job ? `${labels[job.action]} nodes` : `${selected.length} selected`}</strong>
             {running ? (
-              <Renderer.Component.Button onClick={() => void cancel()}>Cancel remaining</Renderer.Component.Button>
+              <NativeTooltip title="Cancel remaining">
+                <Renderer.Component.Button
+                  className="power-node-bulk-panel-action"
+                  aria-label="Cancel remaining"
+                  onClick={() => void cancel()}
+                >
+                  <AiIcon material="stop" size={18} />
+                </Renderer.Component.Button>
+              </NativeTooltip>
             ) : (
-              <Renderer.Component.Button
-                onClick={() => {
-                  setJob(undefined);
-                  setError("");
-                }}
-              >
-                Dismiss
-              </Renderer.Component.Button>
+              <NativeTooltip title="Dismiss">
+                <Renderer.Component.Button
+                  className="power-node-bulk-panel-action"
+                  aria-label="Dismiss"
+                  onClick={() => {
+                    setJob(undefined);
+                    setError("");
+                  }}
+                >
+                  <AiIcon material="close" size={18} />
+                </Renderer.Component.Button>
+              </NativeTooltip>
             )}
           </div>
           {selected.length > NODE_BULK_LIMIT && (
@@ -405,15 +435,32 @@ export function NodeBulkToolbar({
           {job && (
             <div className="power-node-bulk-progress">
               <p role="status">
-                {labels[job.action]} · {job.status} · {job.nodes.filter((node) => node.status === "succeeded").length} /{" "}
-                {job.nodes.length} completed{running ? ` · ${Math.floor((Date.now() - job.startedAt) / 1000)}s` : ""}
+                <strong className="power-node-bulk-progress-action">
+                  <AiIcon material={icons[job.action]} size={16} />
+                  {labels[job.action]}
+                </strong>{" "}
+                · <NodeStatusBadge status={job.status} /> · {completed} / {job.nodes.length} completed
+                {running ? ` · ${Math.floor((Date.now() - job.startedAt) / 1000)}s` : ""}
               </p>
+              {running && (
+                <div
+                  className="power-node-bulk-progress-bar"
+                  role="progressbar"
+                  aria-label="Node operation progress"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.max(1, job.nodes.length)}
+                  aria-valuenow={completed}
+                  aria-valuetext={`${completed} / ${job.nodes.length} completed`}
+                >
+                  <span style={{ width: `${job.nodes.length ? (completed / job.nodes.length) * 100 : 0}%` }} />
+                </div>
+              )}
               <details open={job.status !== "succeeded"}>
                 <summary>Node results</summary>
                 <ul>
                   {job.nodes.map((node) => (
                     <li key={node.uid}>
-                      <code>{node.name}</code> · {node.status}
+                      <code>{node.name}</code> · <NodeStatusBadge status={node.status} />
                       {node.message && <> · {node.message}</>}
                     </li>
                   ))}
@@ -444,7 +491,7 @@ export function startNodeBulkActions(): () => void {
   };
   const style = document.createElement("style");
   style.dataset.freelensPower = "node-bulk";
-  style.textContent = `.power-node-bulk{flex-shrink:0}.power-node-bulk-panel{padding:8px 12px;border:1px solid var(--borderColor);border-radius:6px;background:var(--contentColor);margin:4px 0}.power-node-bulk-toolbar{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.power-node-bulk-panel .Button{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;min-height:30px}.power-node-bulk p{margin:6px 0}.power-node-bulk [role=alert]{color:var(--colorError)}.power-node-bulk ul,.power-node-bulk-confirmation ul{max-height:180px;overflow:auto;padding-left:20px}.power-node-bulk-confirmation ul{list-style:disc}.power-node-bulk-confirmation li{display:list-item}.Button.power-node-bulk-destructive,.Button.power-node-bulk-destructive:hover,.Button.power-node-bulk-destructive:focus{background:var(--colorError)!important;color:#fff!important}.power-node-bulk-confirmation-label{display:inline-flex;align-items:center;gap:6px}.power-node-bulk-confirmation code{overflow-wrap:anywhere}.power-node-bulk-trigger{position:relative}.power-node-bulk-menu{padding:4px;min-width:180px}.power-node-bulk-menu button.MenuItem{width:100%;font:inherit;text-align:left;background:var(--bgc);gap:8px}.power-node-bulk-menu button.MenuItem:hover:not(.disabled),.power-node-bulk-menu button.MenuItem:focus:not(.disabled){background:var(--primary);color:var(--freelens-power-accent-foreground,#fff)}.power-node-bulk-count{pointer-events:none;position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;background:var(--contentColor);color:var(--textColorPrimary);border:1px solid var(--textColorSecondary)}body:has(.power-node-bulk-floating) .power-ai-launcher{display:none}.Nodes:has(.power-node-bulk-floating) .AddRemoveButtons:not(.power-node-bulk-floating){display:none}`;
+  style.textContent = `.power-node-bulk{flex-shrink:0}.power-node-bulk-panel{position:relative;padding:5px 10px;border:1px solid var(--borderColor);border-radius:6px;background:var(--contentColor);margin:4px 16px}.power-node-bulk-toolbar{position:absolute;top:5px;right:10px;display:flex;align-items:flex-start;justify-content:flex-end}.power-node-bulk-panel>p,.power-node-bulk-progress>p{padding-right:30px;min-height:18px}.power-node-bulk-progress-action{display:inline-flex;align-items:center;gap:5px;vertical-align:middle}.power-node-bulk-panel .Button.power-node-bulk-panel-action{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:24px;height:24px;min-width:24px;min-height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--textColorSecondary);box-shadow:none;transition:none}.power-node-bulk-panel .Button.power-node-bulk-panel-action:hover,.power-node-bulk-panel .Button.power-node-bulk-panel-action:focus-visible{background:transparent;color:var(--primary);box-shadow:none}.power-node-bulk-panel .Button.power-node-bulk-panel-action:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.power-node-bulk-panel-action .Icon{color:inherit}.power-node-bulk p{margin:3px 0}.power-node-bulk-progress details{margin:2px 0}.power-node-bulk-progress ul{margin:3px 0}.power-node-bulk-status{display:inline-flex;align-items:center;gap:3px;vertical-align:middle;padding:1px 5px;border-radius:4px;font-size:11px;line-height:16px;font-weight:400;color:var(--textColorSecondary);background:color-mix(in srgb,currentColor 10%,transparent)}.power-node-bulk-status[data-status=succeeded]{color:var(--colorOk,#4caf50)}.power-node-bulk-status[data-status=failed]{color:var(--colorError,#e74c3c)}.power-node-bulk-status[data-status=running]{color:var(--primary)}.power-node-bulk-status[data-status=skipped]{color:var(--colorWarning,var(--textColorSecondary))}.power-node-bulk-status .Icon{color:inherit}.power-node-bulk-status[data-status=running] .Icon{animation:power-node-bulk-spin 1s linear infinite}.power-node-bulk-progress-bar{height:3px;overflow:hidden;border-radius:2px;background:var(--borderFaintColor);margin:5px 0}.power-node-bulk-progress-bar>span{display:block;height:100%;background:var(--primary)}@keyframes power-node-bulk-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.power-node-bulk-status[data-status=running] .Icon{animation:none}}.power-node-bulk [role=alert]{color:var(--colorError)}.power-node-bulk ul,.power-node-bulk-confirmation ul{max-height:180px;overflow:auto;padding-left:20px}.power-node-bulk-confirmation ul{list-style:disc}.power-node-bulk-confirmation li{display:list-item}.Button.power-node-bulk-destructive,.Button.power-node-bulk-destructive:hover,.Button.power-node-bulk-destructive:focus{background:var(--colorError)!important;color:#fff!important}.power-node-bulk-confirmation-label{display:inline-flex;align-items:center;gap:6px}.power-node-bulk-confirmation code{overflow-wrap:anywhere}.power-node-bulk-trigger{position:relative}.power-node-bulk-menu{padding:4px;min-width:180px}.power-node-bulk-menu button.MenuItem{width:100%;font:inherit;text-align:left;background:var(--bgc);gap:8px}.power-node-bulk-menu button.MenuItem:hover:not(.disabled),.power-node-bulk-menu button.MenuItem:focus:not(.disabled){background:var(--primary);color:var(--freelens-power-accent-foreground,#fff)}.power-node-bulk-count{pointer-events:none;position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;background:var(--contentColor);color:var(--textColorPrimary);border:1px solid var(--textColorSecondary)}body:has(.power-node-bulk-floating) .power-ai-launcher{display:none}.Nodes:has(.power-node-bulk-floating) .AddRemoveButtons:not(.power-node-bulk-floating){display:none}`;
   document.head.append(style);
   const stop = reaction(
     () => [readOnly.enabled, power.nodeBulkActions, activeScope()?.key],

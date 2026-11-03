@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import type { AiFailureCode } from "../common/ai";
 import { CODEX_API_MODELS, CODEX_API_REASONING_EFFORTS } from "../common/ai-models";
 import { readAiApiKey } from "./ai-api-key";
 
@@ -8,6 +9,127 @@ const maximumTextBytes = 512 * 1024;
 const maximumArgumentsBytes = 65536;
 
 type ApiItem = Record<string, any>;
+
+export class CodexApiError extends Error {
+  constructor(readonly failureCode: AiFailureCode) {
+    super("AI API request failed");
+    this.name = "CodexApiError";
+  }
+}
+
+function errorRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function apiFailure(status: number | undefined, payload: unknown): CodexApiError {
+  const envelope = errorRecord(payload);
+  const nested = errorRecord(envelope.error ?? errorRecord(envelope.response).error);
+  const error = Object.keys(nested).length ? nested : envelope;
+  const field = (value: unknown) => (typeof value === "string" && value.length <= 100 ? value : "");
+  const code = field(error.code) || field(error.type);
+  const type = field(error.type);
+  const param = field(error.param);
+  const eventStatus = envelope.status ?? envelope.status_code ?? error.status ?? error.status_code;
+  const httpStatus =
+    status ?? (typeof eventStatus === "number" && Number.isInteger(eventStatus) ? eventStatus : undefined);
+  let failureCode: AiFailureCode = "API_FAILURE";
+  if (["invalid_api_key", "invalid_authentication", "authentication_error"].includes(code) || httpStatus === 401)
+    failureCode = "API_AUTHENTICATION";
+  else if (code === "unsupported_country_region_territory") failureCode = "API_REGION_UNSUPPORTED";
+  else if (["model_not_found", "model_not_available", "model_access_denied"].includes(code))
+    failureCode = "API_MODEL_UNAVAILABLE";
+  else if (
+    [
+      "insufficient_quota",
+      "credit_balance_exhausted",
+      "organization_spend_limit_exceeded",
+      "project_spend_limit_exceeded",
+      "organization_usage_limit_exceeded",
+      "billing_hard_limit_reached",
+      "billing_not_active",
+      "quota_exceeded",
+    ].includes(code) ||
+    type === "insufficient_quota"
+  )
+    failureCode = "API_QUOTA";
+  else if (
+    ["previous_response_not_found", "websocket_connection_limit_reached", "websocket_stream_limit_reached"].includes(
+      code,
+    )
+  )
+    failureCode = "API_SESSION_EXPIRED";
+  else if (["rate_limit_exceeded", "slow_down"].includes(code) || type === "rate_limit_error")
+    failureCode = "API_RATE_LIMIT";
+  else if (code === "context_length_exceeded") failureCode = "INPUT_LIMIT";
+  else if (param === "service_tier") failureCode = "API_SERVICE_TIER";
+  else if (httpStatus === 403 || ["insufficient_permissions", "permission_denied", "permission_error"].includes(code))
+    failureCode = "API_PERMISSION";
+  else if (
+    type === "invalid_request_error" ||
+    [
+      "invalid_request_error",
+      "unsupported_parameter",
+      "unknown_parameter",
+      "unsupported_value",
+      "invalid_value",
+    ].includes(code) ||
+    httpStatus === 400 ||
+    httpStatus === 422
+  ) {
+    if (param === "model") failureCode = "API_MODEL_UNAVAILABLE";
+    else if (param === "reasoning.mode") failureCode = "API_REASONING_MODE_UNSUPPORTED";
+    else if (param === "reasoning.effort") failureCode = "API_REASONING_EFFORT_UNSUPPORTED";
+    else if (param === "text.verbosity") failureCode = "API_VERBOSITY_UNSUPPORTED";
+    else if (
+      param === "tools" ||
+      param.startsWith("tools[") ||
+      param.startsWith("tools.") ||
+      param === "parallel_tool_calls" ||
+      param === "tool_choice"
+    )
+      failureCode = "API_TOOLS_UNSUPPORTED";
+    else if (["unsupported_parameter", "unknown_parameter", "unsupported_value"].includes(code))
+      failureCode = "API_OPTION_UNSUPPORTED";
+    else failureCode = "API_REQUEST_REJECTED";
+  } else if (httpStatus === 404) failureCode = "API_MODEL_UNAVAILABLE";
+  else if (httpStatus === 429) failureCode = "API_RATE_LIMIT";
+  else if (
+    (httpStatus !== undefined && httpStatus >= 500) ||
+    ["server_error", "server_is_overloaded", "service_unavailable_error"].includes(code)
+  )
+    failureCode = "API_SERVER_UNAVAILABLE";
+  return new CodexApiError(failureCode);
+}
+
+async function httpFailure(response: Response, signal: AbortSignal): Promise<CodexApiError> {
+  if (!response.body) return apiFailure(response.status, undefined);
+  const reader = response.body.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  const timeout = setTimeout(cancel, 3000);
+  signal.addEventListener("abort", cancel, { once: true });
+  if (signal.aborted) cancel();
+  try {
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > 16384) return apiFailure(response.status, undefined);
+      chunks.push(chunk.value);
+    }
+    return apiFailure(response.status, JSON.parse(Buffer.concat(chunks).toString("utf8")));
+  } catch {
+    return apiFailure(response.status, undefined);
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
 
 function invalid(): never {
   throw new Error("AI returned an invalid response");
@@ -70,7 +192,7 @@ async function readResponseStream(
     if (++events > 16384 || completed) return invalid();
     const event = JSON.parse(raw);
     if (!event || typeof event !== "object" || typeof event.type !== "string") return invalid();
-    if (["error", "response.failed"].includes(event.type)) throw new Error("AI API request failed");
+    if (["error", "response.failed"].includes(event.type)) throw apiFailure(undefined, event);
     if (["response.incomplete", "response.refusal.delta", "response.refusal.done"].includes(event.type))
       throw new Error("AI returned an incomplete response");
     if (event.type === "response.output_text.delta") {
@@ -210,7 +332,7 @@ async function connectSocket(key: string, signal: AbortSignal): Promise<WebSocke
     const failed = () => {
       cleanup();
       socket.terminate();
-      reject(new Error("AI API request failed"));
+      reject(new CodexApiError("API_NETWORK"));
     };
     const abort = () => {
       cleanup();
@@ -241,11 +363,10 @@ function socketResponse(socket: WebSocket, body: Record<string, unknown>): Respo
       };
       const failed = () => {
         cleanup();
-        controller.error(new Error("AI API request failed"));
+        controller.error(new CodexApiError("API_NETWORK"));
       };
       const closed = () => {
-        cleanup();
-        controller.close();
+        failed();
       };
       const message = (data: WebSocket.RawData, binary: boolean) => {
         const raw = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
@@ -332,7 +453,7 @@ export function createCodexApiSession(
         include: ["reasoning.encrypted_content"],
         input,
         max_output_tokens: 12000,
-        reasoning: { mode: "standard", effort: reasoningEffort || "medium" },
+        reasoning: { effort: reasoningEffort || "medium" },
         text: { verbosity: "low" },
         parallel_tool_calls: true,
         tools: finalAnswer
@@ -374,7 +495,7 @@ export function createCodexApiSession(
             useSocket = false;
           }
         }
-        if (socket && socket.readyState !== WebSocket.OPEN) throw new Error("AI API request failed");
+        if (socket && socket.readyState !== WebSocket.OPEN) throw new CodexApiError("API_NETWORK");
         const response = socket
           ? socketResponse(socket, {
               ...requestBody,
@@ -392,12 +513,7 @@ export function createCodexApiSession(
               },
               body,
             });
-        if (!response.ok) {
-          await response.body?.cancel();
-          if (response.status === 401 || response.status === 403) throw new Error("AI API authentication failed");
-          if (response.status === 429) throw new Error("AI API rate limit reached");
-          throw new Error("AI API request failed");
-        }
+        if (!response.ok) throw await httpFailure(response, controller.signal);
         const result = await readResponseStream(response, controller, finalAnswer, onText);
         if (socket && (typeof result.id !== "string" || !/^[a-zA-Z0-9_-]{1,200}$/.test(result.id))) return invalid();
         if (signal?.aborted) throw new Error("AI request cancelled");
@@ -419,6 +535,7 @@ export function createCodexApiSession(
       } catch (failure) {
         if (signal?.aborted) throw new Error("AI request cancelled");
         if (timedOut) throw new Error("AI request timed out");
+        if (failure instanceof CodexApiError) throw failure;
         if (
           failure instanceof SyntaxError ||
           (failure instanceof TypeError && failure.message.includes("encoded data"))
@@ -426,7 +543,7 @@ export function createCodexApiSession(
           return invalid();
         if (failure instanceof Error && /^(AI API |AI returned |AI response exceeded)/.test(failure.message))
           throw failure;
-        throw new Error("AI API request failed");
+        throw new CodexApiError("API_NETWORK");
       } finally {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", abort);

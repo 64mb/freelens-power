@@ -73,7 +73,7 @@ it("uses streaming native read functions without an answer schema and keeps medi
     input: [{ role: "user", content: "bounded evidence" }],
     include: ["reasoning.encrypted_content"],
     max_output_tokens: 12000,
-    reasoning: { mode: "standard", effort: "medium" },
+    reasoning: { effort: "medium" },
     text: { verbosity: "low" },
     parallel_tool_calls: true,
     tools: [{ type: "function", name: "read_context", description: expect.any(String), strict: true, parameters }],
@@ -142,9 +142,9 @@ it("replays native output and encrypted reasoning with matching parallel call ou
 
 it.each([
   [401, "API_AUTHENTICATION"],
-  [403, "API_AUTHENTICATION"],
+  [403, "API_PERMISSION"],
   [429, "API_RATE_LIMIT"],
-  [500, "API_FAILURE"],
+  [500, "API_SERVER_UNAVAILABLE"],
 ])("reports safe failure code for HTTP %s", async (status, code) => {
   mocks.fetch.mockResolvedValue(new Response("private upstream headers or credentials", { status: status as number }));
   let failure: unknown;
@@ -341,7 +341,7 @@ it("keeps one authenticated WebSocket for native read rounds with incremental ca
   expect(first.type).toBe("response.create");
   expect(first.stream).toBeUndefined();
   expect(first.service_tier).toBe("fast");
-  expect(first.reasoning).toEqual({ mode: "standard", effort: "medium" });
+  expect(first.reasoning).toEqual({ effort: "medium" });
   expect(first.text).toEqual({ verbosity: "low" });
   expect(next.previous_response_id).toBe("resp_a");
   expect(next.input).toEqual([{ type: "function_call_output", call_id: "read_a", output: '{"items":["evidence"]}' }]);
@@ -371,7 +371,7 @@ it("does not retry a charged WebSocket generation over HTTP and closes on chat c
     queueMicrotask(() => socket.emit("close"));
   });
   const api = session("", { webSocket: true });
-  await expect(api.next(false)).rejects.toThrow("incomplete response");
+  await expect(api.next(false)).rejects.toThrow("AI API request failed");
   expect(mocks.fetch).not.toHaveBeenCalled();
   api.close();
   expect(socket.terminate).toHaveBeenCalledOnce();

@@ -26,7 +26,7 @@ import {
 import { sanitizeAiTerminalSnapshot } from "../common/ai-terminal-context";
 import { createAiAnswerStream } from "./ai-answer-stream";
 import { verifyClaudeManagedPolicy } from "./ai-claude-policy";
-import { createCodexApiSession } from "./ai-codex-api";
+import { CodexApiError, createCodexApiSession } from "./ai-codex-api";
 import { aiLogQuery, summarizeAiLogs } from "./ai-logs";
 import {
   PiAiResponseError,
@@ -56,6 +56,7 @@ const claudeReasoningEfforts = new Set(["", ...CLAUDE_REASONING_EFFORTS]);
 
 export function aiFailureCode(error: unknown): AiFailureCode {
   if (!(error instanceof Error)) return "UNAVAILABLE";
+  if (error instanceof CodexApiError) return error.failureCode;
   if (error.message.startsWith("Claude managed policy cannot be safely isolated")) return "UNSAFE_POLICY";
   if (error.name === "AbortError") return "CANCELLED";
   if (error instanceof SyntaxError) return "INVALID_REPLY";

@@ -7,6 +7,7 @@ import {
   type AiModel,
   CLAUDE_REASONING_EFFORTS,
   CODEX_API_MODELS,
+  CODEX_API_REASONING_EFFORTS,
   CODEX_REASONING_EFFORTS,
 } from "../common/ai-models";
 import { readPiAiModels } from "./ai-pi-models";
@@ -85,7 +86,18 @@ export function startAiModels(): () => void {
         !(url.hostname === "renderer.freelens.app" || url.hostname.endsWith(".renderer.freelens.app"))
       )
         return [];
-      if (provider === "codex-api") return CODEX_API_MODELS;
+      if (provider === "codex-api") {
+        const models = await readAiModels();
+        const catalog = models.length ? [...models] : [...CODEX_API_MODELS];
+        if (!catalog.some((model) => model.id === CODEX_API_MODELS[0].id)) catalog.push(CODEX_API_MODELS[0]);
+        return catalog.map((model) => ({
+          ...model,
+          reasoningEfforts: model.reasoningEfforts.filter((effort) => CODEX_API_REASONING_EFFORTS.includes(effort)),
+          defaultReasoningEffort: CODEX_API_REASONING_EFFORTS.includes(model.defaultReasoningEffort)
+            ? model.defaultReasoningEffort
+            : "",
+        }));
+      }
       if (provider === "claude")
         return ["sonnet", "opus", "haiku", "fable"].map((id) => ({
           id,

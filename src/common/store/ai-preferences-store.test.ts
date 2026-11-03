@@ -43,6 +43,6 @@ it("keeps keys outside normal settings and restores API defaults for older prefe
   store.fromStore({ model: "local-cli-model" });
   expect(store.provider).toBe("codex");
   expect(store.model).toBe("local-cli-model");
-  expect(store.codexApiModel).toBe("");
+  expect(store.codexApiModel).toBe("gpt-6.1-sol");
   expect(store.codexApiReasoningEffort).toBe("");
 });

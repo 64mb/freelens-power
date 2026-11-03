@@ -890,9 +890,32 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
         CLI_FAILURE: "The selected CLI request failed. Check your model access or try again.",
         CANCELLED: "The request was canceled.",
         API_AUTHENTICATION: "Configure a valid API key in AI preferences and check your model access.",
-        API_RATE_LIMIT: "The API rate limit or quota was reached. Check your API usage and try again later.",
+        API_RATE_LIMIT: "The API rate limit was reached. Wait briefly before sending another request.",
+        API_MODEL_UNAVAILABLE:
+          "The selected model is unavailable or your API project cannot access it. Check the model in AI preferences.",
+        API_REASONING_MODE_UNSUPPORTED:
+          "The selected model does not support reasoning mode options. Choose another model.",
+        API_REASONING_EFFORT_UNSUPPORTED:
+          "The selected model rejected reasoning.effort. Check its supported effort levels in AI preferences.",
+        API_VERBOSITY_UNSUPPORTED: "The selected model does not support concise output settings. Choose another model.",
+        API_TOOLS_UNSUPPORTED: "The API rejected the read-only function tool configuration for this model.",
+        API_OPTION_UNSUPPORTED: "The selected model does not support one of the requested API options.",
+        API_SERVICE_TIER:
+          "The selected speed is unavailable for this model or API project. Choose Default in AI preferences.",
+        API_QUOTA:
+          "The API has no remaining credits or reached a billing or spending limit. Check API billing and project limits.",
+        API_NETWORK:
+          "The API connection failed or closed before completion. Check your network, proxy and API reachability.",
+        API_PERMISSION:
+          "The API key or project lacks permission for this request. Check Responses write access and project permissions.",
+        API_REGION_UNSUPPORTED: "The API rejected this request because its country or region is unsupported.",
+        API_REQUEST_REJECTED:
+          "The API rejected the request parameters. Check the selected model and its supported API options.",
+        API_SERVER_UNAVAILABLE: "The API service is temporarily unavailable or overloaded. Try again later.",
+        API_SESSION_EXPIRED:
+          "The API continuation is no longer available. Send the request again to start a new session.",
         API_KEY_REQUIRED: "Configure an API key in AI preferences before using OpenAI API.",
-        API_FAILURE: "The API request failed. Check your API key, model access and API quota.",
+        API_FAILURE: "OpenAI returned an unexpected error. Try again or select another model.",
         SECURE_STORAGE_UNAVAILABLE: "Secure key storage is unavailable. OpenAI API cannot be used.",
         UNSAFE_POLICY:
           "Claude managed policy cannot be safely isolated. Use Codex or ask your administrator to disable managed hooks and command helpers.",

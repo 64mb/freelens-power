@@ -439,7 +439,7 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
     .filter({ hasText: /^OpenAI API$/ })
     .click();
   await expect(settings.getByLabel("OpenAI API key", { exact: true })).toHaveAttribute("type", "password");
-  await expect(settings.getByText(/Restricted key: Model capabilities/)).toBeVisible();
+  await expect(settings.getByText("Requires a restricted API key with write access to Responses API.")).toBeVisible();
   await expect(provider.locator('[data-provider="codex-api"]')).toHaveAttribute("src", /^data:image\/svg\+xml/);
   await expect(settings.getByRole("button", { name: "Save key", exact: true })).toBeDisabled();
   await provider.locator(".Select__control").click();

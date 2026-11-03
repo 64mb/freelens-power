@@ -4,6 +4,7 @@ import { type AiAttachmentReceipt, normalizeAiAttachmentReceipts } from "../ai-a
 import { type AiResourceReference, normalizeAiReferences } from "../ai-extras";
 import {
   CLAUDE_REASONING_EFFORTS,
+  CODEX_API_MODELS,
   CODEX_API_REASONING_EFFORTS,
   CODEX_REASONING_EFFORTS,
   PI_REASONING_EFFORTS,
@@ -43,7 +44,7 @@ export interface AiPreferencesModel {
 export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreferencesModel> {
   enabled = false;
   provider: AiProvider = "codex";
-  codexApiModel = "";
+  codexApiModel = CODEX_API_MODELS[0].id;
   codexApiReasoningEffort = "";
   codexApiServiceTier: AiApiServiceTier = "default";
   piModel = "";
@@ -66,7 +67,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
       defaults: {
         enabled: false,
         provider: "codex",
-        codexApiModel: "",
+        codexApiModel: CODEX_API_MODELS[0].id,
         codexApiReasoningEffort: "",
         codexApiServiceTier: "default",
         piModel: "",
@@ -119,7 +120,10 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
           : data?.provider === "claude"
             ? "claude"
             : "codex";
-    this.codexApiModel = typeof data?.codexApiModel === "string" ? data.codexApiModel : "";
+    this.codexApiModel =
+      typeof data?.codexApiModel === "string" && data.codexApiModel.trim()
+        ? data.codexApiModel
+        : CODEX_API_MODELS[0].id;
     this.codexApiServiceTier =
       data?.codexApiServiceTier === "fast" || data?.codexApiServiceTier === "ultrafast"
         ? data.codexApiServiceTier
