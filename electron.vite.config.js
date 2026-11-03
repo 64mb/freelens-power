@@ -11,6 +11,11 @@ const runtimeExternals = ["electron", /^electron\//, ...builtinModules, ...built
 export default defineConfig({
   // main process has full access to Node.js APIs
   main: {
+    // use bundled [ws] fallbacks instead of optional native addons
+    define: {
+      "process.env.WS_NO_BUFFER_UTIL": "true",
+      "process.env.WS_NO_UTF_8_VALIDATE": "true",
+    },
     build: {
       emptyOutDir: true,
       lib: {

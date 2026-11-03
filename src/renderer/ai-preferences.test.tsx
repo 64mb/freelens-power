@@ -13,6 +13,8 @@ vi.mock("./preferences/ai-shortcuts-preferences", () => ({ AiShortcutsPreference
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
+      Input: ({ onChange, ...props }: any) => <input {...props} onChange={(event) => onChange(event.target.value)} />,
+      Button: (props: any) => <button {...props} />,
       Select: ({
         id,
         value,
@@ -42,7 +44,17 @@ vi.mock("@freelensapp/extensions", () => ({
           ))}
         </select>
       ),
-      Switch: () => null,
+      Switch: ({ children, checked, disabled, onChange }: any) => (
+        <label>
+          <input
+            type="checkbox"
+            checked={!!checked}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.checked)}
+          />
+          {children}
+        </label>
+      ),
     },
   },
 }));
@@ -92,9 +104,9 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     expect(savedEffort.value).toBe("high");
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "example-model" } });
     expect(mocks.preferences.reasoningEffort).toBe("high");
-    fireEvent.change(screen.getByLabelText("CLI"), { target: { value: "claude" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "claude" } });
     await waitFor(() => expect(screen.getByText("Sonnet")).toBeTruthy());
-    expect(screen.getByText("Claude CLI model aliases.").title).toBe("Claude CLI model aliases.");
+    expect(screen.getByText("Claude model aliases.").title).toBe("Claude model aliases.");
     expect(screen.getByText("Fast mode for Opus; account access required.").title).toBe(
       "Fast mode for Opus; account access required.",
     );
@@ -120,7 +132,7 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     expect(mocks.preferences.claudeReasoningEffort).toBe("");
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "" } });
     expect((screen.getByLabelText("Effort") as HTMLSelectElement).options).toHaveLength(1);
-    fireEvent.change(screen.getByLabelText("CLI"), { target: { value: "pi" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "pi" } });
     await waitFor(() => expect(screen.getByText("DeepSeek")).toBeTruthy());
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("example/glm-5-3");
     expect(screen.queryByLabelText("Speed")).toBeNull();
@@ -135,7 +147,7 @@ it("keeps provider controls separate and ignores late model catalogs after switc
         mocks.preferences.enabled = false;
       }),
     );
-    expect((screen.getByLabelText("CLI") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Provider") as HTMLSelectElement).disabled).toBe(true);
   } finally {
     view.unmount();
   }
@@ -220,8 +232,103 @@ it("shows friendly Pi models and only each model's supported effort choices", as
     expect(labels("Model")).toEqual(["DeepSeek V4 Flash", "GLM 5.3"]);
     expect(labels("Effort")).toEqual(["Default", "Low", "High", "Max"]);
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "example/deepseek-v4-flash" } });
-    expect(labels("Effort")).toEqual(["Default", "None", "Minimal", "Low", "Medium", "High", "Xhigh"]);
+    expect(labels("Effort")).toEqual(["Default", "None", "Minimal", "Low", "Medium", "High", "XHigh"]);
     expect(mocks.preferences.model).toBe("codex-model");
+  } finally {
+    view.unmount();
+  }
+});
+
+it("keeps API credentials in the password field and secure IPC only", async () => {
+  mocks.preferences = observable({
+    enabled: true,
+    provider: "codex-api",
+    codexApiModel: "api-model",
+    codexApiReasoningEffort: "high",
+    codexApiServiceTier: "default",
+    model: "cli-model",
+    reasoningEffort: "low",
+    chatFontSize: 14,
+    systemPrompt: "",
+    clusterPrompt: "",
+  });
+  let configured = false;
+  mocks.invoke.mockImplementation(async (channel, value) => {
+    if (channel === "freelens-power:ai-api-key-status") return { available: true, configured };
+    if (channel === "freelens-power:ai-api-key-set") {
+      configured = Boolean(value);
+      return { available: true, configured };
+    }
+    return [{ id: "api-model", label: "API model", reasoningEfforts: ["low", "high"] }];
+  });
+  const view = render(<AiPreferences />);
+  try {
+    await waitFor(() => expect(screen.getByText("No API key configured.")).toBeTruthy());
+    expect([...screen.getByLabelText("Provider").querySelectorAll("option")].map((el) => el.textContent)).toEqual([
+      "Codex",
+      "Claude",
+      "Pi",
+      "OpenAI API",
+    ]);
+    expect([...screen.getByLabelText("Speed").querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+      "Default",
+      "Fast",
+      "Ultrafast",
+    ]);
+    fireEvent.change(screen.getByLabelText("Speed"), { target: { value: "ultrafast" } });
+    expect(mocks.preferences.codexApiServiceTier).toBe("ultrafast");
+    expect(mocks.preferences.speed).toBeUndefined();
+    expect(screen.queryByLabelText("WebSocket mode")).toBeNull();
+    const field = screen.getByLabelText("OpenAI API key") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    expect(
+      screen.getByText(
+        "Restricted key: Model capabilities → Responses API → Write. Other permissions are not required.",
+      ),
+    ).toBeTruthy();
+    fireEvent.change(field, { target: { value: "example-test-credential" } });
+    fireEvent.click(screen.getByText("Save key"));
+    expect(field.value).toBe("");
+    await waitFor(() => expect(screen.getByText("API key configured in secure storage.")).toBeTruthy());
+    expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:ai-api-key-set", "example-test-credential");
+    expect(JSON.stringify(mocks.preferences)).not.toContain("example-test-credential");
+    expect(view.container.textContent).not.toContain("example-test-credential");
+    fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "low" } });
+    expect(mocks.preferences.codexApiReasoningEffort).toBe("low");
+    expect(mocks.preferences.reasoningEffort).toBe("low");
+    fireEvent.click(screen.getByText("Clear key"));
+    await waitFor(() => expect(screen.getByText("No API key configured.")).toBeTruthy());
+    expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:ai-api-key-set", "");
+    fireEvent.change(field, { target: { value: "unsaved-test-credential" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "codex" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "codex-api" } });
+    await waitFor(() => expect((screen.getByLabelText("OpenAI API key") as HTMLInputElement).value).toBe(""));
+  } finally {
+    view.unmount();
+  }
+});
+
+it("disables API key updates when secure storage is unavailable", async () => {
+  mocks.preferences = observable({
+    enabled: true,
+    provider: "codex-api",
+    codexApiModel: "",
+    codexApiReasoningEffort: "high",
+    chatFontSize: 14,
+    systemPrompt: "",
+    clusterPrompt: "",
+  });
+  mocks.invoke.mockImplementation(async (channel) =>
+    channel === "freelens-power:ai-api-key-status" ? { available: false, configured: false } : [],
+  );
+  const view = render(<AiPreferences />);
+  try {
+    await waitFor(() =>
+      expect(screen.getByText("Secure key storage is unavailable. OpenAI API cannot be used.")).toBeTruthy(),
+    );
+    expect((screen.getByLabelText("OpenAI API key") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByText("Save key") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText("Clear key") as HTMLButtonElement).disabled).toBe(true);
   } finally {
     view.unmount();
   }

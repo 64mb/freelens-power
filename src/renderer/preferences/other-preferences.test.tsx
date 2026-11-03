@@ -42,7 +42,7 @@ it("uses one switch for Node actions and Pod customization", () => {
   render(<OtherPreferences />);
   fireEvent.click(screen.getByRole("checkbox", { name: "Bulk resource actions" }));
   expect(stores.power.nodeBulkActions).toBe(false);
-  expect(screen.getByText("Select nodes for bulk actions and customize Pod removal.")).toBeTruthy();
+  expect(screen.getByText("Bulk actions and clearer resource dialogs.")).toBeTruthy();
   expect(screen.getAllByRole("checkbox")).toHaveLength(2);
 });
 

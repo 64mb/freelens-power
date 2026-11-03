@@ -5,8 +5,8 @@ export const powerLogsStyles = `
 .ConfirmDialog .power-logs-confirmation { display:block; min-width:0; overflow-wrap:anywhere; }
 .ConfirmDialog .power-logs-confirm-label { display:inline-flex; align-items:center; gap:6px; }
 .ConfirmDialog:has(.power-logs-confirmation) .Button.power-logs-confirm-delete { background:var(--colorError); color:#fff !important; }
-body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { display:none; }
 .power-logs { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; box-sizing:border-box; overflow:hidden; padding:12px; gap:6px; color:var(--textColorPrimary); container-type:inline-size; }
+.power-logs[data-testid="power-logs-page"] { margin:16px; height:calc(100% - 32px); padding:16px; background:var(--contentColor); }
 .power-logs header, .power-logs-toolbar, .power-logs-filters, .power-logs-source { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .power-logs header h1 { margin:0; font-size:16px; display:flex; align-items:center; gap:10px; }
 .power-logs header .power-logs-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
@@ -169,7 +169,8 @@ body:has(.power-logs[data-testid="power-logs-page"]) .power-ai-launcher { displa
 .power-logs-sql-tools button { min-height:24px; font-size:12px; }
 .power-logs-pagination { justify-content:flex-end; gap:8px; }
 .power-logs-pagination button { width:28px; padding:3px; }
-.power-logs-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; }
+.power-logs-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; min-height:38px; padding-inline-end:88px; }
+.power-logs[data-details-open=true] .power-logs-footer { padding-inline-start:88px; padding-inline-end:0; }
 .power-logs-caption { flex:1; min-width:0; font-size:11px!important; }
 .power-logs .power-logs-collection-note { display:flex; align-items:center; gap:5px; min-width:0; max-width:55%; padding:1px 6px; font-size:11px; }
 .power-logs-collection-note > :first-child { color:var(--colorWarning,#d9a441); flex-shrink:0; }

@@ -23,3 +23,13 @@ export function piModelEfforts(id: string): string[] {
   if (piModelLabel(id) === "GLM 5.3") return ["low", "high", "max"];
   return [];
 }
+
+export const CODEX_API_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+export const CODEX_API_MODELS: AiModel[] = [
+  {
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
+    reasoningEfforts: CODEX_API_REASONING_EFFORTS,
+    defaultReasoningEffort: "medium",
+  },
+];

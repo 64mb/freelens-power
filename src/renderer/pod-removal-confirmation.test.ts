@@ -83,7 +83,7 @@ it.each([
   ["Remove <b>2</b> items <b>pod-a</b>?", "Pods"],
   ["Remove item <b><span>pod-a</span></b>?", "Pods"],
   ["Custom removal of <b>pod-a</b>", "Pods"],
-  ["Remove item <b>pod-a</b>?", "Deployments"],
+  ["Remove item <b>pod-a</b>?", "UnknownList"],
 ])("leaves unrelated and customized confirmations unchanged", async (message, root) => {
   const fixture = mount(message, root);
   stop = startPodRemovalConfirmation();
@@ -274,4 +274,86 @@ it("captures a fresh selection for each removal and clears pending capture on di
   clearTimeout.mockRestore();
   await new Promise((resolve) => window.setTimeout(resolve, 0));
   expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+});
+
+it("lists Secrets and expands an immutable captured selection without changing native callbacks", async () => {
+  const names = [
+    "pod-a",
+    "pod-b",
+    "pod-c",
+    "pod-d",
+    "pod-e",
+    ...Array.from({ length: 19 }, (_, index) => `secret-${index}`),
+  ];
+  const fixture = mount(undefined, "Secrets");
+  stop = startPodRemovalConfirmation({ getSelectedSecretNames: () => names });
+  fixture.remove.click();
+  names.splice(0, names.length, "changed");
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary p")?.textContent).toBe("Remove 24 secrets?");
+  document.querySelector<HTMLButtonElement>(".power-pod-removal-toggle")!.click();
+  expect(document.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(24);
+  expect(document.querySelector(".power-pod-removal-summary")?.textContent).not.toContain("changed");
+  document.querySelector<HTMLButtonElement>('[data-testid="confirm"]')!.click();
+  expect(fixture.confirm).toHaveBeenCalledOnce();
+});
+
+it.each([
+  ["Roles", "roles"],
+  ["ClusterRoles", "cluster roles"],
+  ["RoleBindings", "role bindings"],
+  ["ClusterRoleBindings", "cluster role bindings"],
+  ["ServiceAccounts", "service accounts"],
+  ["ResourceQuotas", "resource quotas"],
+  ["Deployments", "deployments"],
+  ["CustomResources", "custom resources"],
+])("formats the native %s removal preview without requiring a selected-items store", async (root, label) => {
+  const fixture = mount(undefined, root);
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary p")?.textContent).toBe(`Remove 24 ${label}?`);
+  expect(document.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(5);
+  expect(document.querySelector(".power-pod-removal-toggle")).toBeNull();
+  document.querySelector<HTMLButtonElement>('[data-testid="confirm"]')!.click();
+  expect(fixture.confirm).toHaveBeenCalledOnce();
+});
+
+it("captures an available resource store snapshot for expansion without reading any values", async () => {
+  const names = [
+    "pod-a",
+    "pod-b",
+    "pod-c",
+    "pod-d",
+    "pod-e",
+    ...Array.from({ length: 19 }, (_, index) => `role-${index}`),
+  ];
+  const selected = vi.fn((root: string) => (root === "Roles" ? names : undefined));
+  const fixture = mount(undefined, "Roles");
+  stop = startPodRemovalConfirmation({ getSelectedResourceNames: selected });
+  fixture.remove.click();
+  names.splice(0, names.length, "changed");
+  await flush();
+  document.querySelector<HTMLButtonElement>(".power-pod-removal-toggle")!.click();
+  expect(document.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(24);
+  expect(selected).toHaveBeenCalledExactlyOnceWith("Roles");
+});
+
+it("keeps colon-separated RBAC names readable and preserves native namespace warnings", async () => {
+  const fixture = mount("Remove item <b>system:example-role</b>?", "ClusterRoles");
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary code")?.textContent).toBe("system:example-role");
+  stop();
+  const namespace = mount(
+    'Type namespace <b>example</b> to delete all resources <input required><label><input type="checkbox">Confirm deletion</label>',
+    "Namespaces",
+  );
+  stop = startPodRemovalConfirmation();
+  namespace.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+  expect(document.querySelector(".confirm-content input[required]")).toBeTruthy();
+  expect(document.querySelector('.confirm-content input[type="checkbox"]')).toBeTruthy();
 });

@@ -1589,3 +1589,166 @@ it("refreshes auto-refresh cards on activation and keeps the loading skeleton du
     dispose();
   }
 });
+
+it("reads only configured widgets from the requesting dashboard's isolated views", async () => {
+  const { getDashboardAiAccess } = await import("./dashboard-ai");
+  const dispose = startDashboardViews();
+  const owner = event();
+  await mocks.handlers.get(sync)(owner, payload);
+  const contents = mocks.views[0].webContents;
+  contents.executeJavaScriptInIsolatedWorld.mockResolvedValue({ text: "Healthy", truncated: false });
+  const access = getDashboardAiAccess(owner.sender as any)!;
+  expect(access.widgets).toEqual([{ id: "widget-1", title: "Example", url: "https://example.com/" }]);
+  expect(await access.read("widget-1")).toMatchObject({ id: "widget-1", text: "Healthy" });
+  expect(contents.executeJavaScriptInIsolatedWorld).toHaveBeenLastCalledWith(1005, [
+    { code: expect.stringContaining("function readDashboardDocument") },
+  ]);
+  await expect(access.read("unknown")).rejects.toThrow("unavailable");
+  await expect(access.read("site")).rejects.toThrow("unavailable");
+  await expect(getDashboardAiAccess(event().sender as any)!.read("widget-1")).rejects.toThrow("unavailable");
+  await mocks.handlers.get(sync)(owner, { cards: [] });
+  expect(await access.read("widget-1")).toMatchObject({ text: "Healthy" });
+  dispose();
+  expect(getDashboardAiAccess(owner.sender as any)).toBeUndefined();
+});
+
+it("loads a never-visible configured widget without changing existing card bounds or visibility", async () => {
+  const { getDashboardAiAccess } = await import("./dashboard-ai");
+  const dispose = startDashboardViews();
+  const owner = event();
+  await mocks.handlers.get(sync)(owner, payload);
+  const existing = mocks.views[0];
+  const existingBounds = existing.setBounds.mock.calls.length;
+  const existingVisibility = existing.setVisible.mock.calls.length;
+  runInAction(() => mocks.store.cards.push({ ...mocks.store.cards[0], id: "second", title: "Second" }));
+  const access = getDashboardAiAccess(owner.sender as any)!;
+  const pending = access.read("widget-2");
+  await vi.waitFor(() => expect(mocks.views).toHaveLength(2));
+  mocks.views[1].webContents.executeJavaScriptInIsolatedWorld.mockResolvedValue({
+    text: "Second widget",
+    truncated: false,
+  });
+  expect(await pending).toMatchObject({ text: "Second widget" });
+  expect(existing.setBounds.mock.calls).toHaveLength(existingBounds);
+  expect(existing.setVisible.mock.calls).toHaveLength(existingVisibility);
+  dispose();
+  runInAction(() => {
+    mocks.store.cards = mocks.store.cards.filter((card) => card.id !== "second");
+  });
+});
+
+it.each(["preparation", "script"])("cancels a stalled Dashboard %s without closing existing widgets", async (phase) => {
+  const { getDashboardAiAccess } = await import("./dashboard-ai");
+  const dispose = startDashboardViews();
+  const owner = event();
+  try {
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    let alias = "widget-1";
+    if (phase === "preparation") {
+      runInAction(() => mocks.store.cards.push({ ...mocks.store.cards[0], id: "stalled", title: "Stalled" }));
+      mocks.nextLoad = new Promise(() => {});
+      alias = "widget-2";
+    } else contents.executeJavaScriptInIsolatedWorld.mockImplementation(() => new Promise(() => {}));
+    const controller = new AbortController();
+    const pending = getDashboardAiAccess(owner.sender as any)!.read(alias, controller.signal);
+    const rejected = expect(pending).rejects.toThrow("canceled");
+    controller.abort(new Error("canceled"));
+    await rejected;
+    expect(contents.close).not.toHaveBeenCalled();
+    contents.executeJavaScriptInIsolatedWorld.mockResolvedValue({ text: "Still available", truncated: false });
+    expect(await getDashboardAiAccess(owner.sender as any)!.read("widget-1")).toMatchObject({
+      text: "Still available",
+    });
+  } finally {
+    dispose();
+    runInAction(() => {
+      mocks.store.cards = mocks.store.cards.filter((card) => card.id !== "stalled");
+    });
+  }
+});
+
+it.each([
+  "preparation",
+  "script",
+])("times out a stalled Dashboard %s without closing existing widgets", async (phase) => {
+  const { getDashboardAiAccess } = await import("./dashboard-ai");
+  const dispose = startDashboardViews();
+  const owner = event();
+  try {
+    await mocks.handlers.get(sync)(owner, payload);
+    const contents = mocks.views[0].webContents;
+    let alias = "widget-1";
+    if (phase === "preparation") {
+      runInAction(() => mocks.store.cards.push({ ...mocks.store.cards[0], id: "stalled", title: "Stalled" }));
+      mocks.nextLoad = new Promise(() => {});
+      alias = "widget-2";
+    } else contents.executeJavaScriptInIsolatedWorld.mockImplementation(() => new Promise(() => {}));
+    vi.useFakeTimers();
+    const pending = getDashboardAiAccess(owner.sender as any)!.read(alias);
+    const rejected = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(10000);
+    await rejected;
+    expect(contents.close).not.toHaveBeenCalled();
+  } finally {
+    dispose();
+    vi.useRealTimers();
+    runInAction(() => {
+      mocks.store.cards = mocks.store.cards.filter((card) => card.id !== "stalled");
+    });
+  }
+});
+
+it("reads the active pinned page instead of its hidden original", async () => {
+  const { getDashboardAiAccess } = await import("./dashboard-ai");
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const original = mocks.views[0].webContents;
+    const pinned = mocks.floating[0].webContents;
+    await vi.waitFor(() =>
+      expect(pinned.executeJavaScript).toHaveBeenCalledWith(
+        'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+      ),
+    );
+    original.executeJavaScriptInIsolatedWorld.mockResolvedValue({ text: "Stale original" });
+    pinned.getURL.mockReturnValue("https://example.com/filtered");
+    pinned.executeJavaScriptInIsolatedWorld.mockResolvedValue({ text: "Live filtered view" });
+    expect(await getDashboardAiAccess(owner.sender as any)!.read("widget-1")).toMatchObject({
+      text: "Live filtered view",
+    });
+  } finally {
+    dispose();
+  }
+});
+
+it.each(["close", "navigate"])("rejects pinned content when its window changes during a read: %s", async (change) => {
+  const { getDashboardAiAccess } = await import("./dashboard-ai");
+  const dispose = startDashboardViews();
+  try {
+    const owner = event();
+    await mocks.handlers.get(sync)(owner, payload);
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const floating = mocks.floating[0];
+    await vi.waitFor(() =>
+      expect(floating.webContents.executeJavaScript).toHaveBeenCalledWith(
+        'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+      ),
+    );
+    let finish!: (value: unknown) => void;
+    floating.webContents.executeJavaScriptInIsolatedWorld.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const pending = getDashboardAiAccess(owner.sender as any)!.read("widget-1");
+    if (change === "close") floating.close();
+    else floating.webContents.getURL.mockReturnValue("https://example.com/changed");
+    finish({ text: "Stale captured view" });
+    await expect(pending).rejects.toThrow("changed");
+  } finally {
+    dispose();
+  }
+});

@@ -252,6 +252,46 @@ describe("DashboardPage", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:dashboard-views:clear");
   });
 
+  it("keeps the AI launcher above overlapping native cards and restores full clipping when hidden", async () => {
+    mocks.preferences.cards = [
+      { id: "left", title: "Left", url: "https://example.com/left", size: "s" },
+      { id: "right", title: "Right", url: "https://example.com/right", size: "s" },
+    ];
+    const launcher = document.createElement("button");
+    launcher.className = "power-ai-launcher";
+    document.body.append(launcher);
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (this: HTMLElement) {
+      const left = this === launcher ? 550 : this.dataset.cardId === "right" ? 300 : 0;
+      const top = this === launcher ? 250 : 0;
+      const width = this === launcher ? 38 : this.tagName === "MAIN" ? 600 : 300;
+      const height = this === launcher ? 38 : 300;
+      return { x: left, y: top, left, top, right: left + width, bottom: top + height, width, height, toJSON() {} };
+    });
+    const page = render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    const latestCards = () =>
+      mocks.invoke.mock.calls.filter(([channel]) => channel === "freelens-power:dashboard-views:sync").at(-1)?.[1]
+        .cards;
+    await waitFor(() =>
+      expect(latestCards()).toEqual([
+        { id: "left", bounds: { x: 0, y: 0, width: 300, height: 300 }, clip: { x: 0, y: 0, width: 300, height: 300 } },
+        {
+          id: "right",
+          bounds: { x: 300, y: 0, width: 300, height: 300 },
+          clip: { x: 300, y: 0, width: 300, height: 242 },
+        },
+      ]),
+    );
+    launcher.classList.add("power-ai-launcher-hidden");
+    await waitFor(() => expect(latestCards()?.[1].clip.height).toBe(300));
+    launcher.classList.remove("power-ai-launcher-hidden");
+    await waitFor(() => expect(latestCards()?.[1].clip.height).toBe(242));
+    launcher.setAttribute("aria-hidden", "true");
+    await waitFor(() => expect(latestCards()?.[1].clip.height).toBe(300));
+    expect(latestCards()?.[1].bounds).toEqual({ x: 300, y: 0, width: 300, height: 300 });
+    page.unmount();
+    launcher.remove();
+  });
+
   it("updates clipping on scroll and omits offscreen cards", async () => {
     mocks.preferences.cards = [{ id: "card", title: "Tool", url: "https://example.com", size: "s" }];
     render(<DashboardPage onOpenPreferences={vi.fn()} />);

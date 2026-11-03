@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("electron", () => ({ BrowserWindow: {}, ipcMain: {} }));
+const ipc = vi.hoisted(() => ({ handle: vi.fn(), removeHandler: vi.fn() }));
+vi.mock("electron", () => ({ BrowserWindow: { fromWebContents: () => ({ isDestroyed: () => false }) }, ipcMain: ipc }));
 
-import { parseAiModels, readAiModels } from "./ai-models";
+import { parseAiModels, readAiModels, startAiModels } from "./ai-models";
 
 const model = {
   slug: "example-model",
@@ -77,4 +78,22 @@ describe("local AI model catalog", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+});
+
+it("offers a static API catalog without reading local CLI metadata or invoking an API request", async () => {
+  const stop = startAiModels();
+  try {
+    const handler = ipc.handle.mock.calls.at(-1)![1];
+    const models = await handler({ sender: {}, senderFrame: { url: "https://renderer.freelens.app/" } }, "codex-api");
+    expect(models).toEqual([
+      {
+        id: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+        defaultReasoningEffort: "medium",
+      },
+    ]);
+  } finally {
+    stop();
+  }
 });

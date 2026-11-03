@@ -1,9 +1,10 @@
 import type { AiResourceReference } from "./ai-extras";
 
-export type AiProvider = "codex" | "claude" | "pi";
+export type AiProvider = "codex" | "codex-api" | "claude" | "pi";
+export type AiApiServiceTier = "default" | "fast" | "ultrafast";
 
 export interface AiReadActivity {
-  method: "pods" | "nodes" | "resources" | "logs";
+  method: "pods" | "nodes" | "resources" | "logs" | "dashboard";
   status: "ok" | "unavailable";
 }
 
@@ -14,6 +15,8 @@ export interface AiChatMessage {
 
 export interface AiChatRequest {
   provider?: AiProvider;
+  apiWebSocket?: boolean;
+  apiServiceTier?: AiApiServiceTier;
   terminalSnapshot?: import("./ai-terminal-context").AiTerminalSnapshot;
   requestId?: string;
   messages: AiChatMessage[];
@@ -38,6 +41,9 @@ export interface AiChatResponse {
 export const AI_CHAT_CHANNEL = "freelens-power:ai-chat";
 
 export type AiFailureCode =
+  | "API_AUTHENTICATION"
+  | "API_RATE_LIMIT"
+  | "API_FAILURE"
   | "CLI_FAILURE"
   | "INVALID_REPLY"
   | "READ_LIMIT"
@@ -68,3 +74,11 @@ export const AI_PROGRESS_CHANNEL = "freelens-power:ai-progress";
 export function validAiRequestId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 }
+
+export interface AiApiKeyStatus {
+  configured: boolean;
+  available: boolean;
+}
+
+export const AI_API_KEY_STATUS_CHANNEL = "freelens-power:ai-api-key-status";
+export const AI_API_KEY_SET_CHANNEL = "freelens-power:ai-api-key-set";

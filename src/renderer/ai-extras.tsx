@@ -9,6 +9,7 @@ import { LogJson } from "./power-log-json";
 
 import type { AiChatRequest } from "../common/ai";
 import type { AiAttachmentReceipt } from "../common/ai-attachments";
+import type { DashboardAiWidget } from "../common/dashboard-ai";
 import type { DiagnosticFinding } from "./ai-diagnostic-handoff";
 
 export function AiContextPreview({
@@ -56,18 +57,28 @@ export function AiContextPreview({
   );
 }
 
-export function AiContextInspector({ context }: { context: AiChatRequest["context"] }) {
+export function AiContextInspector({
+  context,
+}: {
+  context: AiChatRequest["context"] & { dashboard?: { widgets: DashboardAiWidget[] } };
+}) {
   return (
     <div className="power-ai-context-inspector">
       <AiIcon material="info_outline" size={14} />
       <details>
         <NativeTooltip title="Show the screen and resource metadata attached to your next message">
-          <summary>Context metadata</summary>
+          <summary>
+            {context.dashboard ? `Dashboard widgets (${context.dashboard.widgets.length})` : "Context metadata"}
+          </summary>
         </NativeTooltip>
         <div className="power-ai-context-content">
           <LogJson text={JSON.stringify(context, null, 2)} fieldsEnabled={false} />
         </div>
-        <p>Screen and resource metadata only. Resource reads happen after sending.</p>
+        <p>
+          {context.dashboard
+            ? "Configured widget names and links. Widget contents are read only when requested after sending."
+            : "Screen and resource metadata only. Resource reads happen after sending."}
+        </p>
       </details>
     </div>
   );

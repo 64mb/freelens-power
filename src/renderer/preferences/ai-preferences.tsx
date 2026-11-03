@@ -2,13 +2,14 @@ import { Renderer } from "@freelensapp/extensions";
 import { ipcRenderer } from "electron";
 import { runInAction } from "mobx";
 import { observer } from "mobx-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AI_API_KEY_SET_CHANNEL, AI_API_KEY_STATUS_CHANNEL, type AiApiKeyStatus } from "../../common/ai";
 import { AI_MODELS_CHANNEL, type AiModel, piModelLabel } from "../../common/ai-models";
 import { AiPreferencesStore } from "../../common/store/ai-preferences-store";
 import { AiProviderIcon } from "../ai-provider-icon";
 import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
 
-const { Select, Switch } = Renderer.Component;
+const { Button, Input, Select, Switch } = Renderer.Component;
 
 type SelectOption = { value: string; label: string };
 
@@ -19,11 +20,104 @@ function withCurrent(options: SelectOption[], value: string, label = value): Sel
 
 function effortLabel(value: string): string {
   if (value === "off") return "None";
+  if (value === "xhigh") return "XHigh";
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function effortsFor(models: AiModel[], id: string): string[] {
   return models.find((model) => model.id === id)?.reasoningEfforts ?? [];
+}
+
+function CodexApiKeyPreferences({ disabled }: { disabled: boolean }) {
+  const [key, setKey] = useState("");
+  const mounted = useRef(true);
+  const [status, setStatus] = useState<AiApiKeyStatus>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    mounted.current = true;
+    void ipcRenderer
+      .invoke(AI_API_KEY_STATUS_CHANNEL)
+      .then((value: AiApiKeyStatus) => {
+        if (active) setStatus(value);
+      })
+      .catch(() => {
+        if (active) setError("Unable to check secure key storage.");
+      });
+    return () => {
+      active = false;
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (disabled) setKey("");
+  }, [disabled]);
+  const save = async (value: string) => {
+    setKey("");
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await ipcRenderer.invoke(AI_API_KEY_SET_CHANNEL, value);
+      if (mounted.current) setStatus(saved);
+    } catch {
+      if (mounted.current) setError("Unable to update the API key in secure storage.");
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <label htmlFor="power-ai-api-key">OpenAI API key</label>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+        <Input
+          id="power-ai-api-key"
+          aria-label="OpenAI API key"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={key}
+          disabled={disabled || busy || !status?.available}
+          onChange={setKey}
+          style={{ flex: "1 1 220px", minWidth: 0 }}
+          placeholder="Enter a new API key"
+        />
+        <Button
+          type="button"
+          className="Button"
+          disabled={disabled || busy || !status?.available || !key.trim()}
+          onClick={() => {
+            void save(key.trim());
+          }}
+        >
+          Save key
+        </Button>
+        <Button
+          type="button"
+          className="Button"
+          disabled={disabled || busy || !status?.available || !status.configured}
+          onClick={() => {
+            void save("");
+          }}
+        >
+          Clear key
+        </Button>
+      </div>
+      <div className="power-settings-hint">
+        Restricted key: Model capabilities → Responses API → Write. Other permissions are not required.
+      </div>
+      <div className="power-settings-hint" role="status">
+        {status
+          ? !status.available
+            ? "Secure key storage is unavailable. OpenAI API cannot be used."
+            : status.configured
+              ? "API key configured in secure storage."
+              : "No API key configured."
+          : "Checking secure key storage…"}
+      </div>
+      {error && <div role="alert">{error}</div>}
+    </div>
+  );
 }
 
 export const AiPreferences = observer(() => {
@@ -59,16 +153,25 @@ export const AiPreferences = observer(() => {
       active = false;
     };
   }, [preferences.enabled, preferences.provider]);
+  const isApi = preferences.provider === "codex-api";
   const isPi = preferences.provider === "pi";
   const isClaude = preferences.provider === "claude";
-  const providerLabel = isPi ? "Pi" : isClaude ? "Claude" : "Codex";
-  const currentModel = isPi ? preferences.piModel : isClaude ? preferences.claudeModel : preferences.model;
-  const currentEffort = isPi
-    ? preferences.piReasoningEffort
-    : isClaude
-      ? preferences.claudeReasoningEffort
-      : preferences.reasoningEffort;
-  const currentSpeed = isClaude ? preferences.claudeSpeed : preferences.speed;
+  const providerLabel = isApi ? "OpenAI API" : isPi ? "Pi" : isClaude ? "Claude" : "Codex";
+  const currentModel = isApi
+    ? preferences.codexApiModel
+    : isPi
+      ? preferences.piModel
+      : isClaude
+        ? preferences.claudeModel
+        : preferences.model;
+  const currentEffort = isApi
+    ? preferences.codexApiReasoningEffort
+    : isPi
+      ? preferences.piReasoningEffort
+      : isClaude
+        ? preferences.claudeReasoningEffort
+        : preferences.reasoningEffort;
+  const currentSpeed = isApi ? preferences.codexApiServiceTier : isClaude ? preferences.claudeSpeed : preferences.speed;
   const modelOptions = withCurrent(
     [
       ...(!isPi ? [{ value: "", label: `${providerLabel} default` }] : []),
@@ -80,21 +183,28 @@ export const AiPreferences = observer(() => {
   const effortOptions = withCurrent(
     [
       { value: "", label: "Default" },
-      ...effortsFor(models, currentModel).map((effort) => ({ value: effort, label: effortLabel(effort) })),
+      ...effortsFor(models, isApi && !currentModel ? (models[0]?.id ?? "") : currentModel).map((effort) => ({
+        value: effort,
+        label: effortLabel(effort),
+      })),
     ],
     currentEffort,
     effortLabel(currentEffort),
   );
-  const modelHint = isPi
-    ? currentModel
-      ? "Local Pi model catalog."
-      : "Configure a Pi model in the CLI, then select it here."
+  const modelHint = isApi
+    ? "OpenAI API models. API usage is billed separately."
+    : isPi
+      ? currentModel
+        ? "Local Pi model catalog."
+        : "Configure a Pi model in the CLI, then select it here."
+      : isClaude
+        ? "Claude model aliases."
+        : "Local Codex model catalog.";
+  const speedHint = isApi
+    ? "Fast and Ultrafast use higher-priced API service tiers; model and account access required."
     : isClaude
-      ? "Claude CLI model aliases."
-      : "Local Codex model catalog.";
-  const speedHint = isClaude
-    ? "Fast mode for Opus; account access required."
-    : "Fast mode depends on model and account.";
+      ? "Fast mode for Opus; account access required."
+      : "Fast mode depends on model and account.";
   const controlStyle = { width: 220, maxWidth: "100%", flexShrink: 0 };
   const rowStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 };
   return (
@@ -115,7 +225,7 @@ export const AiPreferences = observer(() => {
         </div>
       </div>
       <div className="power-settings-row" style={rowStyle}>
-        <label htmlFor="power-ai-cli">CLI</label>
+        <label htmlFor="power-ai-cli">Provider</label>
         <div style={controlStyle}>
           <Select
             id="power-ai-cli"
@@ -124,17 +234,31 @@ export const AiPreferences = observer(() => {
               { value: "codex", label: "Codex" },
               { value: "claude", label: "Claude" },
               { value: "pi", label: "Pi" },
+              { value: "codex-api", label: "OpenAI API" },
             ]}
             formatOptionLabel={(option) => (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <AiProviderIcon
-                  provider={option.value === "pi" ? "pi" : option.value === "claude" ? "claude" : "codex"}
+                  provider={
+                    option.value === "codex-api"
+                      ? "codex-api"
+                      : option.value === "pi"
+                        ? "pi"
+                        : option.value === "claude"
+                          ? "claude"
+                          : "codex"
+                  }
                 />
                 {option.label}
               </span>
             )}
             onChange={(option) => {
-              if (option?.value === "codex" || option?.value === "claude" || option?.value === "pi")
+              if (
+                option?.value === "codex" ||
+                option?.value === "claude" ||
+                option?.value === "pi" ||
+                option?.value === "codex-api"
+              )
                 preferences.provider = option.value;
             }}
             isDisabled={!preferences.enabled}
@@ -143,6 +267,7 @@ export const AiPreferences = observer(() => {
           />
         </div>
       </div>
+      {isApi && <CodexApiKeyPreferences disabled={!preferences.enabled} />}
       <div className="power-settings-row" style={rowStyle}>
         <div style={{ minWidth: 0 }}>
           <label htmlFor="power-ai-model">Model</label>
@@ -161,7 +286,10 @@ export const AiPreferences = observer(() => {
             onChange={(option) => {
               if (!option || option.value === currentModel || (isPi && !option.value)) return;
               const effort = effortsFor(models, option.value).includes(currentEffort) ? currentEffort : "";
-              if (isPi) {
+              if (isApi) {
+                preferences.codexApiModel = option.value;
+                preferences.codexApiReasoningEffort = effort;
+              } else if (isPi) {
                 preferences.piModel = option.value;
                 preferences.piReasoningEffort = effort;
               } else if (isClaude) {
@@ -195,7 +323,8 @@ export const AiPreferences = observer(() => {
             isSearchable={false}
             onChange={(option) => {
               if (!option) return;
-              if (isPi) preferences.piReasoningEffort = option.value;
+              if (isApi) preferences.codexApiReasoningEffort = option.value;
+              else if (isPi) preferences.piReasoningEffort = option.value;
               else if (isClaude) preferences.claudeReasoningEffort = option.value;
               else preferences.reasoningEffort = option.value;
             }}
@@ -217,13 +346,16 @@ export const AiPreferences = observer(() => {
               options={[
                 { value: "default", label: "Default" },
                 { value: "fast", label: "Fast" },
+                ...(isApi ? [{ value: "ultrafast" as const, label: "Ultrafast" }] : []),
               ]}
               isDisabled={!preferences.enabled}
               isClearable={false}
               isSearchable={false}
               onChange={(option) => {
                 if (!option) return;
-                if (isClaude) preferences.claudeSpeed = option.value as "default" | "fast";
+                if (isApi && ["default", "fast", "ultrafast"].includes(option.value))
+                  preferences.codexApiServiceTier = option.value as "default" | "fast" | "ultrafast";
+                else if (isClaude) preferences.claudeSpeed = option.value as "default" | "fast";
                 else preferences.speed = option.value as "default" | "fast";
               }}
             />

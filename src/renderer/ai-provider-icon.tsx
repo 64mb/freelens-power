@@ -1,4 +1,5 @@
 import claudeIcon from "./assets/claude.svg?inline";
+import openaiIcon from "./assets/openai.svg?inline";
 import piIcon from "./assets/pi.svg?inline";
 import { NativeTooltip } from "./native-tooltip";
 
@@ -20,12 +21,27 @@ export function AiProviderIcon({ provider, size = 16 }: { provider: AiProvider; 
         />
       </NativeTooltip>
     );
+  if (provider === "codex-api")
+    return (
+      <NativeTooltip title="OpenAI API">
+        <img
+          className="power-ai-provider-icon"
+          data-provider="codex-api"
+          src={openaiIcon}
+          width={size}
+          height={size}
+          alt="OpenAI API"
+          draggable={false}
+          style={{ display: "inline-block", flexShrink: 0, objectFit: "contain", verticalAlign: "middle" }}
+        />
+      </NativeTooltip>
+    );
   if (provider === "codex")
     return (
       <NativeTooltip title="Codex">
         <svg
           className="power-ai-provider-icon"
-          data-provider="codex"
+          data-provider={provider}
           width={size}
           height={size}
           viewBox="0 0 24 24"

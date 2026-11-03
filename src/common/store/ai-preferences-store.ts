@@ -2,10 +2,15 @@ import { Common } from "@freelensapp/extensions";
 import { action, makeObservable, observable } from "mobx";
 import { type AiAttachmentReceipt, normalizeAiAttachmentReceipts } from "../ai-attachments";
 import { type AiResourceReference, normalizeAiReferences } from "../ai-extras";
-import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS, PI_REASONING_EFFORTS } from "../ai-models";
+import {
+  CLAUDE_REASONING_EFFORTS,
+  CODEX_API_REASONING_EFFORTS,
+  CODEX_REASONING_EFFORTS,
+  PI_REASONING_EFFORTS,
+} from "../ai-models";
 import { DEFAULT_AI_CLUSTER_PROMPT, DEFAULT_AI_SYSTEM_PROMPT, upgradeBundledAiPrompt } from "../ai-prompts";
 
-import type { AiProvider } from "../ai";
+import type { AiApiServiceTier, AiProvider } from "../ai";
 
 export interface AiMessage {
   attachments?: AiAttachmentReceipt[];
@@ -17,6 +22,9 @@ export interface AiMessage {
 export interface AiPreferencesModel {
   enabled: boolean;
   provider: AiProvider;
+  codexApiModel: string;
+  codexApiReasoningEffort: string;
+  codexApiServiceTier: AiApiServiceTier;
   piModel: string;
   piReasoningEffort: string;
   claudeModel: string;
@@ -35,6 +43,9 @@ export interface AiPreferencesModel {
 export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreferencesModel> {
   enabled = false;
   provider: AiProvider = "codex";
+  codexApiModel = "";
+  codexApiReasoningEffort = "";
+  codexApiServiceTier: AiApiServiceTier = "default";
   piModel = "";
   piReasoningEffort = "";
   claudeModel = "";
@@ -55,6 +66,9 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
       defaults: {
         enabled: false,
         provider: "codex",
+        codexApiModel: "",
+        codexApiReasoningEffort: "",
+        codexApiServiceTier: "default",
         piModel: "",
         piReasoningEffort: "",
         claudeModel: "",
@@ -73,6 +87,9 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     makeObservable(this, {
       enabled: observable,
       provider: observable,
+      codexApiModel: observable,
+      codexApiReasoningEffort: observable,
+      codexApiServiceTier: observable,
       piModel: observable,
       piReasoningEffort: observable,
       claudeModel: observable,
@@ -94,7 +111,23 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
 
   fromStore(data: Partial<AiPreferencesModel>): void {
     this.enabled = data?.enabled === true;
-    this.provider = data?.provider === "pi" ? "pi" : data?.provider === "claude" ? "claude" : "codex";
+    this.provider =
+      data?.provider === "codex-api"
+        ? "codex-api"
+        : data?.provider === "pi"
+          ? "pi"
+          : data?.provider === "claude"
+            ? "claude"
+            : "codex";
+    this.codexApiModel = typeof data?.codexApiModel === "string" ? data.codexApiModel : "";
+    this.codexApiServiceTier =
+      data?.codexApiServiceTier === "fast" || data?.codexApiServiceTier === "ultrafast"
+        ? data.codexApiServiceTier
+        : "default";
+    const codexApiReasoningEffort = data?.codexApiReasoningEffort ?? "";
+    this.codexApiReasoningEffort = CODEX_API_REASONING_EFFORTS.includes(codexApiReasoningEffort)
+      ? codexApiReasoningEffort
+      : "";
     this.piModel = typeof data?.piModel === "string" ? data.piModel : "";
     const piReasoningEffort = data?.piReasoningEffort ?? "";
     this.piReasoningEffort = PI_REASONING_EFFORTS.includes(piReasoningEffort) ? piReasoningEffort : "";
@@ -151,7 +184,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
         ...(role === "user" && normalizeAiAttachmentReceipts(attachments).length
           ? { attachments: normalizeAiAttachmentReceipts(attachments) }
           : {}),
-        ...(provider === "claude" || provider === "pi" ? { provider } : {}),
+        ...(provider === "claude" || provider === "pi" || provider === "codex-api" ? { provider } : {}),
         ...(role === "assistant" && normalizeAiReferences(references).length
           ? { references: normalizeAiReferences(references) }
           : {}),
@@ -163,6 +196,9 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     return {
       enabled: this.enabled,
       provider: this.provider,
+      codexApiModel: this.codexApiModel,
+      codexApiReasoningEffort: this.codexApiReasoningEffort,
+      codexApiServiceTier: this.codexApiServiceTier,
       piModel: this.piModel,
       piReasoningEffort: this.piReasoningEffort,
       claudeModel: this.claudeModel,

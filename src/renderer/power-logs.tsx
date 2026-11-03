@@ -37,7 +37,6 @@ import { powerLogLineEvidence, powerLogQueryEvidence } from "../common/power-log
 import { applyPowerLogsLimits, normalizePowerLogsLimits } from "../common/power-logs-limits";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
-import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { NativeTooltip } from "./native-tooltip";
 import { createLogColumnSizer } from "./power-log-column-widths";
 import { createLogColumnReader, logColumnLabel, logColumnNames } from "./power-log-columns";
@@ -52,6 +51,7 @@ import { collectHistoricalLogs, type LiveLogCoverage, resolveLogSources, startLi
 import { withLogContext } from "./power-logs-context";
 import { openPowerLogs, parsePowerLogsTarget } from "./power-logs-entrypoints";
 import { type LogResourceStoresState, subscribeLogResourceStores } from "./power-logs-resource-stores";
+import { powerLogsSession, usePowerLogsSessionState } from "./power-logs-session";
 import { CaptureSqlDrafts } from "./power-logs-sql-drafts";
 import { sqlRowDetails } from "./power-logs-sql-row";
 import { createPowerLogsTransport } from "./power-logs-transport";
@@ -269,6 +269,8 @@ function LogRows({
   contextAnchor,
   columnPaths,
   onToggleColumn,
+  initialScrollTop,
+  onScrollPosition,
 }: {
   records: ViewRecord[];
   loading: boolean;
@@ -283,12 +285,14 @@ function LogRows({
   contextAnchor?: { key: number };
   columnPaths: readonly JsonPath[];
   onToggleColumn(path: JsonPath): void;
+  initialScrollTop?: number;
+  onScrollPosition(top: number): void;
 }) {
   const columnNames = useMemo(() => logColumnNames(columnPaths), [columnPaths]);
   const readColumn = useMemo(() => createLogColumnReader(), []);
   const sizeColumns = useMemo(() => createLogColumnSizer(readColumn), [readColumn]);
   const viewport = useRef<HTMLDivElement>(null);
-  const [top, setTop] = useState(0);
+  const [top, setTop] = useState(!follow ? (initialScrollTop ?? 0) : 0);
   const [height, setHeight] = useState(400);
   useEffect(() => {
     const element = viewport.current;
@@ -296,6 +300,12 @@ function LogRows({
     const resize = new ResizeObserver(() => setHeight(element.clientHeight));
     resize.observe(element);
     return () => resize.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    if (!follow && initialScrollTop !== undefined && viewport.current) {
+      viewport.current.scrollTop = initialScrollTop;
+      setTop(viewport.current.scrollTop);
+    }
   }, []);
   useLayoutEffect(() => {
     if (follow && viewport.current) {
@@ -309,7 +319,7 @@ function LogRows({
   );
   const rowHeight = compact ? 20 : 34;
   const headerHeight = columnPaths.length ? 28 : 0;
-  const centeredAnchor = useRef<typeof contextAnchor>();
+  const centeredAnchor = useRef<typeof contextAnchor>(initialScrollTop !== undefined ? contextAnchor : undefined);
   useLayoutEffect(() => {
     if (!contextAnchor || centeredAnchor.current === contextAnchor || !viewport.current) return;
     centeredAnchor.current = contextAnchor;
@@ -344,6 +354,7 @@ function LogRows({
         onScroll={(event) => {
           const el = event.currentTarget;
           setTop(el.scrollTop);
+          onScrollPosition(el.scrollTop);
           if (el.scrollHeight - el.scrollTop - el.clientHeight > 60) setFollow(false);
         }}
       >
@@ -642,6 +653,15 @@ function FieldFilters({
 }
 
 function Workspace({ clusterId, contextId }: { clusterId: string; contextId: string }) {
+  const session = useMemo(
+    () =>
+      powerLogsSession(
+        `${clusterId}:${contextId}`,
+        initialTarget()?.uid,
+        initialTarget() ? initialSource() : undefined,
+      ),
+    [clusterId, contextId],
+  );
   const client = useMemo(() => createPowerLogsClient({ clusterId, contextId }), [clusterId, contextId]);
   const drafts = useMemo(
     () =>
@@ -662,22 +682,26 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     },
     [drafts],
   );
-  const [target, setTarget] = useState(initialTarget);
-  const [records, setRecords] = useState<ViewRecord[]>([]);
-  const [sources, setSources] = useState<LogSource[]>([]);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [status, setStatus] = useState("Choose a resource to read its logs");
-  const [error, setError] = useState("");
-  const [sqlError, setSqlError] = useState("");
-  const [tab, setTab] = useState<"live" | "captures">("live");
-  const [text, setText] = useState("");
-  const [contextKeys, setContextKeys] = useState<ReadonlySet<number>>(() => new Set());
-  const [contextAnchor, setContextAnchor] = useState<{ key: number }>();
-  const [level, setLevel] = useState("");
-  const [source, setSource] = useState(initialSource);
+  const [target, setTarget] = usePowerLogsSessionState(session, "target", initialTarget);
+  const [records, setRecords] = usePowerLogsSessionState<ViewRecord[]>(session, "records", []);
+  const [sources, setSources] = usePowerLogsSessionState<LogSource[]>(session, "sources", []);
+  const [notes, setNotes] = usePowerLogsSessionState<string[]>(session, "notes", []);
+  const [status, setStatus] = usePowerLogsSessionState(session, "status", "Choose a resource to read its logs");
+  const [error, setError] = usePowerLogsSessionState(session, "error", "");
+  const [sqlError, setSqlError] = usePowerLogsSessionState(session, "sqlError", "");
+  const [tab, setTab] = usePowerLogsSessionState<"live" | "captures">(session, "tab", "live");
+  const [text, setText] = usePowerLogsSessionState(session, "text", "");
+  const [contextKeys, setContextKeys] = usePowerLogsSessionState<ReadonlySet<number>>(
+    session,
+    "contextKeys",
+    () => new Set(),
+  );
+  const [contextAnchor, setContextAnchor] = usePowerLogsSessionState<{ key: number }>(session, "contextAnchor");
+  const [level, setLevel] = usePowerLogsSessionState(session, "level", "");
+  const [source, setSource] = usePowerLogsSessionState(session, "source", initialSource);
   const [savedPoolFull, setSavedPoolFull] = useState(false);
-  const [fieldFilters, setFieldFilters] = useState<JsonFieldFilter[]>([]);
-  const [columnPaths, setColumnPaths] = useState<JsonPath[]>([]);
+  const [fieldFilters, setFieldFilters] = usePowerLogsSessionState<JsonFieldFilter[]>(session, "fieldFilters", []);
+  const [columnPaths, setColumnPaths] = usePowerLogsSessionState<JsonPath[]>(session, "columnPaths", []);
   const toggleColumn = (path: JsonPath) => {
     setColumnPaths((current) => {
       const identity = JSON.stringify(path);
@@ -687,17 +711,22 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     });
   };
   const matchFields = useMemo(() => compileJsonFilters(fieldFilters), [fieldFilters]);
+  const mountedFilters = useRef(false);
   useEffect(() => {
+    if (!mountedFilters.current) {
+      mountedFilters.current = true;
+      return;
+    }
     setContextKeys((keys) => (keys.size ? new Set() : keys));
     setContextAnchor(undefined);
   }, [text, level, source, fieldFilters, target?.uid]);
   const parsedFields = useRef(new WeakMap<LogRecord, unknown>());
-  const [sqlFieldFilters, setSqlFieldFilters] = useState<{
+  const [sqlFieldFilters, setSqlFieldFilters] = usePowerLogsSessionState<{
     base: string;
     rendered: string;
     captureId: string;
     filters: SqlJsonFieldFilter[];
-  }>();
+  }>(session, "sqlFieldFilters");
   const preferences = LogsPreferencesStore.getInstanceOrCreate<LogsPreferencesStore>();
   const limits = normalizePowerLogsLimits(preferences.limits);
   useEffect(() => {
@@ -705,16 +734,17 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   }, [preferences.limits]);
   const [compact, setCompact] = useState(preferences.compactRows === true);
   const [hideResourceName, setHideResourceName] = useState(preferences.hideResourceNameColumn === true);
-  const [selected, setSelected] = useState<ViewRecord>();
-  const [selectedSqlRow, setSelectedSqlRow] = useState<
+  const [selected, setSelected] = usePowerLogsSessionState<ViewRecord>(session, "selected");
+  const [selectedSqlRow, setSelectedSqlRow] = usePowerLogsSessionState<
     ReturnType<typeof sqlRowDetails> & { row: LogQueryResult["rows"][number] }
-  >();
-  const [liveCoverage, setLiveCoverage] = useState<LiveLogCoverage>();
-  const [live, setLive] = useState(false);
-  const [follow, setFollow] = useState(true);
+  >(session, "selectedSqlRow");
+  const [liveCoverage, setLiveCoverage] = usePowerLogsSessionState<LiveLogCoverage>(session, "liveCoverage");
+  const [sourcesValidated, setSourcesValidated] = useState(!session.restored);
+  const [live, setLive] = usePowerLogsSessionState(session, "live", false);
+  const [follow, setFollow] = usePowerLogsSessionState(session, "follow", true);
   const [busy, setBusy] = useState(() => Boolean(initialTarget()));
-  const [captures, setCaptures] = useState<LogCapture[]>([]);
-  const [captureId, updateCaptureId] = useState("");
+  const [captures, setCaptures] = usePowerLogsSessionState<LogCapture[]>(session, "captures", []);
+  const [captureId, updateCaptureId] = usePowerLogsSessionState(session, "captureId", "");
   const captureSelection = useRef(captureId);
   captureSelection.current = captureId;
   const setCaptureId = (id: string, snapshot = captures.find((item) => item.id === id)) => {
@@ -729,10 +759,10 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const [deletingCount, setDeletingCount] = useState(0);
   const [capturing, setCapturing] = useState<LogCapture>();
   const [capturePending, setCapturePending] = useState(false);
-  const [captureMinutes, setCaptureMinutes] = useState(15);
-  const [previous, setPrevious] = useState(false);
+  const [captureMinutes, setCaptureMinutes] = usePowerLogsSessionState(session, "captureMinutes", 15);
+  const [previous, setPrevious] = usePowerLogsSessionState(session, "previous", false);
   const [sqlFitVersion, setSqlFitVersion] = useState(0);
-  const [sql, updateSql] = useState<string>(examples[0][1]);
+  const [sql, updateSql] = usePowerLogsSessionState<string>(session, "sql", examples[0][1]);
   const sqlDraft = useRef(sql);
   sqlDraft.current = sql;
   const setSql = (query: string) => {
@@ -746,9 +776,13 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       current && (current.rendered !== sql || current.captureId !== captureId) ? undefined : current,
     );
   }, [sql, captureId]);
-  const [result, setResult] = useState<LogQueryResult>();
-  const [resultEvidence, setResultEvidence] = useState<{ capture: LogCapture; sql: string; error?: string }>();
-  const [resultPage, setResultPage] = useState(0);
+  const [result, setResult] = usePowerLogsSessionState<LogQueryResult>(session, "result");
+  const [resultEvidence, setResultEvidence] = usePowerLogsSessionState<{
+    capture: LogCapture;
+    sql: string;
+    error?: string;
+  }>(session, "resultEvidence");
+  const [resultPage, setResultPage] = usePowerLogsSessionState(session, "resultPage", 0);
   const [queryId, setQueryId] = useState("");
   const captureOptions = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -781,7 +815,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const queryRef = useRef("");
   const epoch = useRef(0);
   const alive = useRef(true);
-  const sequence = useRef(0);
+  const sequence = useRef(records.reduce((maximum, record) => Math.max(maximum, record.key), 0));
   const recordsRef = useRef(records);
   recordsRef.current = records;
   const pending = useRef<LogRecord[]>([]);
@@ -856,6 +890,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   }, [client]);
   const readHistory = async () => {
     if (!target) return;
+    session.values.set("historyComplete", false);
     const currentEpoch = ++epoch.current;
     historyController.current?.abort();
     stopLive();
@@ -877,6 +912,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       const discovery = await resolveLogSources(target, transport, controller.signal);
       if (controller.signal.aborted || currentEpoch !== epoch.current) return;
       setSources(discovery.sources);
+      setSourcesValidated(true);
       setNotes(discovery.notes);
       setStatus(`Reading ${discovery.sources.length} container sources…`);
       const history = await collectHistoricalLogs(discovery.sources, transport, {
@@ -889,6 +925,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       });
       if (controller.signal.aborted || currentEpoch !== epoch.current) return;
       flush();
+      session.values.set("historyComplete", true);
       setNotes([...new Set([...discovery.notes, ...history.notes])]);
       setStatus(
         `${discovery.sources.length} sources · last ${limits.historyLines.toLocaleString()} lines per container, up to ${limits.historyBytes / 1048576} MiB each`,
@@ -904,7 +941,15 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       if (alive.current && currentEpoch === epoch.current) setBusy(false);
     }
   };
+  const restoredTarget = useRef(session.restored);
   useEffect(() => {
+    if (restoredTarget.current) {
+      restoredTarget.current = false;
+      setBusy(false);
+      if (session.values.get("historyComplete") === false)
+        setStatus("Log loading incomplete. Refresh to read this resource again.");
+      return;
+    }
     setText("");
     setFieldFilters([]);
     setSources([]);
@@ -918,9 +963,26 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     }
     setLive(true);
   };
+  useEffect(() => {
+    if (sourcesValidated || !live || !target) return;
+    const controller = new AbortController();
+    void resolveLogSources(target, createPowerLogsTransport(clusterId), controller.signal)
+      .then((discovery) => {
+        if (controller.signal.aborted || !alive.current) return;
+        setSources(discovery.sources);
+        setNotes(discovery.notes);
+        setSourcesValidated(true);
+      })
+      .catch(() => {
+        if (controller.signal.aborted || !alive.current) return;
+        stopLive();
+        setError("Could not resume live logs. Refresh to check whether this resource still exists.");
+      });
+    return () => controller.abort();
+  }, [sourcesValidated, live, target?.uid]);
   const sourceIdentity = sources.map((item) => `${item.podUid}/${item.container}`).join(";");
   useEffect(() => {
-    if (!live || !sources.length) return;
+    if (!live || !sourcesValidated || !sources.length) return;
     const controller = new AbortController();
     liveController.current = controller;
     const collector = startLiveLogs(sources, createPowerLogsTransport(clusterId), {
@@ -944,7 +1006,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       controller.abort();
       if (liveController.current === controller) liveController.current = undefined;
     };
-  }, [live, sourceIdentity]);
+  }, [live, sourceIdentity, sourcesValidated]);
   useEffect(() => {
     if (!live || !target) return;
     const controller = new AbortController();
@@ -1347,6 +1409,10 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     )
       window.dispatchEvent(new Event("power-ai-open-only"));
   };
+  useEffect(() => {
+    window.addEventListener("power-logs-attach-ai", attachAi);
+    return () => window.removeEventListener("power-logs-attach-ai", attachAi);
+  }, [attachAi]);
   const deleteCapture = async (id: string) => {
     if (deleting.current.has(id) || queryRef.current || captureController.current) return;
     deleting.current.add(id);
@@ -1514,6 +1580,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       data-testid="power-logs-page"
       data-compact={compact || undefined}
       data-hide-resource-name={hideResourceName || undefined}
+      data-details-open={(tab === "live" ? Boolean(selected) : Boolean(selectedSqlRow)) || undefined}
     >
       <style>{powerLogsStyles}</style>
       <header>
@@ -1628,9 +1695,6 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             )}
           </div>
 
-          <DiagnosticExplainButton aria-label="Open AI assistant" title="Open AI assistant" onClick={attachAi}>
-            <Icon material="chat_bubble_outline" size={16} /> AI
-          </DiagnosticExplainButton>
           {tab === "live" && (
             <button type="button" disabled={!target || busy} onClick={() => void readHistory()}>
               <Icon material="refresh" size={16} /> Refresh
@@ -1757,6 +1821,8 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
           </NativeTooltip>
           <div className="power-logs-workspace">
             <LogRows
+              initialScrollTop={session.values.get("scrollTop") as number | undefined}
+              onScrollPosition={(top) => session.values.set("scrollTop", top)}
               records={displayedRecords}
               matches={showContext ? matchingRecords : undefined}
               expanded={contextKeys}

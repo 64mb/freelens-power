@@ -686,3 +686,58 @@ describe("Pi native read flow", () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 });
+
+describe("AI dashboard flow", () => {
+  it.each([
+    "codex",
+    "claude",
+    "pi",
+  ] as const)("reads configured widgets without a cluster through %s", async (provider) => {
+    const { prompts } = mockTurns(
+      [
+        { tool: { method: "dashboard", name: "status" }, text: "" },
+        { tool: null, text: "The service is healthy" },
+      ],
+      provider,
+    );
+    const read = vi.fn().mockResolvedValue({ text: "Healthy", source: "untrusted visible widget text" });
+    const resolveCluster = vi.fn();
+    const result = await runAiChat(
+      {
+        ...request,
+        provider,
+        model: provider === "claude" ? "sonnet" : provider === "pi" ? "example/model" : request.model,
+        context: { screen: "/extension/freelens-power/dashboard" },
+      },
+      resolveCluster,
+      undefined,
+      undefined,
+      undefined,
+      {
+        widgets: [{ id: "status", title: "Status", url: "https://example.com/status" }],
+        read,
+      },
+    );
+    expect(resolveCluster).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith("status", undefined);
+    expect(prompts[0]).toContain("https://example.com/status");
+    expect(prompts[1]).toContain("Healthy");
+    expect(result.reads).toEqual([{ method: "dashboard", status: "ok" }]);
+  });
+  it.each([
+    { method: "dashboard", name: "unknown" },
+    { method: "dashboard", name: "status", resource: "https://example.com/other" },
+  ])("rejects unknown widgets and extra read arguments", async (tool) => {
+    mockTurns([
+      { tool, text: "" },
+      { tool: null, text: "Unavailable" },
+    ]);
+    const read = vi.fn();
+    const result = await runAiChat({ ...request, context: {} }, vi.fn(), undefined, undefined, undefined, {
+      widgets: [{ id: "status", title: "Status", url: "https://example.com/status" }],
+      read,
+    });
+    expect(read).not.toHaveBeenCalled();
+    expect(result.reads).toEqual([{ method: "dashboard", status: "unavailable" }]);
+  });
+});

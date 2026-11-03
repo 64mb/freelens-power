@@ -17,7 +17,7 @@ export const OtherPreferences = observer(() => {
         >
           Bulk resource actions
         </Renderer.Component.Switch>
-        <div className="power-settings-hint">Select nodes for bulk actions and customize Pod removal.</div>
+        <div className="power-settings-hint">Bulk actions and clearer resource dialogs.</div>
       </div>
       <div>
         <Renderer.Component.Switch

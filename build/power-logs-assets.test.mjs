@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-test("packed SQLite captures run without installed dependencies or native database assets", async () => {
+test("packed captures and API transport load without installed dependencies or native database assets", async () => {
   const directory = await mkdtemp(join(tmpdir(), "power-logs-package-test-"));
   try {
     const project = join(directory, "project");
@@ -38,6 +38,20 @@ test("packed SQLite captures run without installed dependencies or native databa
     await mkdir(unpacked);
     execFileSync("tar", ["-xzf", join(directory, packed.filename), "--strip-components=1", "-C", unpacked]);
     assert.equal(existsSync(join(unpacked, "node_modules")), false);
+    const transport = execFileSync(
+      process.execPath,
+      ["-e", `
+        const Module=require('node:module');
+        const original=Module._load;
+        Module._load=function(name,...args){return name==='electron'?{app:{},safeStorage:{}}:original.call(this,name,...args)};
+        const {createCodexApiSession}=require('./out/main/ai-codex-api.js');
+        const session=createCodexApiSession('example',{},'');
+        session.close();
+        process.stdout.write('ready');
+      `],
+      { cwd: unpacked, encoding: "utf8", env: environment },
+    );
+    assert.equal(transport, "ready");
     for (const file of files.filter((path) => path.endsWith(".js"))) {
       assert.doesNotMatch(await readFile(join(unpacked, file), "utf8"), /@duckdb\//);
     }

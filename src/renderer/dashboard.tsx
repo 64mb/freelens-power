@@ -341,6 +341,14 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
         const style = window.getComputedStyle(element);
         return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
       });
+      const launcher = document.querySelector<HTMLElement>(
+        '.power-ai-launcher:not(.power-ai-launcher-hidden):not([aria-hidden="true"]):not([hidden])',
+      );
+      const launcherStyle = launcher && window.getComputedStyle(launcher);
+      const launcherBounds =
+        launcher && launcherStyle?.display !== "none" && launcherStyle?.visibility !== "hidden"
+          ? launcher.getBoundingClientRect()
+          : undefined;
       const visible = overlayOpen
         ? []
         : Array.from(container.querySelectorAll<HTMLElement>(".power-dashboard-embed")).flatMap((element) => {
@@ -349,7 +357,17 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
             const x = Math.ceil(Math.max(rect.left, viewport.left));
             const y = Math.ceil(Math.max(rect.top, viewport.top));
             const right = Math.floor(Math.min(rect.right, viewport.right));
-            const bottom = Math.floor(Math.min(rect.bottom, viewport.bottom));
+            let bottom = Math.floor(Math.min(rect.bottom, viewport.bottom));
+            if (
+              launcherBounds &&
+              launcherBounds.width > 0 &&
+              launcherBounds.height > 0 &&
+              right > launcherBounds.left - 8 &&
+              x < launcherBounds.right + 8 &&
+              bottom > launcherBounds.top - 8 &&
+              y < launcherBounds.bottom + 8
+            )
+              bottom = Math.min(bottom, Math.floor(launcherBounds.top - 8));
             const bounds = {
               x: Math.floor(rect.left),
               y: Math.floor(rect.top),
@@ -403,7 +421,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["class", "style", "hidden"],
+      attributeFilter: ["class", "style", "hidden", "aria-hidden"],
     });
     const observer = new ResizeObserver(schedule);
     observer.observe(container);

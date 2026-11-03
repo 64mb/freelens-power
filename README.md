@@ -52,7 +52,7 @@ Real extension components with synthetic websites, prompts, conversations, and d
 - 🔗 **Resource relationships:** Service graphs connecting Ingress and Gateway API routes to pods, endpoints, owners, and nodes
 - 🔎 **Fast resource search:** double Shift, local metadata indexing, type/namespace filters, typo matching, resource links, and explicit AI attachments
 - 🗄️ **Local metric history:** optional SQLite storage, seven-day history within 100 MiB, aggregated ranges, and visible collection gaps
-- 🤖 **AI assistant:** Codex, Claude, or Pi CLI, per-cluster chats, model controls, editable shortcuts, read-only resource discovery, attachments, and pinned chat
+- 🤖 **AI assistant:** Codex, Claude, Pi, or OpenAI API, cluster and dashboard chats, model controls, shortcuts, read-only discovery, and attachments
 - 🛡️ **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
 - 🪟 **Interface:** reclaims the bottom status bar space; the master switch restores the native interface and preserves settings
 - ⚙️ **Settings:** native switches, compact dashboard editors, and JSON backup/restore of cards and prompt shortcuts
@@ -60,7 +60,7 @@ Real extension components with synthetic websites, prompts, conversations, and d
 
 ---
 
-AI context can include resource identities, specifications, environment literals, and bounded logs. Recognized Secret/ConfigMap payloads and last-applied annotations are masked while keys remain visible; copies in free text may remain. Review attachments before sending. Terminal output requires explicit attachment; sent attachments stay in local history. AI SQL drafts never run automatically. Dashboard websites use isolated Electron views.
+AI context can include resource identities, specifications, environment literals, and bounded logs. Recognized Secret/ConfigMap payloads and last-applied annotations are masked while keys remain visible; copies in free text may remain. Review attachments before sending. Terminal output requires explicit attachment; sent attachments stay in local history. AI SQL drafts never run automatically. OpenAI API keys are encrypted locally and excluded from settings exports; restricted keys need Responses API Write only. Dashboard AI lists widget names and links and can read bounded visible widget text on request. Dashboard websites use isolated Electron views.
 
 Power Logs snapshots stay local, expire after one hour by default, and share a 1 GiB budget. Pinning preserves snapshots across restarts; stopping Power Logs removes unpinned captures. Settings provide retention, capture limits, storage usage, and confirmed cleanup. Writes stop when storage is full. Collection respects Kubernetes permissions; bounded tails can leave gaps. Native Pod logs remain available.
 
