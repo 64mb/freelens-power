@@ -45,6 +45,7 @@ import { NodeMonitoringDetails } from "./node-monitoring";
 import { startNodeShellEntrypoints } from "./node-shell-entrypoints";
 import { startPodDetailsEnhancements } from "./pod-details-enhancements";
 import { startPodMonitoring } from "./pod-monitoring";
+import { startPodRemovalConfirmation } from "./pod-removal-confirmation";
 import { PowerLogsPage } from "./power-logs";
 import { PowerLogsMenu, startPowerLogsEntrypoints } from "./power-logs-entrypoints";
 import { PowerPreferences } from "./preferences/preferences";
@@ -110,6 +111,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startMonitoring,
             startPodMonitoring,
             startPodDetailsEnhancements,
+            startPodRemovalConfirmation,
             startPowerButtonStyles,
             startHostLayoutStyles,
             startHostPreferencesStyles,

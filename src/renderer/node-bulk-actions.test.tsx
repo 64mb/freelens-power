@@ -72,7 +72,12 @@ const flush = async () => {
   });
 };
 const confirmation = () =>
-  mocks.confirm.mock.calls.at(-1)![0] as { ok: () => Promise<void>; message: import("react").ReactElement };
+  mocks.confirm.mock.calls.at(-1)![0] as {
+    ok: () => Promise<void>;
+    message: import("react").ReactElement;
+    labelOk: import("react").ReactElement;
+    okButtonProps?: { className: string };
+  };
 const clickAction = (action: "Cordon" | "Uncordon" | "Drain") => {
   fireEvent.click(screen.getByRole("button", { name: /Actions for \d+ selected nodes/ }));
   const item = screen.queryByRole("menuitem", { name: action });
@@ -125,6 +130,23 @@ it("requests context only on action and confirms the exact node list before begi
     confirmed: true,
   });
   expect(screen.getByRole("status").textContent).toContain("running");
+});
+
+it.each([
+  ["Cordon", "pause_circle_filled"],
+  ["Uncordon", "play_circle_filled"],
+  ["Drain", "delete_sweep"],
+] as const)("shows the %s confirmation icon and selected nodes", async (action, icon) => {
+  setup();
+  clickAction(action);
+  await flush();
+  const dialog = confirmation();
+  expect(dialog.okButtonProps?.className).toBe(action === "Drain" ? "power-node-bulk-destructive" : undefined);
+  const label = render(<button type="button">{dialog.labelOk}</button>);
+  expect(label.getByRole("button", { name: `${action} 2 nodes` }).querySelector(".icon")?.textContent).toBe(icon);
+  const preview = render(dialog.message);
+  expect(preview.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["node-a", "node-b"]);
+  expect(mocks.invoke.mock.calls.filter(([, request]) => request.operation === "begin")).toHaveLength(0);
 });
 
 it.each(["selection", "context"])("rejects confirmation when %s changes", async (change) => {
