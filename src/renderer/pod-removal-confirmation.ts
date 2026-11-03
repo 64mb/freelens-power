@@ -30,17 +30,18 @@ function summary(message: HTMLElement): RemovalSummary | undefined {
 export function startPodRemovalConfirmation(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "pod-removal-confirmation";
+  const scope = ".ConfirmDialog:has(.power-pod-removal-summary)";
   style.textContent = `
-    .power-pod-removal .power-pod-removal-original { display: none; }
-    .ConfirmDialog.power-pod-removal > .box { max-width: min(720px,calc(100vw - 32px)); min-width: min(360px,calc(100vw - 32px)); }
-    .power-pod-removal .confirm-content { align-items: flex-start; gap: 12px; }
-    .power-pod-removal .confirm-content > .Icon { flex-shrink: 0; margin: 2px 0 0; }
+    ${scope} .power-pod-removal-original { display: none; }
+    ${scope} > .box { max-width: min(720px,calc(100vw - 32px)); min-width: min(360px,calc(100vw - 32px)); }
+    ${scope} .confirm-content { align-items: flex-start; gap: 12px; }
+    ${scope} .confirm-content > .Icon { flex-shrink: 0; margin: 2px 0 0; }
     .power-pod-removal-summary { min-width: 0; overflow-wrap: anywhere; }
     .power-pod-removal-summary ul { list-style: disc; margin: 8px 0; padding-left: 24px; max-height: 40vh; overflow: auto; }
     .power-pod-removal-summary li { display: list-item; margin: 4px 0; }
     .power-pod-removal-remaining { color: var(--colorError); }
-    :root .ConfirmDialog.power-pod-removal .Button.ok { display: inline-flex; align-items: center; gap: 6px; background: var(--colorError); color: #fff !important; }
-    :root .ConfirmDialog.power-pod-removal .Button.ok:hover { background: color-mix(in srgb,var(--colorError) 88%,black); }
+    :root ${scope} .Button.ok { display: inline-flex; align-items: center; gap: 6px; background: var(--colorError); color: #fff !important; }
+    :root ${scope} .Button.ok:hover { background: color-mix(in srgb,var(--colorError) 88%,black); }
     .power-pod-removal-trash { --size: 18px; }
   `;
   document.head.append(style);
@@ -52,7 +53,6 @@ export function startPodRemovalConfirmation(): () => void {
     | undefined;
   const restore = () => {
     if (!current) return;
-    current.dialog.classList.remove("power-pod-removal");
     current.message.classList.remove("power-pod-removal-original");
     current.replacement.remove();
     current.icon.remove();
@@ -105,7 +105,6 @@ export function startPodRemovalConfirmation(): () => void {
     glyph.className = "icon";
     glyph.textContent = "delete";
     icon.append(glyph);
-    dialog.classList.add("power-pod-removal");
     message.classList.add("power-pod-removal-original");
     message.after(replacement);
     button.prepend(icon);

@@ -154,3 +154,19 @@ it("expires an unhandled removal click before an unrelated later confirmation", 
   await flush();
   expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
 });
+
+it("keeps the native message hidden when the host rewrites the dialog classes", async () => {
+  const fixture = mount();
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  const dialog = document.querySelector<HTMLElement>(".ConfirmDialog")!;
+  dialog.className = "ConfirmDialog modal native-open";
+  const original = dialog.querySelector<HTMLElement>(".power-pod-removal-original")!;
+  expect(getComputedStyle(original).display).toBe("none");
+  expect(dialog.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(5);
+  stop();
+  stop = undefined;
+  expect(dialog.className).toBe("ConfirmDialog modal native-open");
+  expect(getComputedStyle(original).display).not.toBe("none");
+});
