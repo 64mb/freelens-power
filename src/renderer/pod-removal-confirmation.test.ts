@@ -1,0 +1,156 @@
+// @vitest-environment jsdom
+import { afterEach, expect, it, vi } from "vitest";
+import { startPodRemovalConfirmation } from "./pod-removal-confirmation";
+
+let stop: (() => void) | undefined;
+afterEach(() => {
+  stop?.();
+  stop = undefined;
+  document.body.innerHTML = "";
+});
+
+function mount(
+  message = "Remove <b>24</b> items <b>pod-a, pod-b, pod-c, pod-d, pod-e</b>, and <b>19</b> more?",
+  root = "Pods",
+) {
+  document.body.innerHTML = `<div class="${root}"><div class="AddRemoveButtons"><button class="Button remove-button"><span>remove</span></button></div></div>`;
+  const remove = document.querySelector<HTMLButtonElement>(".remove-button")!;
+  const confirm = vi.fn();
+  const cancel = vi.fn();
+  remove.onclick = () => {
+    const dialog = document.createElement("div");
+    dialog.className = "ConfirmDialog modal";
+    dialog.dataset.testid = "confirmation-dialog";
+    dialog.innerHTML = `<div class="box"><div class="confirm-content"><i class="Icon">warning</i><p>${message}</p></div><div class="confirm-buttons"><button class="Button cancel">Cancel</button><button class="Button ok primary" data-testid="confirm">Remove</button></div></div>`;
+    dialog.querySelector(".ok")!.addEventListener("click", confirm);
+    dialog.querySelector(".cancel")!.addEventListener("click", cancel);
+    document.body.append(dialog);
+  };
+  return { remove, confirm, cancel };
+}
+const flush = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+it("lists only native preview names, highlights the remaining number and preserves removal and cancellation", async () => {
+  const fixture = mount();
+  stop = startPodRemovalConfirmation();
+  fixture.remove.querySelector("span")!.click();
+  await flush();
+  const dialog = document.querySelector(".ConfirmDialog")!;
+  expect([...dialog.querySelectorAll(".power-pod-removal-summary li")].map((item) => item.textContent)).toEqual([
+    "pod-a",
+    "pod-b",
+    "pod-c",
+    "pod-d",
+    "pod-e",
+  ]);
+  expect(dialog.querySelector(".power-pod-removal-summary > p")?.textContent).toBe("Remove 24 pods?");
+  expect(dialog.querySelector(".power-pod-removal-remaining")?.textContent).toBe("19");
+  expect(dialog.querySelector(".power-pod-removal-remaining")?.parentElement?.textContent).toBe("and 19 more");
+  expect(dialog.querySelector(".ok .Icon")?.getAttribute("aria-hidden")).toBe("true");
+  expect(dialog.querySelector(".ok .icon")?.textContent).toBe("delete");
+  expect(fixture.confirm).not.toHaveBeenCalled();
+  (dialog.querySelector(".cancel") as HTMLButtonElement).click();
+  expect(fixture.cancel).toHaveBeenCalledOnce();
+  (dialog.querySelector(".ok") as HTMLButtonElement).click();
+  expect(fixture.confirm).toHaveBeenCalledOnce();
+  const original = dialog.querySelector(".power-pod-removal-original")!;
+  stop();
+  stop = undefined;
+  expect(original.classList.contains("power-pod-removal-original")).toBe(false);
+  expect(dialog.querySelector(".power-pod-removal-summary")).toBeNull();
+  expect(dialog.querySelector(".ok")?.textContent).toBe("Remove");
+  expect(dialog.classList.contains("power-pod-removal")).toBe(false);
+  expect(document.querySelector('[data-freelens-power="pod-removal-confirmation"]')).toBeNull();
+});
+
+it.each([
+  ["Remove item <b>pod-a</b>?", "Remove 1 pod?", 1],
+  ["Remove <b>2</b> items <b>pod-a, pod-b</b>?", "Remove 2 pods?", 2],
+])("handles native singular and small selections without a remaining label", async (message, heading, count) => {
+  const fixture = mount(message as string);
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary > p")?.textContent).toBe(heading);
+  expect(document.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(count as number);
+  expect(document.querySelector(".power-pod-removal-remaining")).toBeNull();
+});
+
+it.each([
+  ["Remove <b>2</b> items <b>pod-a</b>?", "Pods"],
+  ["Remove item <b><span>pod-a</span></b>?", "Pods"],
+  ["Custom removal of <b>pod-a</b>", "Pods"],
+  ["Remove item <b>pod-a</b>?", "Deployments"],
+])("leaves unrelated and customized confirmations unchanged", async (message, root) => {
+  const fixture = mount(message, root);
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+  expect(document.querySelector(".ok")?.textContent).toBe("Remove");
+});
+
+it("does not change a later unrelated dialog and restores a reused native message", async () => {
+  const fixture = mount();
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  const dialog = document.querySelector<HTMLElement>(".ConfirmDialog")!;
+  const message = dialog.querySelector(".power-pod-removal-original")!;
+  message.textContent = "Another operation";
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+  expect(message.classList.contains("power-pod-removal-original")).toBe(false);
+  dialog.remove();
+  const unrelated = document.createElement("div");
+  unrelated.className = "ConfirmDialog";
+  unrelated.dataset.testid = "confirmation-dialog";
+  unrelated.innerHTML =
+    '<div class="confirm-content"><p>Remove item <b>pod-a</b>?</p></div><div class="confirm-buttons"><button class="Button ok" data-testid="confirm">Remove</button></div>';
+  document.body.append(unrelated);
+  await flush();
+  expect(unrelated.classList.contains("power-pod-removal")).toBe(false);
+});
+
+it("cleans up closed dialogs and cannot reattach after disposal", async () => {
+  const fixture = mount();
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  const dialog = document.querySelector<HTMLElement>(".ConfirmDialog")!;
+  delete dialog.dataset.testid;
+  await flush();
+  expect(dialog.querySelector(".power-pod-removal-summary")).toBeNull();
+  stop();
+  stop = undefined;
+  fixture.remove.click();
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+});
+
+it("waits through capture-listener microtasks before the native handler opens the dialog", async () => {
+  const fixture = mount();
+  const open = fixture.remove.onclick!;
+  fixture.remove.onclick = null;
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await flush();
+  open.call(fixture.remove, new PointerEvent("click"));
+  await flush();
+  expect(document.querySelectorAll(".power-pod-removal-summary li")).toHaveLength(5);
+});
+
+it("expires an unhandled removal click before an unrelated later confirmation", async () => {
+  const fixture = mount();
+  const open = fixture.remove.onclick!;
+  fixture.remove.onclick = null;
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  await new Promise((resolve) => window.setTimeout(resolve, 0));
+  open.call(fixture.remove, new PointerEvent("click"));
+  await flush();
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+});

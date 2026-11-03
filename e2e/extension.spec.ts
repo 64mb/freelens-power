@@ -1037,6 +1037,30 @@ extensionTest(
   async (session, frame, info) => {
     const fixtures = createNodeBulkFixtures();
     try {
+      await frame.getByTestId("link-for-sidebar-item-workloads").click();
+      await frame.getByTestId("link-for-sidebar-item-pods").click();
+      const pods = frame.locator(".Pods");
+      await expect(pods.locator(".TableRow[id]").first()).toBeVisible();
+      await pods.locator(".TableHead .Checkbox").click();
+      await pods.locator(".AddRemoveButtons .remove-button").click();
+      const podConfirmation = frame.getByTestId("confirmation-dialog");
+      await expect(podConfirmation.locator(".power-pod-removal-summary")).toBeVisible();
+      await expect(podConfirmation.locator(".power-pod-removal-original")).toBeHidden();
+      await expect(podConfirmation.locator(".power-pod-removal-summary li").first()).toHaveCSS("display", "list-item");
+      await expect(podConfirmation.locator(".power-pod-removal-summary ul")).toHaveCSS("list-style-type", "disc");
+      const removePods = podConfirmation.getByRole("button", { name: "Remove", exact: true });
+      await expect(removePods.locator(".icon")).toHaveText("delete");
+      const errorColor = await removePods.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--colorError)";
+        element.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      await expect(removePods).toHaveCSS("background-color", errorColor);
+      await session.screenshot(info, "pod-removal-confirmation", frame);
+      await podConfirmation.getByRole("button", { name: "Cancel", exact: true }).click();
       await frame.locator('[data-testid="link-for-sidebar-item-nodes"]').click();
       const nodesPage = frame.locator(".Nodes");
       const filter = nodesPage.locator('input[type="search"], input[placeholder*="Search" i]').first();
@@ -1060,13 +1084,31 @@ extensionTest(
       expect(actionsBox?.width).toBe(38);
       expect(actionsBox?.height).toBe(38);
       await expect(actions).toHaveCSS("border-radius", "6px");
-      await actions.click();
+      await stablePress(actions, async (state) => {
+        if (state === "pressed")
+          expect(await actions.evaluate((element) => getComputedStyle(element, "::before").display)).toBe("none");
+      });
+      const cordonMenu = frame.getByRole("menuitem", { name: "Cordon", exact: true });
+      await cordonMenu.hover();
+      const accent = await cordonMenu.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--primary)";
+        element.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      await expect(cordonMenu).toHaveCSS("background-color", accent);
       await frame.getByRole("menuitem", { name: "Drain", exact: true }).click();
       await expect(confirmation.locator(".power-node-bulk-confirmation")).toContainText(
         "respecting disruption budgets",
       );
       await expect(confirmation).toContainText(fixtures.nodes[0].metadata.name);
       await expect(confirmation).toContainText(fixtures.nodes[1].metadata.name);
+      await expect(confirmation.locator(".power-node-bulk-confirmation ul")).toHaveCSS("list-style-type", "disc");
+      const drainConfirm = confirmation.getByRole("button", { name: "Drain 2 nodes", exact: true });
+      await expect(drainConfirm.locator(".icon")).toHaveText("delete_sweep");
+      await expect(drainConfirm).toHaveCSS("background-color", errorColor);
       await session.screenshot(info, "node-bulk-drain-confirmation", frame);
       await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
       expect(fixtures.nodes.map((node) => fixtures.read(node).spec.unschedulable === true)).toEqual([false, false]);

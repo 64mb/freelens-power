@@ -2,48 +2,60 @@
 
 Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tested with 1.10.3.
 
-## Features
-
-- **Secure Node Shell:** your connection command, optional IPv6 preference, and automatic `colima ssh`
-- **Secret certificates:** CN, SAN, issuer, serial number, validity dates, and expiration details for PEM chains
-- **Accent themes:** Default, Purple, Blue, Green, Yellow, Orange, Red, and Pink for controls, text links, and the welcome logo
-- **Cluster icons:** a searchable cluster grid, matching SVG icons, editable labels and colors, live previews, and saved editor settings
-- **macOS Dock icon:** optionally follows your accent, with a separate toggle to restore the original
-- **Power Dashboard:** reorderable XS/S/M/L/XL website cards in a responsive grid, cached pages, loading skeletons, interactive element selection, expansion, pinned floating windows, shared website sessions, per-card 10-second refresh including pinned windows, and optional background refresh
-- **Monitoring:** optional CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts using metrics-server and Kubernetes APIs
-- **Resource diagnostics:** CPU/memory consumers, grouped warning timelines, Pending and Not ready triage, Service/HPA checks, operational resource and namespace summaries, scoped AI handoff, and incident-summary copying
-- **Helm (opt-in):** cached metadata-only release lists, background application versions, independently loaded revision history, syntax-highlighted YAML and synchronized revision comparisons. Rollback continues in the background with progress and logs. Rollback, release deletion and current-values editing require explicit confirmation and respect context and read-only guards; editing reuses a complete installed chart or the same chart version from a registered Helm repository. Enabling replaces the native sidebar entry, with the native view available from the corner icon
-- **Nodes:** checkboxes in the native table, visible-row select-all and selection retained while scrolling; confirmed bulk cordon/uncordon and sequential PDB-respecting drain with per-node results, cancellation and read-only guards
-- **Power Logs:** opt-in colored workload logs with structured fields, source and level filters, bounded live collection, temporary or pinned SQLite snapshots, cancellable read-only SQL, compact density, configurable limits, NDJSON export and reviewable AI context with SQL drafts; native Pod logs remain available. JSON details support syntax coloring, value copying and AND field filters in Live view and SQL; Live view adds field columns and per-line expansion of five loaded neighbors; SQL presets retain original JSON field names, and five preset selectors control log limits
-- **Resource relationships:** a focused Service graph connects Ingress and installed Gateway API routes/listeners to selected Pods, published endpoints, owners and node references, with acceptance and cross-namespace reference evidence, resource links, explicit expansion of all available graph resources and saved upstream visibility
-- **Fast resource search:** double Shift searches all discoverable resource types, including Secrets, ConfigMaps and custom resources, through a persistent local metadata index with gentle background refresh, type and namespace filters, name-part and typo matching, resource links and explicit AI attachment; search and background indexing can be disabled together in Monitoring settings
-- **Local metric history:** opt-in SQLite storage, up to seven days within a 100 MiB budget, with aggregated ranges and explicit collection gaps
-- **AI assistant:** native Codex, Claude or Pi CLI (including configured GLM and DeepSeek models), per-cluster conversations, read-only API discovery and resource summaries, model/effort/speed selection, editable prompts, quick-start commands, Markdown with themed SQL highlighting, cancellable replies with elapsed stages, bounded parallel reads and incremental final text where supported by the CLI, shared attachment cards with formatted JSON and sent-message receipts, explicit resource selection retained across navigation, optional terminal attachments, automatic visible Relationships/Consumers/Timeline snapshots when no attachment exists, resource links, resizable pinned chat, and a switch to disable all AI features
-- **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
-- **Interface:** hides the bottom Freelens status bar and reclaims its space; the master switch restores the native interface while preserving all settings
-- **Settings:** native switches, compact dashboard editors, and JSON backup and restore of cards and prompt shortcuts
-
-AI tools preserve resource identities, ordinary specifications, environment literals and bounded log lines. Recognized Kubernetes Secret and ConfigMap payload values are masked while their keys remain visible, including standard last-applied annotations. Copies in arbitrary free-form text cannot be reliably identified. Power Logs lines and SQL results attach to a reviewable context block when the AI action is clicked. Drafted SQL is inserted into the editor without execution. Terminal output is sent only when explicitly attached; review its masked preview before sending. Sent attachments remain in local conversation history. Websites run in isolated Electron views. Every dashboard card also opens in your browser.
-
-Power Logs captures stay on the local disk for one hour by default, with configurable retention, and are removed when the feature stops unless pinned. Pinned snapshots survive restarts and remain until manually deleted; unpinning starts a new retention period. Snapshot deletion and pinning require confirmation. All managed log files share a 1 GiB disk budget; storage usage and confirmed cleanup are available in preferences. When the budget is full, new snapshot writes stop until space is freed, preserving existing data. Temporary and pinned snapshot pools each use the configured capture count limit, with the same combined limit per cluster context. Collection follows current Kubernetes permissions and retained container logs. Large workloads use rotating bounded tails, so busy sources can have gaps; coverage and partial captures are reported in the interface.
-
-Monitoring history is collected while Freelens is running and the cluster view is active. Cluster and node series are retained automatically when enabled. History cannot backfill periods without collection. Timelines combine retained Kubernetes events with changes observed while the diagnostics page is open. Local Pending checks explain available evidence and do not reproduce the full scheduler.
-
-## Screenshots
-
-Real extension components with synthetic website content, prompts, and conversations.
-
-| Dashboard | AI assistant |
-| --- | --- |
-| <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/dashboard.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/dashboard.png" width="288" height="224" alt="Dashboard with demonstration websites"></a> | <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-chat.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-chat.png" width="288" height="224" alt="AI assistant with example read-only diagnostics and code copying"></a> |
-
-| AI preferences and shortcuts | Focused website cards |
-| --- | --- |
-| <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-settings.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-settings.png" width="288" height="224" alt="AI preferences with neutral prompts and shortcuts"></a> | <a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/card-editor.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/card-editor.png" width="288" height="224" alt="Dashboard card editor with an example URL and CSS selector"></a> |
-
 ## Install
 
 Install `@64mb/freelens-power` from the npm registry in Freelens Extensions, or download the `.tgz` package from [GitHub Releases](https://github.com/64mb/freelens-power/releases), open **Extensions** in Freelens (`Cmd+Shift+E` on macOS), and install it by its absolute path. The installed Power entry provides **Update**, which opens the native installer for the latest package and keeps its replacement confirmation. Update notifications can open the same installer; disable automatic checks below **Enable Freelens Power** in preferences. After an update, a notification recommends restarting when convenient and provides **Restart Freelens**. You can also build and pack the extension locally.
+
+## Screenshots
+
+Real extension components with synthetic websites, prompts, conversations, and disposable Kubernetes fixtures. Click an image to open it at full size.
+
+<table>
+  <tr>
+    <td align="center"><strong>Dashboard</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/dashboard.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/dashboard.png" width="288" alt="Dashboard with demonstration websites"></a></td>
+    <td align="center"><strong>AI assistant</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-chat.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-chat.png" width="288" alt="AI assistant with example read-only diagnostics"></a></td>
+    <td align="center"><strong>AI preferences</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-settings.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/ai-settings.png" width="288" alt="AI preferences with neutral prompts and shortcuts"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Focused website cards</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/card-editor.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/card-editor.png" width="288" alt="Dashboard card editor with an example URL and CSS selector"></a></td>
+    <td align="center"><strong>Resource relationships</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/relationships.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/relationships.png" width="288" alt="Service graph with synthetic Gateway API routes and workload references"></a></td>
+    <td align="center"><strong>Resource search</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/resource-search.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/resource-search.png" width="288" alt="Resource search with Kubernetes discovery roles"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Power Logs</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/power-logs.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/power-logs.png" width="288" alt="Filtered synthetic workload logs with structured JSON details"></a></td>
+    <td align="center"><strong>Log snapshots and SQL</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/power-logs-sql.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/power-logs-sql.png" width="288" alt="Read-only SQL aggregation of a synthetic log snapshot"></a></td>
+    <td align="center"><strong>Bulk node actions</strong><br><a href="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/node-bulk-selection.png"><img src="https://raw.githubusercontent.com/64mb/freelens-power/main/docs/screenshots/node-bulk-selection.png" width="288" alt="Native node table with two synthetic fixture nodes selected for bulk actions"></a></td>
+  </tr>
+</table>
+
+## Features
+
+- 🔐 **Secure Node Shell:** custom connection commands, optional IPv6 preference, and automatic `colima ssh`
+- 📜 **Secret certificates:** PEM chain identities, issuers, serial numbers, validity dates, and expiration details
+- 🎨 **Accent themes:** eight colors for controls, links, and the welcome logo
+- 🏷️ **Cluster icons:** searchable grid, SVG icons, editable labels and colors, and live previews
+- 🍎 **macOS Dock icon:** follows your accent, with a separate restore toggle
+- 🧩 **Power Dashboard:** reorderable website cards, focused page elements, shared sessions, pinned windows, and optional automatic refresh
+- 📈 **Monitoring:** CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts
+- 🩺 **Resource diagnostics:** resource consumers, warning timelines, Pending/readiness triage, Service/HPA checks, and incident summaries
+- ⚓ **Helm:** fast release lists, revision history, YAML comparisons, background rollback, and confirmed values editing and deletion
+- 🖥️ **Nodes:** native table selection, confirmed bulk cordon/uncordon, and sequential drain respecting disruption budgets
+- 📋 **Power Logs:** colored workload logs, structured fields, source/level filters, local snapshots, read-only SQL, NDJSON export, and reviewable AI context
+- 🔗 **Resource relationships:** Service graphs connecting Ingress and Gateway API routes to pods, endpoints, owners, and nodes
+- 🔎 **Fast resource search:** double Shift, local metadata indexing, type/namespace filters, typo matching, resource links, and explicit AI attachments
+- 🗄️ **Local metric history:** optional SQLite storage, seven-day history within 100 MiB, aggregated ranges, and visible collection gaps
+- 🤖 **AI assistant:** Codex, Claude, or Pi CLI, per-cluster chats, model controls, editable shortcuts, read-only resource discovery, attachments, and pinned chat
+- 🛡️ **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
+- 🪟 **Interface:** reclaims the bottom status bar space; the master switch restores the native interface and preserves settings
+- ⚙️ **Settings:** native switches, compact dashboard editors, and JSON backup/restore of cards and prompt shortcuts
+
+---
+
+AI context can include resource identities, specifications, environment literals, and bounded logs. Recognized Secret/ConfigMap payloads and last-applied annotations are masked while keys remain visible; copies in free text may remain. Review attachments before sending. Terminal output requires explicit attachment; sent attachments stay in local history. AI SQL drafts never run automatically. Dashboard websites use isolated Electron views.
+
+Power Logs snapshots stay local, expire after one hour by default, and share a 1 GiB budget. Pinning preserves snapshots across restarts; stopping Power Logs removes unpinned captures. Settings provide retention, capture limits, storage usage, and confirmed cleanup. Writes stop when storage is full. Collection respects Kubernetes permissions; bounded tails can leave gaps. Native Pod logs remain available.
+
+Metric history requires an active cluster view and cannot backfill gaps. Timelines combine retained events with observed changes; Pending checks explain evidence without reproducing the scheduler. Node and Helm mutations require confirmation and respect read-only/context guards. Helm values editing requires the complete installed chart or its exact repository version; the native Helm view remains accessible.
 
 ## Develop
 
