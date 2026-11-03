@@ -1,21 +1,45 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable } from "mobx";
 
-export class PowerPreferencesStore extends Common.Store.ExtensionStore<{ enabled: boolean; checkUpdates: boolean }> {
+interface PowerPreferences {
+  enabled: boolean;
+  checkUpdates: boolean;
+  nodeBulkActions: boolean;
+  podBulkActions: boolean;
+}
+
+export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPreferences> {
   enabled = true;
   checkUpdates = true;
+  nodeBulkActions = true;
+  podBulkActions = true;
 
   constructor() {
-    super({ configName: "power-preferences", defaults: { enabled: true, checkUpdates: true } });
-    makeObservable(this, { enabled: observable, checkUpdates: observable });
+    super({
+      configName: "power-preferences",
+      defaults: { enabled: true, checkUpdates: true, nodeBulkActions: true, podBulkActions: true },
+    });
+    makeObservable(this, {
+      enabled: observable,
+      checkUpdates: observable,
+      nodeBulkActions: observable,
+      podBulkActions: observable,
+    });
   }
 
-  fromStore(data: { enabled?: boolean; checkUpdates?: boolean }): void {
+  fromStore(data: Partial<PowerPreferences>): void {
     this.enabled = data.enabled !== false;
     this.checkUpdates = data.checkUpdates !== false;
+    this.nodeBulkActions = data.nodeBulkActions !== false;
+    this.podBulkActions = data.podBulkActions !== false;
   }
 
   toJSON() {
-    return { enabled: this.enabled, checkUpdates: this.checkUpdates };
+    return {
+      enabled: this.enabled,
+      checkUpdates: this.checkUpdates,
+      nodeBulkActions: this.nodeBulkActions,
+      podBulkActions: this.podBulkActions,
+    };
   }
 }

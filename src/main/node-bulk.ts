@@ -152,7 +152,7 @@ export function startNodeBulk(): () => void {
     for (const entry of jobs.values()) entry.controller.abort();
   };
   const stop = reaction(
-    () => power.enabled && !readOnly.enabled,
+    () => power.enabled && power.nodeBulkActions !== false && !readOnly.enabled,
     (enabled) => {
       if (!enabled) abortAll();
     },
@@ -176,6 +176,8 @@ export function startNodeBulk(): () => void {
         if (r.operation === "cancel") entry.controller.abort();
         return { ok: true, contextId: entry.job.contextId, job: structuredClone(entry.job) };
       }
+      if (power.nodeBulkActions === false)
+        throw new NodeBulkError("unavailable", "Bulk node actions are disabled in preferences");
       const context = fingerprint(r.clusterId);
       if (r.operation === "context") return { ok: true, contextId: context };
       if (r.contextId !== context)
@@ -209,6 +211,7 @@ export function startNodeBulk(): () => void {
           if (
             active &&
             power.enabled &&
+            power.nodeBulkActions !== false &&
             !readOnly.enabled &&
             trustedSearchSender(event, r.clusterId) &&
             fingerprint(r.clusterId) === context

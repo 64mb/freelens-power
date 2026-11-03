@@ -27,7 +27,9 @@ function summary(message: HTMLElement): RemovalSummary | undefined {
   return { count, names, remaining };
 }
 
-export function startPodRemovalConfirmation(): () => void {
+export function startPodRemovalConfirmation(
+  options: { getSelectedNames?: () => readonly string[] | undefined } = {},
+): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "pod-removal-confirmation";
   const scope = ".ConfirmDialog:has(.power-pod-removal-summary)";
@@ -39,12 +41,16 @@ export function startPodRemovalConfirmation(): () => void {
     .power-pod-removal-summary { min-width: 0; overflow-wrap: anywhere; }
     .power-pod-removal-summary ul { list-style: disc; margin: 8px 0; padding-left: 24px; max-height: 40vh; overflow: auto; }
     .power-pod-removal-summary li { display: list-item; margin: 4px 0; }
+    .power-pod-removal-toggle { appearance: none; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+    .power-pod-removal-toggle:hover { text-decoration: underline; }
+    .power-pod-removal-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
     .power-pod-removal-remaining { color: var(--colorError); }
     :root ${scope} .Button.ok { display: inline-flex; align-items: center; gap: 6px; background: var(--colorError); color: #fff !important; }
     :root ${scope} .Button.ok:hover { background: color-mix(in srgb,var(--colorError) 88%,black); }
     .power-pod-removal-trash { --size: 18px; }
   `;
   document.head.append(style);
+  let selectedNames: readonly string[] | undefined;
   let armed = false;
   let stopped = false;
   let expiration: number | undefined;
@@ -82,13 +88,23 @@ export function startPodRemovalConfirmation(): () => void {
     const heading = document.createElement("p");
     heading.textContent = `Remove ${parsed.count} ${parsed.count === 1 ? "pod" : "pods"}?`;
     const list = document.createElement("ul");
-    for (const name of parsed.names) {
-      const item = document.createElement("li");
-      const code = document.createElement("code");
-      code.textContent = name;
-      item.append(code);
-      list.append(item);
-    }
+    list.id = "power-pod-removal-names";
+    const fullNames =
+      selectedNames?.length === parsed.count && parsed.names.every((name, index) => selectedNames?.[index] === name)
+        ? selectedNames
+        : undefined;
+    selectedNames = undefined;
+    const renderNames = (names: readonly string[]) => {
+      list.replaceChildren();
+      for (const name of names) {
+        const item = document.createElement("li");
+        const code = document.createElement("code");
+        code.textContent = name;
+        item.append(code);
+        list.append(item);
+      }
+    };
+    renderNames(parsed.names);
     replacement.append(heading, list);
     if (parsed.remaining) {
       const tail = document.createElement("p");
@@ -96,6 +112,22 @@ export function startPodRemovalConfirmation(): () => void {
       number.className = "power-pod-removal-remaining";
       number.textContent = String(parsed.remaining);
       tail.append("and ", number, " more");
+      if (fullNames) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "power-pod-removal-toggle";
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-controls", list.id);
+        toggle.append(...tail.childNodes);
+        toggle.addEventListener("click", () => {
+          const expanded = toggle.getAttribute("aria-expanded") !== "true";
+          toggle.setAttribute("aria-expanded", String(expanded));
+          renderNames(expanded ? fullNames : parsed.names);
+          if (expanded) toggle.textContent = "Show fewer";
+          else toggle.replaceChildren("and ", number, " more");
+        });
+        tail.append(toggle);
+      }
       replacement.append(tail);
     }
     const icon = document.createElement("span");
@@ -115,6 +147,12 @@ export function startPodRemovalConfirmation(): () => void {
     if (!(target instanceof Element)) return;
     const button = target.closest<HTMLButtonElement>(".Pods .AddRemoveButtons .remove-button");
     if (!button || button.disabled || button.classList.contains("disabled")) return;
+    try {
+      const names = options.getSelectedNames?.();
+      selectedNames = names ? [...names] : undefined;
+    } catch {
+      selectedNames = undefined;
+    }
     armed = true;
     window.clearTimeout(expiration);
     // keep capture armed through native click handlers and their microtask checkpoints
@@ -122,6 +160,7 @@ export function startPodRemovalConfirmation(): () => void {
       expiration = undefined;
       reconcile();
       armed = false;
+      selectedNames = undefined;
     }, 0);
   };
   document.addEventListener("click", arm, true);
@@ -135,6 +174,7 @@ export function startPodRemovalConfirmation(): () => void {
   });
   return () => {
     stopped = true;
+    selectedNames = undefined;
     armed = false;
     window.clearTimeout(expiration);
     document.removeEventListener("click", arm, true);

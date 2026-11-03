@@ -4,7 +4,16 @@ Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tes
 
 ## Install
 
-Install `@64mb/freelens-power` from the npm registry in Freelens Extensions, or download the `.tgz` package from [GitHub Releases](https://github.com/64mb/freelens-power/releases), open **Extensions** in Freelens (`Cmd+Shift+E` on macOS), and install it by its absolute path. The installed Power entry provides **Update**, which opens the native installer for the latest package and keeps its replacement confirmation. Update notifications can open the same installer; disable automatic checks below **Enable Freelens Power** in preferences. After an update, a notification recommends restarting when convenient and provides **Restart Freelens**. You can also build and pack the extension locally.
+**Installation**
+
+- Open Freelens **Extensions** (`Cmd+Shift+E` on macOS) and install `@64mb/freelens-power` from npm
+- Alternatively, install a `.tgz` from [GitHub Releases](https://github.com/64mb/freelens-power/releases) by its absolute path, or build and pack locally
+
+**Updates**
+
+- Click **Update** on the Power entry or use an update notification to open the native installer and confirm replacement
+- Disable automatic checks below **Enable Freelens Power** in preferences
+- After updating, use **Restart Freelens** in the notification when convenient
 
 ## Screenshots
 
@@ -34,7 +43,6 @@ Real extension components with synthetic websites, prompts, conversations, and d
 - 📜 **Secret certificates:** PEM chain identities, issuers, serial numbers, validity dates, and expiration details
 - 🎨 **Accent themes:** eight colors for controls, links, and the welcome logo
 - 🏷️ **Cluster icons:** searchable grid, SVG icons, editable labels and colors, and live previews
-- 🍎 **macOS Dock icon:** follows your accent, with a separate restore toggle
 - 🧩 **Power Dashboard:** reorderable website cards, focused page elements, shared sessions, pinned windows, and optional automatic refresh
 - 📈 **Monitoring:** CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts
 - 🩺 **Resource diagnostics:** resource consumers, warning timelines, Pending/readiness triage, Service/HPA checks, and incident summaries
@@ -48,6 +56,7 @@ Real extension components with synthetic websites, prompts, conversations, and d
 - 🛡️ **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
 - 🪟 **Interface:** reclaims the bottom status bar space; the master switch restores the native interface and preserves settings
 - ⚙️ **Settings:** native switches, compact dashboard editors, and JSON backup/restore of cards and prompt shortcuts
+- 🍎 **macOS Dock icon:** follows your accent, with a separate restore toggle
 
 ---
 

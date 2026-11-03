@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 
 const preferences = vi.hoisted(() => ({
@@ -41,12 +41,8 @@ vi.mock("@freelensapp/extensions", () => ({
 
 import { MonitoringPreferences } from "./monitoring-preferences";
 
-it("uses the native switch to disable the full search feature independently of Relationships", async () => {
+it("keeps resource search outside Monitoring settings", async () => {
   render(<MonitoringPreferences />);
-  const toggle = screen.getByRole("checkbox", { name: "Enable resource search (Shift–Shift)" });
-  expect((toggle as HTMLInputElement).checked).toBe(true);
-  fireEvent.click(toggle);
-  expect(preferences.resourceSearchEnabled).toBe(false);
-  expect(preferences.relationshipsVisible).toBe(true);
-  expect(screen.getByText(/Turning this off stops keyboard search and background indexing/)).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: /resource search/ })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "Show Relationships in sidebar" })).toBeTruthy();
 });

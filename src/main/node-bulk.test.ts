@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   chmod: vi.fn(),
   write: vi.fn(),
   rm: vi.fn(),
-  power: { enabled: true },
+  power: { enabled: true, nodeBulkActions: true },
   readOnly: { enabled: false },
 }));
 vi.mock("@freelensapp/extensions", () => ({
@@ -57,7 +57,7 @@ function job(): NodeBulkJob {
 }
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.power = observable({ enabled: true });
+  mocks.power = observable({ enabled: true, nodeBulkActions: true });
   mocks.readOnly = observable({ enabled: false });
   mocks.trusted.mockReturnValue(true);
   mocks.cluster.mockReturnValue({ contextName: "neutral", kubeConfigPath: "/neutral/config" });
@@ -159,7 +159,7 @@ it("rejects untrusted senders and changed context before execution", async () =>
   expect(mocks.exec).not.toHaveBeenCalled();
   stop();
 });
-it("read-only mode kills a running job and prevents the next node", async () => {
+it.each(["readOnly", "nodeBulkActions"])("%s kills a running job and prevents the next node", async (guard) => {
   const stop = startNodeBulk();
   const handler = mocks.handle.mock.calls[0][1];
   const event = { sender: Object.assign(new EventEmitter(), { id: 1 }), senderFrame: { processId: 1, routingId: 1 } };
@@ -182,7 +182,8 @@ it("read-only mode kills a running job and prevents the next node", async () => 
     ],
   });
   runInAction(() => {
-    mocks.readOnly.enabled = true;
+    if (guard === "nodeBulkActions") mocks.power.nodeBulkActions = false;
+    else mocks.readOnly.enabled = true;
   });
   expect(kill).toHaveBeenCalledWith("SIGKILL");
   finish!(Error("cancelled"), "", "");

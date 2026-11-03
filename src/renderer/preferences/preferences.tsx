@@ -7,6 +7,7 @@ import { HelmPreferences } from "./helm-preferences";
 import { LogsPreferences } from "./logs-preferences";
 import { MonitoringPreferences } from "./monitoring-preferences";
 import { NodeShellPreferences } from "./node-shell-preferences";
+import { OtherPreferences } from "./other-preferences";
 import { PowerPreferencesToggle } from "./power-preferences";
 import { ReadOnlyPreferences } from "./read-only-preferences";
 import { focusPreferencesSection } from "./section-navigation";
@@ -165,6 +166,12 @@ export const PowerPreferences = () => (
         <Renderer.Component.Icon material="dashboard" size={20} /> Dashboard
       </h3>
       <DashboardPreferences />
+    </section>
+    <section id="freelens-power-other-section" tabIndex={-1} aria-labelledby="freelens-power-other-title">
+      <h3 id="freelens-power-other-title">
+        <Renderer.Component.Icon material="tune" size={20} /> Other
+      </h3>
+      <OtherPreferences />
     </section>
   </div>
 );
