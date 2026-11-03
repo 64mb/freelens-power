@@ -693,6 +693,20 @@ describe("AI chat", () => {
     expect(aiLauncherBottom()).toBe(window.innerHeight - 640 + 32);
   });
 
+  it("anchors Dashboard AI to its own visible workspace with equal edge gaps", () => {
+    document.body.innerHTML = '<main class="freelens-power-dashboard"></main>';
+    vi.spyOn(document.body.firstElementChild!, "getBoundingClientRect").mockReturnValue({
+      left: 80,
+      right: 1000,
+      bottom: 640,
+      width: 920,
+      height: 600,
+    } as DOMRect);
+    expect(aiLauncherRight()).toBe(window.innerWidth - 1000 + 32);
+    expect(aiLauncherLeft()).toBe(112);
+    expect(aiLauncherBottom()).toBe(window.innerHeight - 640 + 32);
+  });
+
   it("moves the floating launcher left for log details and attaches logs only on its explicit click", async () => {
     window.history.replaceState({}, "", "/power-logs");
     document.body.innerHTML = '<div class="main-layout-module__contents--example"></div>';

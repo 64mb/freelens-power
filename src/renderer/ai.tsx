@@ -75,7 +75,9 @@ export function isAiClusterDocument(): boolean {
 }
 
 function aiLauncherWorkspace(): DOMRect | undefined {
-  const element = document.querySelector<HTMLElement>('[class*="main-layout-module__contents--"]');
+  const element = document.querySelector<HTMLElement>(
+    '[class*="main-layout-module__contents--"], main.freelens-power-dashboard',
+  );
   if (!element || element.hidden) return undefined;
   const style = getComputedStyle(element);
   const rect = element.getBoundingClientRect();
@@ -415,6 +417,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       const elements = [
         document.querySelector(".Dock"),
         document.querySelector('[class*="main-layout-module__contents--"]'),
+        document.querySelector("main.freelens-power-dashboard"),
         document.querySelector(".AddRemoveButtons"),
         document.querySelector('[data-testid="cluster-sidebar"], .Sidebar'),
       ].filter((element): element is Element => !!element);
