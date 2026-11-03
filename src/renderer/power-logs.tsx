@@ -1580,6 +1580,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       data-testid="power-logs-page"
       data-compact={compact || undefined}
       data-hide-resource-name={hideResourceName || undefined}
+      data-details-open={(tab === "live" ? Boolean(selected) : Boolean(selectedSqlRow)) || undefined}
     >
       <style>{powerLogsStyles}</style>
       <header>

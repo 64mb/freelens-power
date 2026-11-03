@@ -433,7 +433,7 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   const toggle = settings.locator('label[data-testid="switch"]').filter({ hasText: "Enable AI features" });
   if (!(await toggle.locator("input").isChecked())) await toggle.click();
   const provider = settings.locator(".Select:has(#power-ai-cli)");
-  await provider.getByRole("combobox").click();
+  await provider.locator(".Select__control").click();
   await session.window
     .getByRole("option")
     .filter({ hasText: /^OpenAI API$/ })
@@ -442,7 +442,7 @@ extensionTest("AI resource attachment survives closing its drawer", async (sessi
   await expect(settings.getByText(/Restricted key: Model capabilities/)).toBeVisible();
   await expect(provider.locator('[data-provider="codex-api"]')).toHaveAttribute("src", /^data:image\/svg\+xml/);
   await expect(settings.getByRole("button", { name: "Save key", exact: true })).toBeDisabled();
-  await provider.getByRole("combobox").click();
+  await provider.locator(".Select__control").click();
   await session.window
     .getByRole("option")
     .filter({ hasText: /^Codex$/ })

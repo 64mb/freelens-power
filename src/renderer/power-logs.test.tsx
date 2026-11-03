@@ -1654,7 +1654,7 @@ it("restores a manually scrolled live viewport without overriding follow tail", 
   const scrollHeight = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(272);
   try {
     const view = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Follow tail" }));
+    fireEvent.click(screen.getByText("Follow tail"));
     const viewport = screen.getByLabelText("Log lines");
     viewport.scrollTop = 68;
     fireEvent.scroll(viewport);
@@ -1662,13 +1662,13 @@ it("restores a manually scrolled live viewport without overriding follow tail", 
     window.history.replaceState({}, "", "/");
     const restored = render(<PowerLogsPage />);
     expect(screen.getByLabelText("Log lines").scrollTop).toBe(68);
-    expect(screen.getByRole("button", { name: "Follow tail" }).getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(screen.getByRole("button", { name: "Follow tail" }));
+    expect(screen.getByText("Follow tail").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByText("Follow tail"));
     expect(screen.getByLabelText("Log lines").scrollTop).toBe(272);
     restored.unmount();
     render(<PowerLogsPage />);
     expect(screen.getByLabelText("Log lines").scrollTop).toBe(272);
-    expect(screen.getByRole("button", { name: "Follow tail" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Follow tail").getAttribute("aria-pressed")).toBe("true");
   } finally {
     scrollHeight.mockRestore();
   }
