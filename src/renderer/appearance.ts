@@ -62,7 +62,8 @@ export function startAppearanceOverride(): () => void {
         :root .Dock > .ResizingAnchor { --blue: var(--primary); }
         :root .CatalogAddButton .MuiFab-primary:not(.Mui-disabled) { background-color: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
         :root .CatalogAddButton .MuiFab-primary:not(.Mui-disabled):hover { background-color: color-mix(in srgb, var(--primary) 88%, black) !important; }
-        :root .MenuItem:is(.create-terminal-tab, .create-resource-tab) { --bgc-active: var(--primary); }
+        :root .MenuItem { --bgc-active: var(--primary); --color-active: var(--freelens-power-accent-foreground); }
+        :root [data-testid="no-metrics-message"] { --blue: var(--primary); }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
         :root .Select__option--is-focused:not(.Select__option--is-selected) { color: var(--textColorAccent) !important; }
         :root .Button.primary:not(.plain):not(.outlined):not(.light):not(.remove-button) { color: var(--freelens-power-accent-foreground); }

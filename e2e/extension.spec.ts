@@ -1059,6 +1059,7 @@ extensionTest(
         await expect(toggle.locator("input")).toBeChecked({ checked: enabled });
         await session.window.getByTestId("close-preferences").click();
       };
+      await setSwitch("Enable AI features", true);
       await frame.getByTestId("link-for-sidebar-item-workloads").click();
       await frame.getByTestId("link-for-sidebar-item-pods").click();
       const pods = frame.locator(".Pods");
@@ -1067,8 +1068,27 @@ extensionTest(
       await frame.getByRole("option").filter({ hasText: namespace }).click();
       await expect(namespaces).toContainText(namespace);
       await expect(pods.locator(".TableRow[id]").first()).toBeVisible();
+      const launcher = frame.getByRole("button", { name: "Open AI assistant", exact: true });
+      await expect(launcher).toBeVisible();
+      await expect(launcher).toHaveCSS("height", "38px");
+      await expect
+        .poll(async () => {
+          const slot = await pods.locator(".AddRemoveButtons").boundingBox();
+          const button = await launcher.boundingBox();
+          return (
+            !!slot &&
+            !!button &&
+            Math.abs(button.x - (slot.x + slot.width - 38)) < 1 &&
+            Math.abs(button.y - (slot.y + slot.height - 38)) < 1
+          );
+        })
+        .toBe(true);
+      const launcherBox = await launcher.boundingBox();
       await pods.locator(".TableHead .Checkbox").click();
       const podActions = pods.locator(".AddRemoveButtons .remove-button");
+      const podActionsBox = await podActions.boundingBox();
+      expect(podActionsBox?.x).toBeCloseTo(launcherBox!.x, 1);
+      expect(podActionsBox?.y).toBeCloseTo(launcherBox!.y, 1);
       await podActions.hover();
       const hoverBorder = await podActions.evaluate((element) => {
         const probe = document.createElement("span");
@@ -1172,9 +1192,8 @@ extensionTest(
       });
       await expect(cordonMenu).toHaveCSS("background-color", accent);
       await frame.getByRole("menuitem", { name: "Drain", exact: true }).click();
-      await expect(confirmation.locator(".power-node-bulk-confirmation")).toContainText(
-        "respecting disruption budgets",
-      );
+      await expect(confirmation.locator(".power-node-bulk-confirmation")).toContainText("disruption budgets");
+      await expect(confirmation.locator(".power-node-bulk-confirmation")).not.toContainText(";");
       await expect(confirmation).toContainText(fixtures.nodes[0].metadata.name);
       await expect(confirmation).toContainText(fixtures.nodes[1].metadata.name);
       await expect(confirmation.locator(".power-node-bulk-confirmation ul")).toHaveCSS("list-style-type", "disc");

@@ -66,7 +66,33 @@ export function isAiClusterDocument(): boolean {
   return window.top !== window && Boolean(Renderer.Catalog.activeCluster.get());
 }
 
+function aiLauncherFloatAnchor(): { left: number; bottom: number } | undefined {
+  for (const controls of document.querySelectorAll<HTMLElement>(".AddRemoveButtons")) {
+    const style = window.getComputedStyle(controls);
+    const rect = controls.getBoundingClientRect();
+    if (
+      controls.hidden ||
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      !Number.isFinite(rect.right) ||
+      !Number.isFinite(rect.bottom) ||
+      rect.right <= 0 ||
+      rect.bottom <= 0 ||
+      rect.bottom > window.innerHeight
+    )
+      continue;
+    return { left: Math.max(16, rect.right - 38), bottom: window.innerHeight - rect.bottom };
+  }
+  return undefined;
+}
+
+export function aiLauncherFloatLeft(): number {
+  return aiLauncherFloatAnchor()?.left ?? Math.max(16, window.innerWidth - 70);
+}
+
 export function aiLauncherBottom(): number {
+  const anchor = aiLauncherFloatAnchor();
+  if (anchor) return anchor.bottom;
   const dock = document.querySelector<HTMLElement>(".Dock");
   if (!dock) return 16;
   const rect = dock.getBoundingClientRect();
@@ -141,7 +167,7 @@ body:has(.AddRemoveButtons .remove-button:not([data-freelens-power-read-only])) 
 .power-ai-dots > span:nth-child(3) { animation-delay: .3s; }
 @media (prefers-reduced-motion: reduce) { .power-ai-read-activity [data-status="reading"] .Icon, .power-ai-dots > span { animation: none; } }
 @keyframes power-ai-enter { from { transform: translateX(100%); } to { transform: translateX(0); } }
-:root .power-ai-launcher { position: fixed; bottom: 16px; left: auto; right: 16px; z-index: 100; display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 0; height: 34px; border: 1px solid var(--primary, #5896ff); border-radius: 24px; padding: 0 13px; background: var(--contentColor, #242424); color: var(--textColorAccent); box-shadow: 0 3px 12px #0003; font: inherit; font-size: 12px; font-weight: 500; line-height: 1; cursor: pointer; transition: opacity 180ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 180ms ease; }
+:root .power-ai-launcher { position: fixed; bottom: 16px; left: auto; right: 16px; z-index: 100; display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 0; box-sizing: border-box; height: 38px; border: 1px solid var(--primary, #5896ff); border-radius: 24px; padding: 0 13px; background: var(--contentColor, #242424); color: var(--textColorAccent); box-shadow: 0 3px 12px #0003; font: inherit; font-size: 12px; font-weight: 500; line-height: 1; cursor: pointer; transition: opacity 180ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 180ms ease; }
 .power-ai-overview-actions { position: relative; z-index: 5; height: 0; min-height: 0; flex: 0 0 0; pointer-events: none; }
 .power-ai-overview-actions + [data-testid="cluster-overview-page"] [data-monitoring-summaries] { --power-monitoring-summary-top: 56px; }
 .power-ai-overview-actions button { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; position: absolute; top: 12px; right: 12px; pointer-events: auto; box-shadow: 0 2px 8px #0002; display: inline-flex; flex: 0 0 auto; width: auto; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px; font: inherit; font-size: 12px; border: 1px solid var(--borderFaintColor); border-radius: 10px; color: var(--textColorPrimary); background: var(--contentColor); cursor: pointer; }
@@ -274,6 +300,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
   const [pinned, setPinned] = useState(false);
   const [launcherBottom, setLauncherBottom] = useState(aiLauncherBottom);
   const [launcherLeft, setLauncherLeft] = useState(aiLauncherLeft);
+  const [launcherFloatLeft, setLauncherFloatLeft] = useState(aiLauncherFloatLeft);
   const [resourceDetailsOpen, setResourceDetailsOpen] = useState(hasAiResourceDetails);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [launcherHidden, setLauncherHidden] = useState(false);
@@ -366,13 +393,16 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
         : new ResizeObserver(() => {
             setLauncherBottom(aiLauncherBottom());
             setLauncherLeft(aiLauncherLeft());
+            setLauncherFloatLeft(aiLauncherFloatLeft());
           });
     const updateDock = () => {
       setViewportWidth(window.innerWidth);
       setLauncherBottom(aiLauncherBottom());
       setLauncherLeft(aiLauncherLeft());
+      setLauncherFloatLeft(aiLauncherFloatLeft());
       const elements = [
         document.querySelector(".Dock"),
+        document.querySelector(".AddRemoveButtons"),
         document.querySelector('[data-testid="cluster-sidebar"], .Sidebar'),
       ].filter((element): element is Element => !!element);
       if (
@@ -818,8 +848,8 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
             tabIndex={launcherHidden ? -1 : 0}
             style={{
               bottom: launcherBottom,
-              left: resourceDetailsOpen ? launcherLeft : "auto",
-              right: resourceDetailsOpen ? "auto" : 16,
+              left: resourceDetailsOpen ? launcherLeft : launcherFloatLeft,
+              right: "auto",
             }}
             onPointerDown={attachScreenResource}
             onMouseDown={attachScreenResource}

@@ -146,7 +146,7 @@ describe("application accent override", () => {
     expect(downloadRule()).toBeUndefined();
   });
 
-  it("accents sidebar and dock resize handles and the dock creation menu without changing status colors", () => {
+  it("accents resize handles and native menu items without changing status colors", () => {
     document.body.innerHTML = `
       <div class="main-layout-module__sidebar--example"><div class="ResizingAnchor horizontal"></div></div>
       <div class="Dock"><div class="ResizingAnchor vertical"></div></div>
@@ -156,10 +156,10 @@ describe("application accent override", () => {
     try {
       dispose = startAppearanceOverride();
       const sidebarRule = () => rules().find((rule) => rule.selectorText.includes("main-layout-module__sidebar--"));
-      const dockRule = () => rules().find((rule) => rule.selectorText.includes("create-terminal-tab"));
+      const dockRule = () => rules().find((rule) => rule.selectorText === ":root .MenuItem");
       const dockResizeRule = () => rules().find((rule) => rule.selectorText.includes(".Dock > .ResizingAnchor"));
       expect(document.querySelectorAll(sidebarRule()!.selectorText)).toHaveLength(1);
-      expect(document.querySelectorAll(dockRule()!.selectorText)).toHaveLength(2);
+      expect(document.querySelectorAll(dockRule()!.selectorText)).toHaveLength(3);
       expect(document.querySelectorAll(dockResizeRule()!.selectorText)).toHaveLength(1);
       expect(sidebarRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
       expect(dockRule()?.style.getPropertyValue("--bgc-active")).toBe("var(--primary)");
@@ -179,6 +179,40 @@ describe("application accent override", () => {
       expect(sidebarRule()).toBeUndefined();
       expect(dockRule()).toBeUndefined();
       expect(dockResizeRule()).toBeUndefined();
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("accents metrics settings links and restores native styles for default, disable and disposal", () => {
+    document.body.innerHTML =
+      '<div data-testid="no-metrics-message"><span>Open cluster settings</span></div><span class="unrelated-link"></span>';
+    try {
+      dispose = startAppearanceOverride();
+      const linkRule = () => rules().find((rule) => rule.selectorText.includes('[data-testid="no-metrics-message"]'));
+      const menuRule = () => rules().find((rule) => rule.selectorText === ":root .MenuItem");
+      expect(document.querySelectorAll(linkRule()!.selectorText)).toHaveLength(1);
+      expect(linkRule()?.style.getPropertyValue("--blue")).toBe("var(--primary)");
+      expect(menuRule()?.style.getPropertyValue("--color-active")).toBe("var(--freelens-power-accent-foreground)");
+      for (const selection of ["default", DEFAULT_ACCENT_COLOR] as const) {
+        runInAction(() => {
+          preferences.accentColor = selection;
+        });
+        expect(!!linkRule()).toBe(selection !== "default");
+        expect(!!menuRule()).toBe(selection !== "default");
+      }
+      runInAction(() => {
+        preferences.enabled = false;
+      });
+      expect(linkRule()).toBeUndefined();
+      expect(menuRule()).toBeUndefined();
+      runInAction(() => {
+        preferences.enabled = true;
+      });
+      expect(linkRule()).toBeDefined();
+      dispose();
+      expect(linkRule()).toBeUndefined();
+      expect(menuRule()).toBeUndefined();
     } finally {
       document.body.innerHTML = "";
     }
