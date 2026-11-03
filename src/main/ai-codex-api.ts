@@ -1,3 +1,5 @@
+import { getCACertificates } from "node:tls";
+import { net } from "electron";
 import WebSocket from "ws";
 import { CODEX_API_MODELS, CODEX_API_REASONING_EFFORTS } from "../common/ai-models";
 import { readAiApiKey } from "./ai-api-key";
@@ -20,6 +22,68 @@ export class CodexApiError extends Error {
 
 function errorRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function transportCodes(failure: unknown): unknown[] {
+  const error = errorRecord(failure);
+  const chromium =
+    typeof error.message === "string" && /^net::[A-Z_]+$/.test(error.message) ? error.message.slice(5) : undefined;
+  return [error.code, errorRecord(error.cause).code, chromium];
+}
+
+function tlsFailure(failure: unknown): boolean {
+  return transportCodes(failure).some(
+    (code) =>
+      typeof code === "string" &&
+      [
+        "ERR_TLS_CERT_ALTNAME_INVALID",
+        "DEPTH_ZERO_SELF_SIGNED_CERT",
+        "SELF_SIGNED_CERT_IN_CHAIN",
+        "CERT_HAS_EXPIRED",
+        "CERT_NOT_YET_VALID",
+        "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+        "ERR_CERT_AUTHORITY_INVALID",
+        "ERR_CERT_COMMON_NAME_INVALID",
+        "ERR_CERT_DATE_INVALID",
+        "ERR_CERT_INVALID",
+      ].includes(code),
+  );
+}
+
+function networkFailure(failure: unknown): boolean {
+  return transportCodes(failure).some(
+    (code) =>
+      typeof code === "string" &&
+      [
+        "ECONNRESET",
+        "ECONNREFUSED",
+        "ECONNABORTED",
+        "EHOSTUNREACH",
+        "ENETUNREACH",
+        "ENETDOWN",
+        "ETIMEDOUT",
+        "ENOTFOUND",
+        "EAI_AGAIN",
+        "EPIPE",
+        "ERR_NETWORK",
+        "UND_ERR_CONNECT_TIMEOUT",
+        "UND_ERR_HEADERS_TIMEOUT",
+        "UND_ERR_BODY_TIMEOUT",
+        "UND_ERR_SOCKET",
+        "UND_ERR_CONNECT",
+        "ERR_PROXY_CONNECTION_FAILED",
+        "ERR_TUNNEL_CONNECTION_FAILED",
+        "ERR_NAME_NOT_RESOLVED",
+        "ERR_CONNECTION_REFUSED",
+        "ERR_CONNECTION_RESET",
+        "ERR_INTERNET_DISCONNECTED",
+        "ERR_NETWORK_CHANGED",
+        "ERR_ADDRESS_UNREACHABLE",
+        "ERR_TIMED_OUT",
+        "ERR_CONNECTION_TIMED_OUT",
+      ].includes(code),
+  );
 }
 
 function apiFailure(status: number | undefined, payload: unknown): CodexApiError {
@@ -193,6 +257,11 @@ async function readResponseStream(
     if (++events > 16384 || completed) return invalid();
     const event = JSON.parse(raw);
     if (!event || typeof event !== "object" || typeof event.type !== "string") return invalid();
+    if (event.type === "freelens.transport.tls") throw new CodexApiError("API_TLS");
+    if (event.type === "freelens.transport.interrupted") throw new CodexApiError("API_STREAM_INTERRUPTED");
+    if (event.type === "freelens.transport.limit") throw new Error("AI response exceeded the size limit");
+    if (event.type === "freelens.transport.invalid") return invalid();
+    if (event.type === "freelens.transport.internal") throw new CodexApiError("API_FAILURE");
     if (["error", "response.failed"].includes(event.type)) throw apiFailure(undefined, event);
     if (["response.incomplete", "response.refusal.delta", "response.refusal.done"].includes(event.type))
       throw new Error("AI returned an incomplete response");
@@ -306,6 +375,10 @@ async function readResponseStream(
     if (streamed && streamed !== text) return invalid();
     if (!calls.length && !text) return invalid();
     return { id: completed.id, serviceTier: completed.service_tier, output, text, calls, reads };
+  } catch (failure) {
+    if (tlsFailure(failure)) throw new CodexApiError("API_TLS");
+    if (networkFailure(failure)) throw new CodexApiError("API_STREAM_INTERRUPTED");
+    throw failure;
   } finally {
     controller.signal.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
@@ -317,6 +390,8 @@ async function connectSocket(key: string, signal: AbortSignal): Promise<WebSocke
   return new Promise((resolve, reject) => {
     const socket = new WebSocket("wss://api.openai.com/v1/responses", {
       headers: { Authorization: `Bearer ${key}` },
+      ca: [...new Set([...getCACertificates("default"), ...getCACertificates("system")])],
+      rejectUnauthorized: true,
       maxPayload: maximumResponseBytes,
       perMessageDeflate: false,
       handshakeTimeout: 10000,
@@ -330,10 +405,10 @@ async function connectSocket(key: string, signal: AbortSignal): Promise<WebSocke
       socket.removeListener("close", failed);
       socket.removeListener("unexpected-response", failed);
     };
-    const failed = () => {
+    const failed = (failure?: unknown) => {
       cleanup();
       socket.terminate();
-      reject(new CodexApiError("API_NETWORK"));
+      reject(new CodexApiError(tlsFailure(failure) ? "API_TLS" : "API_NETWORK"));
     };
     const abort = () => {
       cleanup();
@@ -354,46 +429,72 @@ async function connectSocket(key: string, signal: AbortSignal): Promise<WebSocke
 }
 
 function socketResponse(socket: WebSocket, body: Record<string, unknown>): Response {
+  const { stream: _stream, ...request } = body;
+  const payload = JSON.stringify({ type: "response.create", ...request });
   let detach = () => {};
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const cleanup = () => {
-        socket.removeListener("message", message);
-        socket.removeListener("error", failed);
-        socket.removeListener("close", closed);
-      };
-      const failed = () => {
-        cleanup();
-        controller.error(new CodexApiError("API_NETWORK"));
-      };
-      const closed = () => {
-        failed();
-      };
-      const message = (data: WebSocket.RawData, binary: boolean) => {
-        const raw = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
-        if (binary || raw.length > maximumEventBytes || (controller.desiredSize ?? 0) < -16) {
-          failed();
-          return;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        let finished = false;
+        const cleanup = () => {
+          socket.removeListener("message", message);
+          socket.removeListener("error", failed);
+          socket.removeListener("close", closed);
+        };
+        const finish = (type: "interrupted" | "limit" | "invalid" | "internal" | "tls") => {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          controller.enqueue(Buffer.from(`data: {"type":"freelens.transport.${type}"}\n\n`));
+          controller.close();
+        };
+        const failed = (failure?: unknown) => {
+          finish(tlsFailure(failure) ? "tls" : "interrupted");
+        };
+        const closed = () => {
+          finish("interrupted");
+        };
+        const message = (data: WebSocket.RawData, binary: boolean) => {
+          if (finished) return;
+          const raw = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
+          if (binary) {
+            finish("invalid");
+            return;
+          }
+          const framedBytes = raw.length + 8;
+          if (raw.length > maximumEventBytes || framedBytes > (controller.desiredSize ?? 0)) {
+            finish("limit");
+            return;
+          }
+          controller.enqueue(Buffer.concat([Buffer.from("data: "), raw, Buffer.from("\n\n")]));
+        };
+        detach = () => {
+          finished = true;
+          cleanup();
+        };
+        socket.on("message", message);
+        socket.on("error", failed);
+        socket.on("close", closed);
+        try {
+          socket.send(payload, (error) => {
+            if (error) failed(error);
+          });
+        } catch (failure) {
+          finish(
+            tlsFailure(failure)
+              ? "tls"
+              : socket.readyState !== WebSocket.OPEN || networkFailure(failure)
+                ? "interrupted"
+                : "internal",
+          );
         }
-        controller.enqueue(Buffer.concat([Buffer.from("data: "), raw, Buffer.from("\n\n")]));
-      };
-      detach = cleanup;
-      socket.on("message", message);
-      socket.on("error", failed);
-      socket.on("close", closed);
-      try {
-        const { stream: _stream, ...request } = body;
-        socket.send(JSON.stringify({ type: "response.create", ...request }), (error) => {
-          if (error) failed();
-        });
-      } catch {
-        failed();
-      }
+      },
+      cancel() {
+        detach();
+      },
     },
-    cancel() {
-      detach();
-    },
-  });
+    { highWaterMark: maximumResponseBytes, size: (chunk) => chunk.byteLength },
+  );
   return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
 }
 
@@ -503,9 +604,10 @@ export function createCodexApiSession(
               input: previousId ? input.slice(sentItems) : input,
               ...(previousId ? { previous_response_id: previousId } : {}),
             })
-          : await fetch("https://api.openai.com/v1/responses", {
+          : await net.fetch("https://api.openai.com/v1/responses", {
               method: "POST",
               redirect: "error",
+              credentials: "omit",
               signal: controller.signal,
               headers: {
                 Authorization: `Bearer ${key}`,
@@ -544,7 +646,9 @@ export function createCodexApiSession(
           return invalid();
         if (failure instanceof Error && /^(AI API |AI returned |AI response exceeded)/.test(failure.message))
           throw failure;
-        throw new CodexApiError("API_NETWORK");
+        throw new CodexApiError(
+          tlsFailure(failure) ? "API_TLS" : networkFailure(failure) ? "API_NETWORK" : "API_FAILURE",
+        );
       } finally {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", abort);

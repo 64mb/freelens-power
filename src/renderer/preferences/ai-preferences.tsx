@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { AI_API_KEY_SET_CHANNEL, AI_API_KEY_STATUS_CHANNEL, type AiApiKeyStatus } from "../../common/ai";
 import { AI_MODELS_CHANNEL, type AiModel, CODEX_API_MODELS, piModelLabel } from "../../common/ai-models";
 import { AiPreferencesStore } from "../../common/store/ai-preferences-store";
+import { AiIcon } from "../ai-icon";
 import { AiProviderIcon } from "../ai-provider-icon";
 import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
 
@@ -92,7 +93,8 @@ function CodexApiKeyPreferences({ disabled }: { disabled: boolean }) {
             void save(key.trim());
           }}
         >
-          Save key
+          <AiIcon material="save" size={14} />
+          Save
         </Button>
         <Button
           type="button"
@@ -102,18 +104,21 @@ function CodexApiKeyPreferences({ disabled }: { disabled: boolean }) {
             void save("");
           }}
         >
-          Clear key
+          <AiIcon material="delete_outline" size={14} />
+          Clear
         </Button>
       </div>
-      <div className="power-settings-hint">Requires a restricted API key with write access to Responses API.</div>
-      <div className="power-settings-hint" role="status">
-        {status
-          ? !status.available
-            ? "Secure key storage is unavailable. OpenAI API cannot be used."
-            : status.configured
-              ? "API key configured in secure storage."
-              : "No API key configured."
-          : "Checking secure key storage…"}
+      <div className="power-settings-hint">
+        Requires a restricted API key with write access to Responses API.{" "}
+        <span role="status">
+          {status
+            ? !status.available
+              ? "Secure key storage is unavailable. OpenAI API cannot be used."
+              : status.configured
+                ? "API key configured in secure storage."
+                : "No API key configured."
+            : "Checking secure key storage…"}
+        </span>
       </div>
       {error && <div role="alert">{error}</div>}
     </div>

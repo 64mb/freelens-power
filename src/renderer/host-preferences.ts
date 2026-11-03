@@ -30,11 +30,7 @@ export function startHostPreferencesStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-preferences";
   style.textContent = `
-    .Preferences.SettingLayout [data-testid="close-preferences"] > [role="button"] { box-sizing:border-box; width:32px; height:32px; border:0; border-radius:6px; transition:color 160ms ease,background-color 160ms ease; }
-    .Preferences.SettingLayout [data-testid="close-preferences"] > [role="button"]:hover { background:color-mix(in srgb,var(--primary) 10%,transparent); }
-    .Preferences.SettingLayout [data-testid="close-preferences"] > [role="button"]:hover .Icon { color:var(--primary); opacity:1; }
-    .Preferences.SettingLayout [data-testid="close-preferences"] > [role="button"]:active { transform:none; }
-    .Preferences.SettingLayout [data-testid="close-preferences"] > [aria-hidden="true"] { width:32px; margin-top:4px; font-size:10px; line-height:1; font-weight:500; }
+    .Preferences.SettingLayout > .contentRegion > .content:has(.freelens-power-preferences) { box-sizing:border-box; width:100%; max-width:740px; min-width:0; }
     .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header { gap: 8px; }
     .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header > .Icon { margin: 0; flex: 0 0 18px; --size: 18px; }
     .Preferences.SettingLayout > .sidebarRegion :is([data-preference-tab-group-test="general-tab-group"], [data-preference-tab-group-test="extensions-tab-group"]) > [data-preference-tab-link-test] { margin-left: 12px; width: calc(100% - 12px); box-sizing: border-box; }

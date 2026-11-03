@@ -283,7 +283,7 @@ it("keeps API credentials in the password field and secure IPC only", async () =
     expect(field.type).toBe("password");
     expect(screen.getByText("Requires a restricted API key with write access to Responses API.")).toBeTruthy();
     fireEvent.change(field, { target: { value: "example-test-credential" } });
-    fireEvent.click(screen.getByText("Save key"));
+    fireEvent.click(screen.getByText("Save"));
     expect(field.value).toBe("");
     await waitFor(() => expect(screen.getByText("API key configured in secure storage.")).toBeTruthy());
     expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:ai-api-key-set", "example-test-credential");
@@ -292,7 +292,7 @@ it("keeps API credentials in the password field and secure IPC only", async () =
     fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "low" } });
     expect(mocks.preferences.codexApiReasoningEffort).toBe("low");
     expect(mocks.preferences.reasoningEffort).toBe("low");
-    fireEvent.click(screen.getByText("Clear key"));
+    fireEvent.click(screen.getByText("Clear"));
     await waitFor(() => expect(screen.getByText("No API key configured.")).toBeTruthy());
     expect(mocks.invoke).toHaveBeenCalledWith("freelens-power:ai-api-key-set", "");
     fireEvent.change(field, { target: { value: "unsaved-test-credential" } });
@@ -323,8 +323,8 @@ it("disables API key updates when secure storage is unavailable", async () => {
       expect(screen.getByText("Secure key storage is unavailable. OpenAI API cannot be used.")).toBeTruthy(),
     );
     expect((screen.getByLabelText("OpenAI API key") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByText("Save key") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByText("Clear key") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText("Clear") as HTMLButtonElement).disabled).toBe(true);
   } finally {
     view.unmount();
   }
