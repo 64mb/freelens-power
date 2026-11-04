@@ -47,7 +47,7 @@ it("upgrades the concise bundled prompts to evidence-based severity markers with
     expect(upgradeBundledAiPrompt(previous, field)).toBe(current);
     const customized = `Use my preferred terminology.\n${previous}`;
     expect(upgradeBundledAiPrompt(customized, field)).toBe(customized);
-    expect(current).toContain("🔴 critical, 🟠 high, 🟡 medium, 🔵 low");
+    expect(current).toContain("🔴 CRIT, 🟠 HIGH, 🟡 MEDIUM, 🔵 LOW");
     expect(current).toContain("Do not attach severity markers to hypotheses or missing evidence");
     expect(current).toContain("Use ✅ only when no problems are confirmed in the inspected sample");
     expect(current).toContain("critical means confirmed service outage or actual data loss/corruption");

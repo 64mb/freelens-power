@@ -16,7 +16,7 @@ import { SettingsExport } from "./settings-export";
 const styles = `
   .power-preferences-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .power-preferences-header-actions { display: inline-flex; margin-left: auto; flex-shrink: 0; }
-  .freelens-power-preferences .power-ai-key-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .freelens-power-preferences .power-ai-key-controls { display:flex; min-width:0; max-width:100%; align-items:center; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .freelens-power-preferences .power-ai-key-input { flex:1 1 240px; min-width:0; }
   .freelens-power-preferences .power-ai-key-input .Input { width:100%; }
   .freelens-power-preferences .power-ai-key-input .Input > .input-area { box-sizing:border-box; min-height:32px; padding:0 10px; border:1px solid var(--borderColor); border-radius:4px; background:var(--contentColor); }
@@ -26,7 +26,7 @@ const styles = `
   #freelens-power-settings > .SubTitle,
   #freelens-power-settings > .hint,
   #freelens-power-settings + hr { display: none; }
-  .freelens-power-preferences { display: grid; gap: 24px; max-width: 760px; container: power-preferences / inline-size; }
+  .freelens-power-preferences { display: grid; grid-template-columns:minmax(0,1fr); gap: 24px; width:660px; max-width:100%; min-width:0; container: power-preferences / inline-size; }
   .freelens-power-preferences .power-preferences-section-links {
     display:flex; align-items:center; width:100%; gap:8px; overflow-x:auto;
   }
