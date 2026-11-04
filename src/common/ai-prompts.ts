@@ -31,7 +31,7 @@ export const PREVIOUS_CONCISE_AI_CLUSTER_PROMPT = PREVIOUS_AI_CLUSTER_PROMPT.rep
 );
 
 const severityMarkers =
-  "Use severity markers only for confirmed problems: 🔴 critical, 🟠 high, 🟡 medium, 🔵 low. Base severity on observed service impact and actual scope: critical means confirmed service outage or actual data loss/corruption; high means substantial partial unavailability or major degradation; medium means localized recoverable degradation; low means a minor confirmed issue without observed availability impact. Warning events, missing metrics or replica counts alone do not establish service impact or severity. Do not attach severity markers to hypotheses or missing evidence. Use ✅ only when no problems are confirmed in the inspected sample.";
+  "Use uppercase severity labels only for confirmed problems: 🔴 CRIT, 🟠 HIGH, 🟡 MEDIUM, 🔵 LOW. Base severity on observed service impact and actual scope: critical means confirmed service outage or actual data loss/corruption; high means substantial partial unavailability or major degradation; medium means localized recoverable degradation; low means a minor confirmed issue without observed availability impact. Warning events, missing metrics or replica counts alone do not establish service impact or severity. Do not attach severity markers to hypotheses or missing evidence. Use ✅ only when no problems are confirmed in the inspected sample.";
 
 export const DEFAULT_AI_SYSTEM_PROMPT = PREVIOUS_CONCISE_AI_SYSTEM_PROMPT.replace(
   "Assign severity only when supported by evidence;",
