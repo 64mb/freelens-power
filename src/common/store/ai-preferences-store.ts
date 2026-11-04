@@ -45,7 +45,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
   enabled = false;
   provider: AiProvider = "codex";
   codexApiModel = CODEX_API_MODELS[0].id;
-  codexApiReasoningEffort = "";
+  codexApiReasoningEffort = "low";
   codexApiServiceTier: AiApiServiceTier = "default";
   piModel = "";
   piReasoningEffort = "";
@@ -68,7 +68,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
         enabled: false,
         provider: "codex",
         codexApiModel: CODEX_API_MODELS[0].id,
-        codexApiReasoningEffort: "",
+        codexApiReasoningEffort: "low",
         codexApiServiceTier: "default",
         piModel: "",
         piReasoningEffort: "",
@@ -128,10 +128,10 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
       data?.codexApiServiceTier === "fast" || data?.codexApiServiceTier === "ultrafast"
         ? data.codexApiServiceTier
         : "default";
-    const codexApiReasoningEffort = data?.codexApiReasoningEffort ?? "";
+    const codexApiReasoningEffort = data?.codexApiReasoningEffort ?? "low";
     this.codexApiReasoningEffort = CODEX_API_REASONING_EFFORTS.includes(codexApiReasoningEffort)
       ? codexApiReasoningEffort
-      : "";
+      : "low";
     this.piModel = typeof data?.piModel === "string" ? data.piModel : "";
     const piReasoningEffort = data?.piReasoningEffort ?? "";
     this.piReasoningEffort = PI_REASONING_EFFORTS.includes(piReasoningEffort) ? piReasoningEffort : "";

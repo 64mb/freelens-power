@@ -69,7 +69,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it("uses streaming native read functions without an answer schema and keeps medium reasoning by default", async () => {
+it("uses streaming native read functions without an answer schema and keeps low reasoning by default", async () => {
   expect(JSON.parse(await session().next(false))).toEqual({ tool: null, text: "Ready" });
   const [url, options] = mocks.fetch.mock.calls[0];
   expect(url).toBe("https://api.openai.com/v1/responses");
@@ -83,7 +83,7 @@ it("uses streaming native read functions without an answer schema and keeps medi
     input: [{ role: "user", content: "bounded evidence" }],
     include: ["reasoning.encrypted_content"],
     max_output_tokens: 12000,
-    reasoning: { effort: "medium" },
+    reasoning: { effort: "low" },
     text: { verbosity: "low" },
     parallel_tool_calls: true,
     tools: [{ type: "function", name: "read_context", description: expect.any(String), strict: true, parameters }],
@@ -351,7 +351,7 @@ it("keeps one authenticated WebSocket for native read rounds with incremental ca
   expect(first.type).toBe("response.create");
   expect(first.stream).toBeUndefined();
   expect(first.service_tier).toBe("fast");
-  expect(first.reasoning).toEqual({ effort: "medium" });
+  expect(first.reasoning).toEqual({ effort: "low" });
   expect(first.text).toEqual({ verbosity: "low" });
   expect(next.previous_response_id).toBe("resp_a");
   expect(next.input).toEqual([{ type: "function_call_output", call_id: "read_a", output: '{"items":["evidence"]}' }]);
@@ -547,4 +547,9 @@ it.each([
   }
   expect(aiFailureCode(failure)).toBe("API_TLS");
   expect(String(failure)).not.toContain("CERT");
+});
+
+it("preserves an explicitly selected API reasoning effort", async () => {
+  await session("medium").next(false);
+  expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).reasoning).toEqual({ effort: "medium" });
 });
