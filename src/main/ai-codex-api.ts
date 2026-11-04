@@ -555,7 +555,7 @@ export function createCodexApiSession(
         include: ["reasoning.encrypted_content"],
         input,
         max_output_tokens: 12000,
-        reasoning: { effort: reasoningEffort || "medium" },
+        reasoning: { effort: reasoningEffort || "low" },
         text: { verbosity: "low" },
         parallel_tool_calls: true,
         tools: finalAnswer

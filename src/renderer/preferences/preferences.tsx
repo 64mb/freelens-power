@@ -21,7 +21,8 @@ const styles = `
   .freelens-power-preferences .power-ai-key-input .Input { width:100%; }
   .freelens-power-preferences .power-ai-key-input .Input > .input-area { box-sizing:border-box; min-height:32px; padding:0 10px; border:1px solid var(--borderColor); border-radius:4px; background:var(--contentColor); }
   .freelens-power-preferences .power-ai-key-input .Input > .input-area:focus-within { border-color:var(--primary); }
-  .freelens-power-preferences .power-ai-key-controls > .Button { box-sizing:border-box; height:32px; margin:0; white-space:nowrap; }
+  .freelens-power-preferences .power-ai-key-controls > .Button { box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:6px; height:32px; margin:0; padding:0 12px; white-space:nowrap; }
+  .freelens-power-preferences .power-ai-key-controls > .Button > .Icon { flex-shrink:0; margin:0; vertical-align:middle; }
   #freelens-power-settings > .SubTitle,
   #freelens-power-settings > .hint,
   #freelens-power-settings + hr { display: none; }

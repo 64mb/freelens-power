@@ -264,6 +264,9 @@ it("keeps API credentials in the password field and secure IPC only", async () =
   const view = render(<AiPreferences />);
   try {
     await waitFor(() => expect(screen.getByText("No API key configured.")).toBeTruthy());
+    expect([...screen.getByLabelText("Effort").querySelectorAll("option")].some((option) => option.value === "")).toBe(
+      false,
+    );
     expect([...screen.getByLabelText("Provider").querySelectorAll("option")].map((el) => el.textContent)).toEqual([
       "Codex",
       "Claude",

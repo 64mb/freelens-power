@@ -36,7 +36,7 @@ it("keeps keys outside normal settings and restores API defaults for older prefe
     codexApiReasoningEffort: "ultra",
     apiKey: "sk-example-not-real-123456789",
   } as any);
-  expect(store.codexApiReasoningEffort).toBe("");
+  expect(store.codexApiReasoningEffort).toBe("low");
   expect(store.codexApiServiceTier).toBe("default");
   expect(JSON.stringify(store.toJSON())).not.toContain("sk-example");
   expect(JSON.stringify(store.toJSON())).not.toContain("apiKey");
@@ -44,5 +44,16 @@ it("keeps keys outside normal settings and restores API defaults for older prefe
   expect(store.provider).toBe("codex");
   expect(store.model).toBe("local-cli-model");
   expect(store.codexApiModel).toBe("gpt-6.1-sol");
-  expect(store.codexApiReasoningEffort).toBe("");
+  expect(store.codexApiReasoningEffort).toBe("low");
+});
+
+it("defaults missing and empty API effort to low while preserving explicit choices and CLI defaults", () => {
+  const store = new AiPreferencesStore();
+  expect(store.codexApiReasoningEffort).toBe("low");
+  expect(store.reasoningEffort).toBe("");
+  store.fromStore({ codexApiReasoningEffort: "" });
+  expect(store.codexApiReasoningEffort).toBe("low");
+  store.fromStore({ codexApiReasoningEffort: "medium", reasoningEffort: "high" });
+  expect(store.codexApiReasoningEffort).toBe("medium");
+  expect(store.reasoningEffort).toBe("high");
 });

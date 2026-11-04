@@ -170,7 +170,7 @@ export const AiPreferences = observer(() => {
         ? preferences.claudeModel
         : preferences.model;
   const currentEffort = isApi
-    ? preferences.codexApiReasoningEffort
+    ? preferences.codexApiReasoningEffort || "low"
     : isPi
       ? preferences.piReasoningEffort
       : isClaude
@@ -187,7 +187,7 @@ export const AiPreferences = observer(() => {
   );
   const effortOptions = withCurrent(
     [
-      { value: "", label: "Default" },
+      ...(!isApi ? [{ value: "", label: "Default" }] : []),
       ...effortsFor(models, currentModel).map((effort) => ({
         value: effort,
         label: effortLabel(effort),
@@ -272,7 +272,6 @@ export const AiPreferences = observer(() => {
           />
         </div>
       </div>
-      {isApi && <CodexApiKeyPreferences disabled={!preferences.enabled} />}
       <div className="power-settings-row" style={rowStyle}>
         <div style={{ minWidth: 0 }}>
           <label htmlFor="power-ai-model">Model</label>
@@ -290,7 +289,14 @@ export const AiPreferences = observer(() => {
             isSearchable={true}
             onChange={(option) => {
               if (!option || option.value === currentModel || (isPi && !option.value)) return;
-              const effort = effortsFor(models, option.value).includes(currentEffort) ? currentEffort : "";
+              const supportedEfforts = effortsFor(models, option.value);
+              const modelDefault = models.find((model) => model.id === option.value)?.defaultReasoningEffort ?? "";
+              const apiFallback = supportedEfforts.includes("low")
+                ? "low"
+                : supportedEfforts.includes(modelDefault)
+                  ? modelDefault
+                  : supportedEfforts[0] || "low";
+              const effort = supportedEfforts.includes(currentEffort) ? currentEffort : isApi ? apiFallback : "";
               if (isApi) {
                 preferences.codexApiModel = option.value;
                 preferences.codexApiReasoningEffort = effort;
@@ -386,6 +392,7 @@ export const AiPreferences = observer(() => {
           />
         </div>
       </div>
+      {isApi && <CodexApiKeyPreferences disabled={!preferences.enabled} />}
       <div>
         <label className="power-ai-section-title" htmlFor="power-ai-system-prompt">
           System prompt
