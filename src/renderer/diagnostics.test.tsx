@@ -862,8 +862,9 @@ describe("cluster diagnostics overview", () => {
       nodes: [{ status: { capacity: { pods: "110" } } }, { status: { capacity: { pods: "220" } } }],
     });
     const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
-    expect(await view.findByText("Capacity: 330")).toBeTruthy();
-    expect(view.getByText("Capacity: 330").closest(".summary-card")?.classList.contains("pods")).toBe(true);
+    expect(await view.findByText("/ 330")).toBeTruthy();
+    expect(view.getByText("Pods / Capacity")).toBeTruthy();
+    expect(view.getByText("/ 330").closest(".summary-card")?.classList.contains("pods")).toBe(true);
   });
 
   it.each([
@@ -875,7 +876,7 @@ describe("cluster diagnostics overview", () => {
   ])("keeps unavailable pod capacity distinct from zero (%s)", async (nodes) => {
     state.get.mockResolvedValue({ ...snapshot(), nodes });
     const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
-    expect(await view.findByText("Capacity: Unavailable")).toBeTruthy();
+    expect(await view.findByText("/ Unavailable")).toBeTruthy();
   });
 
   function withReadyConsumer() {

@@ -336,11 +336,16 @@ function DiagnosticsSummary({
               <AiIcon material={card.icon} size={22} />
             </span>
             <div>
-              <strong>{data ? (available ? card.value : "Unavailable") : "…"}</strong>
-              <span>{card.label}</span>
-              {card.name === "pods" && onEvents && (
-                <small className="pod-capacity">Capacity: {data ? (podCapacity ?? "Unavailable") : "…"}</small>
-              )}
+              <strong>
+                {data ? (available ? card.value : "Unavailable") : "…"}
+                {card.name === "pods" && onEvents && (
+                  <small className="pod-capacity">
+                    {" / "}
+                    {data ? (podCapacity?.toLocaleString("en-US").replaceAll(",", "\u202f") ?? "Unavailable") : "…"}
+                  </small>
+                )}
+              </strong>
+              <span>{card.name === "pods" && onEvents ? "Pods / Capacity" : card.label}</span>
             </div>
           </Card>
         );
