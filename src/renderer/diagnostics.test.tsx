@@ -856,6 +856,28 @@ it("attaches only the current Consumers or Timeline list when AI requests screen
 });
 
 describe("cluster diagnostics overview", () => {
+  it("shows total node pod capacity in the overview Pods card", async () => {
+    state.get.mockResolvedValue({
+      ...snapshot(),
+      nodes: [{ status: { capacity: { pods: "110" } } }, { status: { capacity: { pods: "220" } } }],
+    });
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
+    expect(await view.findByText("Capacity: 330")).toBeTruthy();
+    expect(view.getByText("Capacity: 330").closest(".summary-card")?.classList.contains("pods")).toBe(true);
+  });
+
+  it.each([
+    undefined,
+    [{ status: {} }],
+    [{ status: { capacity: { pods: "invalid" } } }],
+    [{ status: { capacity: { pods: "" } } }],
+    [{ status: { capacity: { pods: " " } } }],
+  ])("keeps unavailable pod capacity distinct from zero (%s)", async (nodes) => {
+    state.get.mockResolvedValue({ ...snapshot(), nodes });
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
+    expect(await view.findByText("Capacity: Unavailable")).toBeTruthy();
+  });
+
   function withReadyConsumer() {
     const current = snapshot();
     const readyPod = {

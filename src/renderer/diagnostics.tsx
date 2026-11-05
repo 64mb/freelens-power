@@ -299,6 +299,13 @@ function DiagnosticsSummary({
       .filter((pod) => ["warning", "error"].includes(consumerStatus([pod]).tone))
       .map((pod) => pod.metadata.uid ?? pod),
   ).size;
+  const podCapacities = data?.nodes?.map((node) => {
+    const capacity = node.status?.capacity?.pods?.trim();
+    return capacity ? Number(capacity) : Number.NaN;
+  });
+  const podCapacity = podCapacities?.every((value) => Number.isSafeInteger(value) && value >= 0)
+    ? podCapacities.reduce((total, value) => total + value, 0)
+    : undefined;
   const cards = [
     { name: "workloads", icon: "account_tree", label: "Workloads and standalone pods", value: groups.length },
     { name: "pods", icon: "view_in_ar", label: "Pods in snapshot", value: data?.pods?.length },
@@ -331,6 +338,9 @@ function DiagnosticsSummary({
             <div>
               <strong>{data ? (available ? card.value : "Unavailable") : "…"}</strong>
               <span>{card.label}</span>
+              {card.name === "pods" && onEvents && (
+                <small className="pod-capacity">Capacity: {data ? (podCapacity ?? "Unavailable") : "…"}</small>
+              )}
             </div>
           </Card>
         );
