@@ -745,12 +745,17 @@ function mountMonitoring(onOpenDiagnostics: () => void, getClusterDiagnostics: (
       diagnosticsHost = document.createElement("div");
       diagnosticsHost.setAttribute("data-freelens-power-cluster-diagnostics", "");
       diagnosticsHost.style.minWidth = "0";
-      host.after(diagnosticsHost);
+      overview.append(diagnosticsHost);
       ReactDOM.render(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />, diagnosticsHost);
     } else if (!clusterDiagnostics && diagnosticsHost) {
       ReactDOM.unmountComponentAtNode(diagnosticsHost);
       diagnosticsHost.remove();
       diagnosticsHost = undefined;
+    }
+    if (diagnosticsHost) {
+      const issues = Array.from(overview.children).find((child) => child.matches('[class*="ClusterIssues"]'));
+      if (issues && diagnosticsHost.nextElementSibling !== issues) issues.before(diagnosticsHost);
+      else if (!issues && overview.lastElementChild !== diagnosticsHost) overview.append(diagnosticsHost);
     }
     for (const [element, original] of hidden) {
       if (element === overview || overview.contains(element)) continue;

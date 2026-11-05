@@ -431,6 +431,9 @@ describe("metrics-server overview", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(document.querySelector("[data-freelens-power-cluster-events]")).toBeNull();
     expect(document.querySelector<HTMLElement>("#issues")?.style.display).toBe("none");
+    const diagnostics = document.querySelector("[data-freelens-power-cluster-diagnostics]");
+    expect(diagnostics?.previousElementSibling).toBe(document.querySelector("#pies"));
+    expect(diagnostics?.nextElementSibling).toBe(issues);
     expect(document.querySelector("#issues")).toBe(issues);
     expect(issues?.parentElement).toBe(overview);
     expect(document.querySelector<HTMLElement>("#legacy")?.style.display).toBe("none");
@@ -470,12 +473,36 @@ describe("metrics-server overview", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(overview.querySelector("[data-freelens-power-cluster-events]")).toBeNull();
     expect(replacement.style.display).toBe("none");
+    expect(overview.querySelector("[data-freelens-power-cluster-diagnostics]")?.nextElementSibling).toBe(replacement);
     expect(replacement.parentElement).toBe(overview);
     expect(previous.getAttribute("style")).toBe(previousStyle);
     stop();
     expect(overview.children).toHaveLength(1);
     expect(overview.firstElementChild).toBe(replacement);
     expect(replacement.getAttribute("style")).toBe(replacementStyle);
+    vi.useRealTimers();
+  });
+  it("keeps diagnostics after native panels that appear after loading", async () => {
+    vi.useFakeTimers();
+    state.enabled = true;
+    state.list.mockResolvedValue([]);
+    document.body.innerHTML = '<div data-testid="cluster-overview-page"></div>';
+    const overview = document.querySelector('[data-testid="cluster-overview-page"]')!;
+    const stop = startMonitoring();
+    await vi.advanceTimersByTimeAsync(1);
+    const diagnostics = overview.querySelector("[data-freelens-power-cluster-diagnostics]");
+    const pies = document.createElement("div");
+    pies.className = "native-pies";
+    const issues = document.createElement("div");
+    issues.className = "ClusterIssues_abcd";
+    overview.append(pies, issues);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(diagnostics?.previousElementSibling).toBe(pies);
+    expect(diagnostics?.nextElementSibling).toBe(issues);
+    expect(pies.parentElement).toBe(overview);
+    expect(issues.parentElement).toBe(overview);
+    stop();
+    expect(Array.from(overview.children)).toEqual([pies, issues]);
     vi.useRealTimers();
   });
   it("restores native issues when Cluster diagnostics is switched off", async () => {
