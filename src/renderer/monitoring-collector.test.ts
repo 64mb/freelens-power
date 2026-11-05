@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   cluster: "cluster-a",
+  context: "context-a",
   metrics: vi.fn(),
   nodes: vi.fn(),
   pods: vi.fn(),
@@ -10,7 +11,9 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
-    Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.cluster } }) } },
+    Catalog: {
+      activeCluster: { get: () => ({ metadata: { uid: state.cluster }, spec: { kubeconfigContext: state.context } }) },
+    },
     K8sApi: {
       nodesMetricsApi: { list: state.metrics },
       nodesApi: { list: state.nodes },
@@ -33,6 +36,7 @@ import {
 beforeEach(() => {
   vi.useFakeTimers();
   state.cluster = "cluster-a";
+  state.context = "context-a";
   state.metrics.mockReset().mockResolvedValue([]);
   state.nodes.mockReset().mockResolvedValue([]);
   state.pods.mockReset().mockResolvedValue([]);
@@ -70,6 +74,37 @@ it("starts collection for a new cluster while the old request is pending and rej
   finish([]);
   await rejected;
   expect((await getMonitoringSnapshot()).clusterId).toBe("cluster-b");
+  expect(state.metrics).toHaveBeenCalledTimes(2);
+});
+
+it("refreshes a cached snapshot when the context changes within the same cluster", async () => {
+  state.pods.mockResolvedValueOnce([{ metadata: { uid: "old-pod" } }]);
+  const previous = await getMonitoringSnapshot();
+  state.context = "context-b";
+  state.pods.mockResolvedValueOnce([{ metadata: { uid: "new-pod" } }]);
+  const next = await getMonitoringSnapshot();
+  expect(next).not.toBe(previous);
+  expect(next.clusterId).toBe(previous.clusterId);
+  expect(next.pods?.[0].metadata.uid).toBe("new-pod");
+  expect(state.metrics).toHaveBeenCalledTimes(2);
+});
+
+it("rejects pending results from the previous context without replacing the new snapshot", async () => {
+  let finish!: (value: unknown[]) => void;
+  state.metrics.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const previous = getMonitoringSnapshot();
+  const rejected = expect(previous).rejects.toThrow("Cluster changed");
+  await Promise.resolve();
+  state.context = "context-b";
+  const next = await getMonitoringSnapshot();
+  finish([]);
+  await rejected;
+  expect(await getMonitoringSnapshot()).toBe(next);
   expect(state.metrics).toHaveBeenCalledTimes(2);
 });
 

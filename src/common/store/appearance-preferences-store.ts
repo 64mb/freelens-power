@@ -23,24 +23,32 @@ export interface AppearancePreferencesModel {
   enabled: boolean;
   accentColor: string;
   recolorAppIcon: boolean;
+  clusterDiagnostics: boolean;
 }
 
 export class AppearancePreferencesStore extends Common.Store.ExtensionStore<AppearancePreferencesModel> {
   enabled = true;
   accentColor = DEFAULT_ACCENT_COLOR;
   recolorAppIcon = true;
+  clusterDiagnostics = true;
 
   constructor() {
     super({
       configName: "appearance-preferences",
-      defaults: { enabled: true, accentColor: DEFAULT_ACCENT_COLOR, recolorAppIcon: true },
+      defaults: { enabled: true, accentColor: DEFAULT_ACCENT_COLOR, recolorAppIcon: true, clusterDiagnostics: true },
     });
-    makeObservable(this, { enabled: observable, accentColor: observable, recolorAppIcon: observable });
+    makeObservable(this, {
+      enabled: observable,
+      accentColor: observable,
+      recolorAppIcon: observable,
+      clusterDiagnostics: observable,
+    });
   }
 
   fromStore(data: Partial<AppearancePreferencesModel>): void {
     this.enabled = typeof data.enabled === "boolean" ? data.enabled : true;
     this.recolorAppIcon = typeof data.recolorAppIcon === "boolean" ? data.recolorAppIcon : true;
+    this.clusterDiagnostics = data.clusterDiagnostics !== false;
     const legacyColors: Record<string, string> = {
       "#7868f4": "#7060e8",
       "#027bfe": "#0273ee",
@@ -53,6 +61,11 @@ export class AppearancePreferencesStore extends Common.Store.ExtensionStore<Appe
   }
 
   toJSON(): AppearancePreferencesModel {
-    return { enabled: this.enabled, accentColor: this.accentColor, recolorAppIcon: this.recolorAppIcon };
+    return {
+      enabled: this.enabled,
+      accentColor: this.accentColor,
+      recolorAppIcon: this.recolorAppIcon,
+      clusterDiagnostics: this.clusterDiagnostics,
+    };
   }
 }

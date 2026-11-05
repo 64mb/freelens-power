@@ -33,6 +33,10 @@ vi.mock("@freelensapp/extensions", () => ({
 vi.mock("../common/store/monitoring-preferences-store", () => ({
   MonitoringPreferencesStore: { getInstanceOrCreate: () => state.preferences },
 }));
+vi.mock("../common/store/appearance-preferences-store", () => ({
+  AppearancePreferencesStore: { getInstanceOrCreate: () => ({ clusterDiagnostics: true }) },
+}));
+vi.mock("./diagnostics", () => ({ ClusterDiagnosticsOverview: () => null }));
 
 import { aggregatePodMetrics, startPodMonitoring } from "./pod-monitoring";
 

@@ -45,6 +45,19 @@ export const AppearancePreferences = observer(() => {
         </Switch>
         <div className="power-settings-hint">Recolor the macOS Dock icon. Turn off to restore the original icon.</div>
       </div>
+      <div>
+        <Switch
+          checked={preferences.clusterDiagnostics}
+          onChange={(value) => {
+            preferences.clusterDiagnostics = value;
+          }}
+        >
+          Cluster overview diagnostics
+        </Switch>
+        <div className="power-settings-hint">
+          Replace the events panel with workload diagnostics on the Cluster overview.
+        </div>
+      </div>
       <div
         className="power-settings-row"
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}

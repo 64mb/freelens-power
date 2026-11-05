@@ -14,13 +14,22 @@ import {
   type ResourceSummary,
   type TimelineEntry,
 } from "../common/resource-diagnostics";
+import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { groupTimelineEntries } from "../common/timeline-groups";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { diagnosticsStyles } from "./diagnostics.css";
 import { diagnosticsScreenFinding } from "./diagnostics-screen-finding";
-import { DIAGNOSTICS_NAMESPACE_EVENT, readDiagnosticsState, saveDiagnosticsState } from "./diagnostics-state";
+import {
+  DIAGNOSTICS_ATTENTION_EVENT,
+  DIAGNOSTICS_NAMESPACE_EVENT,
+  DIAGNOSTICS_TIMELINE_EVENT,
+  focusDiagnosticsAttention,
+  focusDiagnosticsTimeline,
+  readDiagnosticsState,
+  saveDiagnosticsState,
+} from "./diagnostics-state";
 import { IncidentCopyButton } from "./incident-copy-button";
 import {
   getCollectedPodUsage,
@@ -270,6 +279,220 @@ function projection(data: MonitoringSnapshot) {
   }
   return value;
 }
+function DiagnosticsSummary({
+  data,
+  groups,
+  namespaceScope,
+  onAttention,
+  onEvents,
+}: {
+  data?: MonitoringSnapshot;
+  groups: ConsumerGroup[];
+  namespaceScope?: string;
+  onAttention: () => void;
+  onEvents?: () => void;
+}) {
+  const attentionPods = new Set(
+    groups
+      .filter((group) => !namespaceScope || group.namespace === namespaceScope)
+      .flatMap((group) => group.pods)
+      .filter((pod) => ["warning", "error"].includes(consumerStatus([pod]).tone))
+      .map((pod) => pod.metadata.uid ?? pod),
+  ).size;
+  const cards = [
+    { name: "workloads", icon: "account_tree", label: "Workloads and standalone pods", value: groups.length },
+    { name: "pods", icon: "view_in_ar", label: "Pods in snapshot", value: data?.pods?.length },
+    { name: "pending", icon: "warning_amber", label: "Pods needing attention", value: attentionPods },
+    ...(onEvents ? [{ name: "events", icon: "access_time", label: "Events", value: data?.events?.length }] : []),
+  ];
+  return (
+    <div className="diagnostics-summary" aria-label="Snapshot summary">
+      {cards.map((card) => {
+        const available = card.name === "events" ? data?.events != null : data?.pods !== undefined;
+        const clickable =
+          card.name === "events" ? onEvents : card.name === "pending" && data?.pods ? onAttention : undefined;
+        const Card = clickable ? "button" : "div";
+        return (
+          <Card
+            key={card.name}
+            className={`summary-card ${card.name}${!available ? " unavailable" : card.name === "pending" && attentionPods ? " attention" : ""}`}
+            {...(clickable
+              ? {
+                  type: "button" as const,
+                  onClick: clickable,
+                  title: card.name === "events" ? "Open Events" : "Show consumers needing attention",
+                  "aria-label": card.name === "events" ? "Open Events" : "Show consumers needing attention",
+                }
+              : {})}
+          >
+            <span className="summary-icon">
+              <AiIcon material={card.icon} size={22} />
+            </span>
+            <div>
+              <strong>{data ? (available ? card.value : "Unavailable") : "…"}</strong>
+              <span>{card.label}</span>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ClusterDiagnosticsOverview({ onOpenDiagnostics }: { onOpenDiagnostics: () => void }) {
+  const [snapshot, setSnapshot] = useState<MonitoringSnapshot>();
+  const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState<string[]>([]);
+  useEffect(() => {
+    const release = retainMonitoringCollector();
+    let disposed = false;
+    let generation = 0;
+    let loading = false;
+    const identity = () => {
+      const cluster = Renderer.Catalog.activeCluster.get();
+      return `${cluster?.metadata.uid ?? ""}:${cluster?.spec.kubeconfigContext ?? ""}`;
+    };
+    const load = async () => {
+      if (disposed || loading || hidden()) return;
+      if (!activeId()) {
+        setError("Select a connected cluster");
+        return;
+      }
+      const current = generation;
+      const context = identity();
+      loading = true;
+      try {
+        const next = await getMonitoringSnapshot(true);
+        if (disposed || current !== generation || identity() !== context || next.clusterId !== activeId() || hidden())
+          return;
+        setSnapshot(next);
+        setError("");
+      } catch {
+        if (!disposed && current === generation && identity() === context && !hidden())
+          setError("Diagnostics unavailable or access denied");
+      } finally {
+        loading = false;
+      }
+    };
+    const stop = reaction(identity, () => {
+      generation++;
+      setSnapshot(undefined);
+      setExpanded([]);
+      setError("");
+      void load();
+    });
+    const visibility = () => {
+      generation++;
+      if (!hidden()) void load();
+    };
+    const timer = window.setInterval(() => void load(), 1000);
+    document.addEventListener("visibilitychange", visibility);
+    void load();
+    return () => {
+      disposed = true;
+      generation++;
+      stop();
+      release();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, []);
+  const data = snapshot?.clusterId === activeId() ? snapshot : undefined;
+  const projected = data ? projection(data) : undefined;
+  const groups = projected?.groups ?? [];
+  const filtered = groups
+    .filter((group) => ["warning", "error"].includes(consumerStatus(group.pods).tone))
+    .sort((a, b) => (b.cpu.usage ?? -1) - (a.cpu.usage ?? -1));
+  const open = () => {
+    const clusterId = activeId();
+    if (!clusterId) return;
+    focusDiagnosticsAttention(clusterId);
+    onOpenDiagnostics();
+  };
+  return (
+    <section className="power-diagnostics power-diagnostics-overview" aria-label="Diagnostics">
+      <style>{diagnosticsStyles}</style>
+      <DiagnosticsSummary
+        data={data}
+        groups={groups}
+        onAttention={open}
+        onEvents={() => {
+          const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
+          if (preferences.diagnosticsVisible === false) {
+            Renderer.Navigation.navigate("/events");
+            return;
+          }
+          const clusterId = activeId();
+          if (!clusterId) return;
+          focusDiagnosticsTimeline(clusterId);
+          onOpenDiagnostics();
+        }}
+      />
+      {error && (
+        <p className="diagnostics-notice" role="status">
+          {error}
+        </p>
+      )}
+      {data?.errors.map((message) => (
+        <p className="diagnostics-notice" role="status" key={message}>
+          {message}
+        </p>
+      ))}
+      {!data && !error && (
+        <p className="diagnostics-empty diagnostics-loading" role="status">
+          Loading resource diagnostics…
+        </p>
+      )}
+      {data && filtered.length > 0 && (
+        <div className="diagnostics-table">
+          <table className="consumers-table">
+            <colgroup>
+              <col className="consumer-column" />
+              <col className="metric-column" />
+              <col className="metric-column" />
+              <col className="unscheduled-column" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Namespace / consumer</th>
+                <th className="numeric">CPU usage / requests</th>
+                <th className="numeric">Memory usage / requests</th>
+                <th>Unscheduled requests</th>
+              </tr>
+            </thead>
+            <tbody>
+              <NamespaceRows
+                namespace=""
+                groups={filtered}
+                clusterId={data.clusterId}
+                snapshotTime={data.time}
+                usage={projected?.usage ?? []}
+                open={true}
+                toggleNamespace={() => {}}
+                expanded={expanded}
+                toggleGroup={(key) =>
+                  setExpanded((items) => (items.includes(key) ? items.filter((item) => item !== key) : [...items, key]))
+                }
+              />
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data && !filtered.length && (
+        <p className="diagnostics-empty" role="status">
+          {!data.pods
+            ? "Pod inventory unavailable"
+            : !groups.length
+              ? "No consumers in snapshot"
+              : groups.every((group) => consumerStatus(group.pods).tone === "healthy")
+                ? "All consumers are ready"
+                : "No known issues · readiness is not confirmed for every consumer"}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function DiagnosticsPage() {
   const initial = useRef(readDiagnosticsState(activeId() ?? "")).current;
   const scrollContainer = useRef<HTMLDivElement>(null);
@@ -347,8 +570,43 @@ export function DiagnosticsPage() {
       pendingScroll.current = undefined;
       if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
     };
+    const focusAttention = (event: Event) => {
+      const detail = (event as CustomEvent<{ clusterId: string }>).detail;
+      if (!detail || detail.clusterId !== stateCluster.current || detail.clusterId !== activeId()) return;
+      setTab("Consumers");
+      setNamespaceScope(undefined);
+      setResourceScope(undefined);
+      setFilter("");
+      setNeedsAttention(true);
+      setGroupMode("workload");
+      setNamespacesOpen([]);
+      viewState.current.scrollTop = 0;
+      pendingScroll.current = undefined;
+      if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
+    };
+    const focusTimeline = (event: Event) => {
+      const detail = (event as CustomEvent<{ clusterId: string }>).detail;
+      if (!detail || detail.clusterId !== stateCluster.current || detail.clusterId !== activeId()) return;
+      viewState.current = readDiagnosticsState(detail.clusterId);
+      setTab("Timeline");
+      setNamespaceScope(undefined);
+      setResourceScope(undefined);
+      setFilter("");
+      setSelected("");
+      setReason("");
+      setWarningOnly(true);
+      setOpenTimeline([]);
+      pendingScroll.current = undefined;
+      if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
+    };
+    window.addEventListener(DIAGNOSTICS_TIMELINE_EVENT, focusTimeline);
+    window.addEventListener(DIAGNOSTICS_ATTENTION_EVENT, focusAttention);
     window.addEventListener(DIAGNOSTICS_NAMESPACE_EVENT, focusNamespace);
-    return () => window.removeEventListener(DIAGNOSTICS_NAMESPACE_EVENT, focusNamespace);
+    return () => {
+      window.removeEventListener(DIAGNOSTICS_NAMESPACE_EVENT, focusNamespace);
+      window.removeEventListener(DIAGNOSTICS_ATTENTION_EVENT, focusAttention);
+      window.removeEventListener(DIAGNOSTICS_TIMELINE_EVENT, focusTimeline);
+    };
   }, []);
   const [observed, setObserved] = useState<TimelineEntry[]>([]);
   const previous = useRef<MonitoringSnapshot>();
@@ -579,14 +837,6 @@ export function DiagnosticsPage() {
     return () => window.removeEventListener("power-ai-request-screen-context", attach);
   }, [data, tab, filtered, displayedTimeline]);
   const pending = (data?.pods ?? []).filter((pod) => pod.status?.phase === "Pending");
-  const attentionPods = new Set(
-    groups
-      .filter((group) => !namespaceScope || group.namespace === namespaceScope)
-      .flatMap((group) => group.pods)
-      .filter((pod) => ["warning", "error"].includes(consumerStatus([pod]).tone))
-      .map((pod) => pod.metadata.uid ?? pod),
-  ).size;
-  const AttentionCard = data?.pods ? "button" : "div";
   const notReady = (data?.pods ?? []).filter(
     (pod) => pod.status?.phase === "Running" && ["warning", "error"].includes(consumerStatus([pod]).tone),
   );
@@ -624,7 +874,9 @@ export function DiagnosticsPage() {
                 ? ` (${pending.length})`
                 : name === "Not ready" && data?.pods
                   ? ` (${notReady.length})`
-                  : ""}
+                  : name === "Timeline" && data?.events
+                    ? ` (${timeline.length})`
+                    : ""}
             </button>
           </NativeTooltip>
         ))}
@@ -644,48 +896,15 @@ export function DiagnosticsPage() {
         <p>{viewDescriptions[tab][1]}</p>
       </section>
       {data && tab === "Consumers" && (
-        <div className="diagnostics-summary" aria-label="Snapshot summary">
-          <div className="summary-card workloads">
-            <span className="summary-icon">
-              <AiIcon material="account_tree" size={22} />
-            </span>
-            <div>
-              <strong>{data.pods ? groups.length : "Unavailable"}</strong>
-              <span>Workloads and standalone pods</span>
-            </div>
-          </div>
-          <div className="summary-card pods">
-            <span className="summary-icon">
-              <AiIcon material="view_in_ar" size={22} />
-            </span>
-            <div>
-              <strong>{data.pods?.length ?? "Unavailable"}</strong>
-              <span>Pods in snapshot</span>
-            </div>
-          </div>
-          <AttentionCard
-            className={`summary-card pending${!data.pods ? " unavailable" : attentionPods ? " attention" : ""}`}
-            {...(data.pods
-              ? {
-                  type: "button" as const,
-                  title: "Show consumers needing attention",
-                  "aria-label": "Show consumers needing attention",
-                  onClick: () => {
-                    setNeedsAttention(true);
-                    setFilter("");
-                  },
-                }
-              : {})}
-          >
-            <span className="summary-icon">
-              <AiIcon material="warning_amber" size={22} />
-            </span>
-            <div>
-              <strong>{data.pods ? attentionPods : "Unavailable"}</strong>
-              <span>Needs attention</span>
-            </div>
-          </AttentionCard>
-        </div>
+        <DiagnosticsSummary
+          data={data}
+          groups={groups}
+          namespaceScope={namespaceScope}
+          onAttention={() => {
+            setNeedsAttention(true);
+            setFilter("");
+          }}
+        />
       )}
       {!data && !error && (
         <p className="diagnostics-empty diagnostics-loading" role="status">

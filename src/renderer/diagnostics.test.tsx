@@ -6,15 +6,21 @@ import { MockTooltip, tooltipTarget, tooltipText } from "./native-tooltip.test-u
 
 const state = vi.hoisted(() => ({
   cluster: "sample-cluster",
+  diagnosticsVisible: true,
   get: vi.fn(),
   release: vi.fn(),
   navigate: vi.fn(),
+  navigatePage: vi.fn(),
   usage: vi.fn(),
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
-    Catalog: { activeCluster: { get: () => ({ metadata: { uid: state.cluster } }) } },
-    Navigation: { showDetails: state.navigate },
+    Catalog: {
+      activeCluster: {
+        get: () => ({ metadata: { uid: state.cluster }, spec: { kubeconfigContext: "sample-context" } }),
+      },
+    },
+    Navigation: { showDetails: state.navigate, navigate: state.navigatePage },
     Component: {
       Tooltip: (props: any) => <MockTooltip {...props} />,
       Checkbox: ({
@@ -76,6 +82,9 @@ vi.mock("@freelensapp/extensions", () => ({
     },
   },
 }));
+vi.mock("../common/store/monitoring-preferences-store", () => ({
+  MonitoringPreferencesStore: { getInstanceOrCreate: () => ({ diagnosticsVisible: state.diagnosticsVisible }) },
+}));
 vi.mock("../common/store/ai-preferences-store", () => ({
   AiPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
 }));
@@ -88,7 +97,7 @@ vi.mock("./monitoring-collector", () => ({
 }));
 
 import { formatDateTime } from "../common/date-time";
-import { consumerStatus, DiagnosticsPage } from "./diagnostics";
+import { ClusterDiagnosticsOverview, consumerStatus, DiagnosticsPage } from "./diagnostics";
 import {
   clearDiagnosticsStates,
   focusDiagnosticsNamespace,
@@ -140,9 +149,11 @@ afterEach(() => {
 beforeEach(() => {
   clearDiagnosticsStates();
   state.cluster = "sample-cluster";
+  state.diagnosticsVisible = true;
   state.get.mockReset().mockResolvedValue(snapshot());
   state.release.mockReset();
   state.navigate.mockReset();
+  state.navigatePage.mockReset();
   state.usage.mockReset().mockReturnValue([{ uid: "pod-a", cpu: 0.05 }]);
 });
 describe("consumer status semantics", () => {
@@ -175,7 +186,9 @@ describe("resource diagnostics views", () => {
       view.getByText("Workloads and standalone pods").closest(".summary-card")?.classList.contains("workloads"),
     ).toBe(true);
     expect(view.getByText("Pods in snapshot").closest(".summary-card")?.classList.contains("pods")).toBe(true);
-    const pendingCard = view.getByText("Needs attention", { selector: ".summary-card span" }).closest(".summary-card")!;
+    const pendingCard = view
+      .getByText("Pods needing attention", { selector: ".summary-card span" })
+      .closest(".summary-card")!;
     expect(pendingCard.classList.contains("attention")).toBe(true);
     expect(pendingCard.querySelector(".summary-icon .Icon")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
@@ -192,8 +205,12 @@ describe("resource diagnostics views", () => {
     current.pods[0].status.phase = "Running";
     state.get.mockResolvedValue(current);
     const view = render(<DiagnosticsPage />);
-    await waitFor(() => expect(view.getByText("Needs attention", { selector: ".summary-card span" })).toBeTruthy());
-    const pendingCard = view.getByText("Needs attention", { selector: ".summary-card span" }).closest(".summary-card")!;
+    await waitFor(() =>
+      expect(view.getByText("Pods needing attention", { selector: ".summary-card span" })).toBeTruthy(),
+    );
+    const pendingCard = view
+      .getByText("Pods needing attention", { selector: ".summary-card span" })
+      .closest(".summary-card")!;
     expect(pendingCard.classList.contains("pending")).toBe(true);
     expect(pendingCard.classList.contains("attention")).toBe(false);
     expect(pendingCard.querySelector("strong")?.textContent).toBe("0");
@@ -202,7 +219,7 @@ describe("resource diagnostics views", () => {
     state.get.mockResolvedValue({ ...snapshot(), pods: undefined, errors: ["Pod access denied"] });
     const view = render(<DiagnosticsPage />);
     await waitFor(() => expect(view.getByText("Pod access denied")).toBeTruthy());
-    const card = view.getByText("Needs attention", { selector: ".summary-card span" }).closest(".summary-card")!;
+    const card = view.getByText("Pods needing attention", { selector: ".summary-card span" }).closest(".summary-card")!;
     expect(card.classList.contains("unavailable")).toBe(true);
     expect(card.querySelector("strong")?.textContent).toBe("Unavailable");
     expect(view.getByText("Pods in snapshot").closest(".summary-card")?.textContent).toContain("Unavailable");
@@ -529,7 +546,7 @@ describe("diagnostics navigation state", () => {
     await waitFor(() => expect(first.getByText("app")).toBeTruthy());
     fireEvent.change(first.getByLabelText("Filter consumers"), { target: { value: "app" } });
     fireEvent.click(first.getByLabelText("Expand pods for app"));
-    fireEvent.click(first.getByRole("button", { name: "Timeline" }));
+    fireEvent.click(first.getByRole("button", { name: /Timeline/ }));
     fireEvent.change(first.getByLabelText("Filter timeline reason"), { target: { value: "cpu" } });
     fireEvent.click(first.getByLabelText("Group recurring warnings"));
     const container = first.container.querySelector(".power-diagnostics")!;
@@ -558,7 +575,7 @@ it("groups recurring warnings with original evidence and allows chronological en
   state.get.mockResolvedValue(current);
   const view = render(<DiagnosticsPage />);
   await waitFor(() => expect(view.getByText("app")).toBeTruthy());
-  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
   expect(view.container.querySelectorAll(".timeline-entry")).toHaveLength(1);
   expect(view.getByText("1 affected resources · 2 original entries")).toBeTruthy();
   expect(view.getByText(/Count 5/)).toBeTruthy();
@@ -625,7 +642,7 @@ it("applies namespace focus to a mounted page and retains it after leaving", asy
   const view = render(<DiagnosticsPage />);
   await waitFor(() => expect(view.getByText("app")).toBeTruthy());
   fireEvent.change(view.getByLabelText("Filter consumers"), { target: { value: "unrelated" } });
-  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
   act(() => focusDiagnosticsNamespace("other-cluster", "other"));
   expect(view.queryByText("Namespace: other")).toBeNull();
   act(() => focusDiagnosticsNamespace("sample-cluster", "sample"));
@@ -679,7 +696,7 @@ it("distinguishes completed consumers from active readiness and unknown state", 
 it("places Timeline resource, copy and AI actions together beside the heading", async () => {
   const view = render(<DiagnosticsPage />);
   await waitFor(() => expect(view.getByText("app")).toBeTruthy());
-  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
   const actions = view.getByRole("group", { name: "Event actions" });
   expect(actions.closest(".timeline-card-top")?.querySelector(".timeline-card-heading")?.textContent).toContain(
     "FailedScheduling",
@@ -822,7 +839,7 @@ it("attaches only the current Consumers or Timeline list when AI requests screen
   const consumer = vi.mocked(explainDiagnosticFinding).mock.calls.at(-1)![0];
   expect(consumer.title).toBe("Diagnostics · Consumers");
   expect(JSON.parse(consumer.summary).rows).toEqual([]);
-  fireEvent.click(view.getByRole("button", { name: "Timeline" }));
+  fireEvent.click(view.getByRole("button", { name: /Timeline/ }));
   fireEvent.change(view.getByLabelText("Filter timeline reason"), { target: { value: "FailedScheduling" } });
   act(() => {
     window.dispatchEvent(new Event("power-ai-request-screen-context"));
@@ -836,4 +853,149 @@ it("attaches only the current Consumers or Timeline list when AI requests screen
   vi.mocked(explainDiagnosticFinding).mockClear();
   window.dispatchEvent(new Event("power-ai-request-screen-context"));
   expect(explainDiagnosticFinding).not.toHaveBeenCalled();
+});
+
+describe("cluster diagnostics overview", () => {
+  function withReadyConsumer() {
+    const current = snapshot();
+    const readyPod = {
+      ...current.pods[0],
+      metadata: {
+        uid: "pod-ready",
+        name: "ready-worker",
+        namespace: "sample",
+        ownerReferences: [{ uid: "deployment-ready", controller: true }],
+      },
+      status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] },
+    };
+    current.pods.push(readyPod);
+    current.owners.push({
+      kind: "Deployment",
+      metadata: { uid: "deployment-ready", name: "ready-app", namespace: "sample" },
+    });
+    return current;
+  }
+
+  it("shows only consumers needing attention without an extra heading or filter", async () => {
+    state.get.mockResolvedValue(withReadyConsumer());
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
+    await waitFor(() => expect(tooltipTarget("Open Deployment sample / app", view.container)).toBeTruthy());
+    expect(view.queryByRole("checkbox")).toBeNull();
+    expect(view.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
+    expect(tooltipTarget("Open Deployment sample / ready-app", view.container)).toBeNull();
+  });
+
+  it.each([undefined, null])("shows unavailable rather than zero for missing Events (%s)", async (events) => {
+    state.get.mockResolvedValue({ ...snapshot(), events });
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
+    const card = await view.findByRole("button", { name: "Open Events" });
+    await waitFor(() => expect(card.querySelector("strong")?.textContent).toBe("Unavailable"));
+    expect(card.classList.contains("unavailable")).toBe(true);
+  });
+
+  it("keeps the Events count available when pod inventory is unavailable", async () => {
+    const current = snapshot();
+    state.get.mockResolvedValue({ ...current, pods: undefined });
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
+    const card = await view.findByRole("button", { name: "Open Events" });
+    await waitFor(() => expect(card.querySelector("strong")?.textContent).toBe(String(current.events.length)));
+    expect(card.classList.contains("unavailable")).toBe(false);
+  });
+
+  it("keeps overview expansion separate from remembered full-page preferences", async () => {
+    const remembered = {
+      ...readDiagnosticsState("sample-cluster"),
+      tab: "Timeline" as const,
+      filter: "remembered filter",
+      namespaceScope: "another-namespace",
+      resourceScope: { kind: "Deployment", name: "remembered-app" },
+      needsAttention: false,
+      expanded: ["remembered-group"],
+      scrollTop: 240,
+    };
+    saveDiagnosticsState("sample-cluster", remembered);
+    state.get.mockResolvedValue(withReadyConsumer());
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={vi.fn()} />);
+    await waitFor(() => expect(view.getByRole("button", { name: "Expand pods for app" })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Expand pods for app" }));
+    expect(view.getByRole("button", { name: "Collapse pods for app" })).toBeTruthy();
+    view.unmount();
+    expect(readDiagnosticsState("sample-cluster")).toEqual(remembered);
+  });
+
+  it("focuses the full-page attention view before opening Diagnostics", async () => {
+    saveDiagnosticsState("sample-cluster", {
+      ...readDiagnosticsState("sample-cluster"),
+      tab: "Timeline",
+      namespaceScope: "another-namespace",
+      resourceScope: { kind: "Deployment", name: "remembered-app" },
+      filter: "remembered filter",
+      needsAttention: false,
+      scrollTop: 240,
+    });
+    const onOpenDiagnostics = vi.fn(() => {
+      expect(readDiagnosticsState("sample-cluster")).toMatchObject({
+        tab: "Consumers",
+        needsAttention: true,
+        namespaceScope: undefined,
+        resourceScope: undefined,
+        filter: "",
+        scrollTop: 0,
+      });
+    });
+    const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />);
+    const card = await view.findByRole("button", { name: "Show consumers needing attention" });
+    fireEvent.click(card);
+    expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
+  });
+});
+
+it("opens Diagnostics Timeline warnings from the overview Events card when the sidebar entry is enabled", async () => {
+  saveDiagnosticsState("sample-cluster", {
+    ...readDiagnosticsState("sample-cluster"),
+    namespaceScope: "another-namespace",
+    resourceScope: { kind: "Deployment", name: "remembered-app" },
+    selected: "sample/deployment-a",
+    warningOnly: false,
+    reason: "FailedScheduling",
+    filter: "remembered filter",
+    scrollTop: 240,
+  });
+  const onOpenDiagnostics = vi.fn(() => {
+    expect(readDiagnosticsState("sample-cluster")).toMatchObject({
+      tab: "Timeline",
+      selected: "",
+      reason: "",
+      warningOnly: true,
+      namespaceScope: undefined,
+      resourceScope: undefined,
+      filter: "",
+      scrollTop: 0,
+    });
+  });
+  const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />);
+  fireEvent.click(await view.findByRole("button", { name: "Open Events" }));
+  expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
+  expect(state.navigatePage).not.toHaveBeenCalled();
+});
+
+it("opens native Events when the Diagnostics sidebar entry is disabled", async () => {
+  state.diagnosticsVisible = false;
+  const onOpenDiagnostics = vi.fn();
+  const view = render(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />);
+  fireEvent.click(await view.findByRole("button", { name: "Open Events" }));
+  expect(state.navigatePage).toHaveBeenCalledWith("/events");
+  expect(onOpenDiagnostics).not.toHaveBeenCalled();
+});
+
+it("counts Timeline entries after filters independently of recurring-warning grouping", async () => {
+  const view = render(<DiagnosticsPage />);
+  const tab = await view.findByRole("button", { name: /Timeline.*1/ });
+  fireEvent.click(tab);
+  fireEvent.click(view.getByLabelText("Warnings only"));
+  expect(view.getByRole("button", { name: /Timeline.*2/ })).toBeTruthy();
+  fireEvent.click(view.getByLabelText("Group recurring warnings"));
+  expect(view.getByRole("button", { name: /Timeline.*2/ })).toBeTruthy();
+  fireEvent.click(view.getByLabelText("Warnings only"));
+  expect(view.getByRole("button", { name: /Timeline.*1/ })).toBeTruthy();
 });

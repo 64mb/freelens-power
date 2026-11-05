@@ -10,7 +10,9 @@ import {
   MAX_SAMPLES,
   type MonitoringSample,
 } from "../common/monitoring-math";
+import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
+import { ClusterDiagnosticsOverview } from "./diagnostics";
 import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
 import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
 import { NativeTooltip } from "./native-tooltip";
@@ -629,15 +631,16 @@ function MonitoringCharts({ samples, status }: { samples: MonitoringSample[]; st
   );
 }
 
-export function startMonitoring(): () => void {
+export function startMonitoring(onOpenDiagnostics: () => void = () => {}): () => void {
   const release = retainMonitoringCollector();
   const preferences = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
+  const appearance = AppearancePreferencesStore.getInstanceOrCreate<AppearancePreferencesStore>();
   let stopCurrent: (() => void) | undefined;
   const stop = reaction(
     () => preferences.enabled,
     (enabled) => {
       stopCurrent?.();
-      stopCurrent = enabled ? mountMonitoring() : undefined;
+      stopCurrent = enabled ? mountMonitoring(onOpenDiagnostics, () => appearance.clusterDiagnostics) : undefined;
     },
     { fireImmediately: true },
   );
@@ -648,7 +651,7 @@ export function startMonitoring(): () => void {
   };
 }
 
-function mountMonitoring(): () => void {
+function mountMonitoring(onOpenDiagnostics: () => void, getClusterDiagnostics: () => boolean): () => void {
   const suppression = document.createElement("style");
   suppression.setAttribute("data-freelens-power-native-metrics-suppression", "");
   suppression.textContent = `
@@ -667,6 +670,9 @@ function mountMonitoring(): () => void {
       opacity:1;
       background:color-mix(in srgb, currentColor 65%, var(--mainBackground));
     }
+    [data-testid="cluster-overview-page"]:has(> [data-freelens-power-monitoring]) > * {
+      flex-shrink:0;
+    }
     [data-testid="cluster-overview-page"] > [class*="ClusterMetrics"],
     [data-testid="cluster-overview-page"] > :has([class*="ClusterMetrics"]),
     [data-testid="cluster-overview-page"] > :is([class*="noMetrics"], [data-testid="no-metrics-message"]):not(:has(.PieChart)),
@@ -676,6 +682,7 @@ function mountMonitoring(): () => void {
   `;
   document.head.append(suppression);
   let host: HTMLElement | undefined;
+  let diagnosticsHost: HTMLElement | undefined;
   let overview: Element | null = null;
   let samples: MonitoringSample[] = [];
   let status = "";
@@ -688,6 +695,11 @@ function mountMonitoring(): () => void {
   let nextSample = 0;
   const hidden = new Map<HTMLElement, string | null>();
   const restore = () => {
+    if (diagnosticsHost) {
+      ReactDOM.unmountComponentAtNode(diagnosticsHost);
+      diagnosticsHost.remove();
+      diagnosticsHost = undefined;
+    }
     for (const [element, original] of hidden) {
       if (original === null) element.removeAttribute("style");
       else element.setAttribute("style", original);
@@ -722,12 +734,34 @@ function mountMonitoring(): () => void {
       host.style.gridColumn = "1 / -1";
       hidden.set(overview as HTMLElement, overview.getAttribute("style"));
       Object.assign((overview as HTMLElement).style, {
-        gridTemplateAreas: "none",
-        gridTemplateColumns: "minmax(0, 1fr)",
-        gridTemplateRows: "none",
-        height: "auto",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
       });
       overview.prepend(host);
+    }
+    const clusterDiagnostics = getClusterDiagnostics();
+    if (clusterDiagnostics && !diagnosticsHost) {
+      diagnosticsHost = document.createElement("div");
+      diagnosticsHost.setAttribute("data-freelens-power-cluster-diagnostics", "");
+      diagnosticsHost.style.minWidth = "0";
+      overview.append(diagnosticsHost);
+      ReactDOM.render(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />, diagnosticsHost);
+    } else if (!clusterDiagnostics && diagnosticsHost) {
+      ReactDOM.unmountComponentAtNode(diagnosticsHost);
+      diagnosticsHost.remove();
+      diagnosticsHost = undefined;
+    }
+    if (diagnosticsHost) {
+      const issues = Array.from(overview.children).find((child) => child.matches('[class*="ClusterIssues"]'));
+      if (issues && diagnosticsHost.nextElementSibling !== issues) issues.before(diagnosticsHost);
+      else if (!issues && overview.lastElementChild !== diagnosticsHost) overview.append(diagnosticsHost);
+    }
+    for (const [element, original] of hidden) {
+      if (element === overview || overview.contains(element)) continue;
+      if (original === null) element.removeAttribute("style");
+      else element.setAttribute("style", original);
+      hidden.delete(element);
     }
     for (const title of overview.querySelectorAll<HTMLElement>(".PieChart > .chart-title")) {
       if (title.textContent !== "CPU" && title.textContent !== "Memory") continue;
@@ -738,8 +772,8 @@ function mountMonitoring(): () => void {
       }
     }
     // native CSS modules retain [ClusterMetrics] in the generated class name
-    for (const child of overview.children) {
-      if (!(child instanceof HTMLElement) || child === host) continue;
+    for (const child of Array.from(overview.children)) {
+      if (!(child instanceof HTMLElement) || child === host || child === diagnosticsHost) continue;
       const nativeMetrics =
         child.matches('[class*="ClusterMetrics"]') || child.querySelector('[class*="ClusterMetrics"]');
       const unavailablePies =
@@ -754,6 +788,17 @@ function mountMonitoring(): () => void {
       }
       if (!hidden.has(child)) hidden.set(child, child.getAttribute("style"));
       child.style.gridArea = "auto";
+      if (child.matches('[class*="ClusterIssues"]')) {
+        const originalStyle = document.createElement("div").style;
+        originalStyle.cssText = hidden.get(child) ?? "";
+        if (clusterDiagnostics) {
+          child.style.display = "none";
+          child.style.setProperty("flex-grow", originalStyle.flexGrow, originalStyle.getPropertyPriority("flex-grow"));
+        } else {
+          child.style.setProperty("display", originalStyle.display, originalStyle.getPropertyPriority("display"));
+          child.style.flexGrow = "1";
+        }
+      }
     }
     const render = () => {
       if (host && (renderedSamples !== samples || renderedStatus !== status)) {
@@ -826,6 +871,9 @@ function mountMonitoring(): () => void {
     }
     if (!stopped && requestGeneration === generation) render();
   };
+  const stopDiagnostics = reaction(getClusterDiagnostics, () => {
+    void update();
+  });
   const observer = new MutationObserver(() => {
     void update();
   });
@@ -836,6 +884,7 @@ function mountMonitoring(): () => void {
   void update();
   return () => {
     stopped = true;
+    stopDiagnostics();
     generation++;
     window.clearInterval(timer);
     observer.disconnect();

@@ -5,7 +5,14 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
 import { act } from "react-dom/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { aiLauncherBottom, aiLauncherLeft, aiLauncherRight, readAiContext, startAiChat } from "./ai";
+import {
+  aiLauncherBottom,
+  aiLauncherLeft,
+  aiLauncherRight,
+  hasAiResourceDetails,
+  readAiContext,
+  startAiChat,
+} from "./ai";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
 import type { AiMessage } from "../common/store/ai-preferences-store";
@@ -532,7 +539,6 @@ describe("AI chat", () => {
   });
   it.each([
     "power-relationships",
-    "power-logs",
   ])("hides on downward scrolling in %s and restores when scrolling upward", async (pageClass) => {
     window.history.replaceState({}, "", `/${pageClass}`);
     document.body.innerHTML = `<div class="${pageClass}"><div id="scroll-region"></div></div>`;
@@ -578,7 +584,33 @@ describe("AI chat", () => {
     expect(launcher.getAttribute("aria-hidden")).toBeNull();
     expect(launcher.tabIndex).toBe(0);
   });
-  it("keeps the floating AI entry visible during automatic log following", async () => {
+  it("keeps the launcher visible while scrolling Cluster diagnostics and its table", async () => {
+    window.history.replaceState({}, "", "/overview");
+    document.body.innerHTML =
+      '<main data-testid="cluster-overview-page"><section class="power-diagnostics-overview"><div class="diagnostics-table"></div></section></main>';
+    const table = document.querySelector<HTMLElement>(".diagnostics-table")!;
+    Object.defineProperties(table, {
+      scrollHeight: { value: 1000 },
+      clientHeight: { value: 200 },
+      scrollTop: { value: 100, writable: true },
+    });
+    stop = startAiChat(() => true);
+    await act(async () => {});
+    fireEvent.wheel(table, { deltaY: 100 });
+    fireEvent.scroll(table);
+    expect(screen.getByLabelText("Open AI assistant").getAttribute("aria-hidden")).toBeNull();
+    const overview = document.querySelector("main")!;
+    Object.defineProperties(overview, {
+      scrollHeight: { value: 1200 },
+      clientHeight: { value: 600 },
+      scrollTop: { value: 200, writable: true },
+    });
+    fireEvent.wheel(overview, { deltaY: 100 });
+    fireEvent.scroll(overview);
+    expect(screen.getByLabelText("Open AI assistant").getAttribute("aria-hidden")).toBeNull();
+  });
+
+  it("keeps the floating AI entry visible during manual scrolling and automatic log following", async () => {
     window.history.replaceState({}, "", "/power-logs");
     document.body.innerHTML = '<div class="power-logs"><div id="auto-log-scroll"></div></div>';
     stop = startAiChat(() => true);
@@ -589,6 +621,10 @@ describe("AI chat", () => {
       clientHeight: { value: 200 },
       scrollTop: { value: 800, writable: true },
     });
+    fireEvent.scroll(region);
+    expect(screen.getByLabelText("Open AI assistant").getAttribute("aria-hidden")).toBeNull();
+    fireEvent.wheel(region, { deltaY: 100 });
+    region.scrollTop = 900;
     fireEvent.scroll(region);
     expect(screen.getByLabelText("Open AI assistant").getAttribute("aria-hidden")).toBeNull();
     fireEvent.wheel(region, { deltaY: -100 });
@@ -707,7 +743,7 @@ describe("AI chat", () => {
     expect(aiLauncherBottom()).toBe(window.innerHeight - 640 + 32);
   });
 
-  it("moves the floating launcher left for log details and attaches logs only on its explicit click", async () => {
+  it("keeps the floating launcher right for log details and attaches logs only on its explicit click", async () => {
     window.history.replaceState({}, "", "/power-logs");
     document.body.innerHTML = '<div class="main-layout-module__contents--example"></div>';
     vi.spyOn(document.body.firstElementChild!, "getBoundingClientRect").mockReturnValue({
@@ -723,12 +759,16 @@ describe("AI chat", () => {
       stop = startAiChat(() => true);
       const launcher = screen.getByLabelText("Open AI assistant");
       const bottom = launcher.style.bottom;
+      const right = launcher.style.right;
       expect(launcher.style.left).toBe("auto");
       const detail = document.createElement("aside");
       detail.className = "power-logs-detail";
       vi.spyOn(detail, "getBoundingClientRect").mockReturnValue({ width: 400, height: 500 } as DOMRect);
       document.body.append(detail);
-      await waitFor(() => expect(launcher.style.left).toBe("252px"));
+      await act(async () => {});
+      expect(hasAiResourceDetails()).toBe(false);
+      expect(launcher.style.left).toBe("auto");
+      expect(launcher.style.right).toBe(right);
       expect(launcher.style.bottom).toBe(bottom);
       expect(attach).not.toHaveBeenCalled();
       fireEvent.click(launcher);

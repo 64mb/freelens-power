@@ -107,7 +107,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startNodeBulkActions,
             startMonitoringCollector,
             startMonitoringHistoryCollection,
-            startMonitoring,
+            () => startMonitoring(() => void this.navigate("diagnostics")),
             startPodMonitoring,
             startPodDetailsEnhancements,
             startPodBulkCustomization,

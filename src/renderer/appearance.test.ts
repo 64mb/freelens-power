@@ -568,14 +568,34 @@ describe("application accent override", () => {
 
   it("persists icon opt-out independently of accent selection", () => {
     runInAction(() => preferences.fromStore({ enabled: true, accentColor: "#0273ee", recolorAppIcon: false }));
-    expect(preferences.toJSON()).toEqual({ enabled: true, accentColor: "#0273ee", recolorAppIcon: false });
+    expect(preferences.toJSON()).toEqual({
+      enabled: true,
+      accentColor: "#0273ee",
+      recolorAppIcon: false,
+      clusterDiagnostics: true,
+    });
     dispose = startAppearanceOverride();
     expect(accentRule()).toBeTruthy();
   });
 
+  it("preserves the cluster diagnostics opt-out independently of accent settings", () => {
+    runInAction(() => preferences.fromStore({ enabled: false, clusterDiagnostics: false }));
+    const saved = preferences.toJSON();
+    runInAction(() => preferences.fromStore(saved));
+    expect(preferences.clusterDiagnostics).toBe(false);
+    expect(preferences.enabled).toBe(false);
+    runInAction(() => preferences.fromStore({ enabled: false }));
+    expect(preferences.clusterDiagnostics).toBe(true);
+  });
+
   it("rejects invalid persisted colors and blocks CSS injection at runtime", () => {
     runInAction(() => preferences.fromStore({ accentColor: "red; --colorSuccess: red" }));
-    expect(preferences.toJSON()).toEqual({ enabled: true, accentColor: DEFAULT_ACCENT_COLOR, recolorAppIcon: true });
+    expect(preferences.toJSON()).toEqual({
+      enabled: true,
+      accentColor: DEFAULT_ACCENT_COLOR,
+      recolorAppIcon: true,
+      clusterDiagnostics: true,
+    });
     dispose = startAppearanceOverride();
     runInAction(() => {
       preferences.accentColor = "#123456; } body { display: none";
