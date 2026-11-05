@@ -2,6 +2,7 @@ export const diagnosticsStyles = `
 .power-diagnostics-overview{margin:0;display:flex;flex-direction:column;gap:16px}
 .power-diagnostics.power-diagnostics-overview>.diagnostics-summary,.power-diagnostics.power-diagnostics-overview>.diagnostics-table,.power-diagnostics.power-diagnostics-overview>.diagnostics-empty,.power-diagnostics.power-diagnostics-overview>.diagnostics-notice{margin:0}
 .power-diagnostics-overview{--diagnostics-summary-columns:4}
+.power-diagnostics-overview .pod-capacity{display:block;margin-top:3px;color:var(--textColorSecondary)}
 .power-diagnostics-overview .summary-card.events{--summary-color:var(--colorInfo,#6ea0d7)}
 .power-diagnostics-overview .diagnostics-table{max-height:480px;overflow:auto}
 .power-diagnostics-overview .diagnostics-table thead{position:sticky;top:0;z-index:1}

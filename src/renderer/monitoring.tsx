@@ -764,8 +764,21 @@ function mountMonitoring(onOpenDiagnostics: () => void, getClusterDiagnostics: (
       hidden.delete(element);
     }
     for (const title of overview.querySelectorAll<HTMLElement>(".PieChart > .chart-title")) {
-      if (title.textContent !== "CPU" && title.textContent !== "Memory") continue;
-      const panel = title.closest(".PieChart")?.parentElement;
+      const pods = title.textContent === "Pods";
+      if (title.textContent !== "CPU" && title.textContent !== "Memory" && !pods) continue;
+      let panel = title.closest(".PieChart")?.parentElement;
+      if (!panel || panel === overview) continue;
+      if (pods) {
+        while (panel.parentElement && panel.parentElement !== overview) panel = panel.parentElement;
+        if (!clusterDiagnostics) {
+          if (hidden.has(panel)) {
+            const originalStyle = document.createElement("div").style;
+            originalStyle.cssText = hidden.get(panel) ?? "";
+            panel.style.setProperty("display", originalStyle.display, originalStyle.getPropertyPriority("display"));
+          }
+          continue;
+        }
+      }
       if (panel && panel.style.display !== "none") {
         if (!hidden.has(panel)) hidden.set(panel, panel.getAttribute("style"));
         panel.style.display = "none";

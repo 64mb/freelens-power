@@ -212,6 +212,7 @@ describe("metrics-server overview", () => {
     expect(getComputedStyle(document.querySelector("#pods")!).display).not.toBe("none");
     await vi.advanceTimersByTimeAsync(0);
     expect(document.querySelector("[data-freelens-power-monitoring]")).not.toBeNull();
+    expect(getComputedStyle(document.querySelector("#pods")!).display).toBe("none");
     expect(state.list).toHaveBeenCalledTimes(1);
     stop();
     expect(document.head.querySelector("[data-freelens-power-native-metrics-suppression]")).toBeNull();
@@ -398,7 +399,7 @@ describe("metrics-server overview", () => {
     expect(() => aggregateMetrics([{ ...node, timestamp: new Date(now - 180000).toISOString() }], now)).toThrow();
     expect(() => aggregateMetrics([{ ...node, usage: { cpu: "", memory: "512Mi" } }], now)).toThrow();
   });
-  it("replaces only native CPU and memory panels and restores exact styles on cleanup", async () => {
+  it("replaces native resource panels and restores exact styles on cleanup", async () => {
     vi.useFakeTimers();
     state.enabled = true;
     state.list.mockResolvedValue([{ usage: { cpu: "500m", memory: "1Gi" }, timestamp: new Date().toISOString() }]);
@@ -410,7 +411,7 @@ describe("metrics-server overview", () => {
     expect(state.list).toHaveBeenCalledTimes(1);
     expect(document.querySelector<HTMLElement>("#cpu")?.style.display).toBe("none");
     expect(document.querySelector<HTMLElement>("#memory")?.style.display).toBe("none");
-    expect(document.querySelector<HTMLElement>("#pods")?.style.display).toBe("");
+    expect(document.querySelector<HTMLElement>("#pods")?.style.display).toBe("none");
     expect(document.body.textContent).toContain("0.50 cores");
     stop();
     expect(document.body.innerHTML).toBe(original);
@@ -418,7 +419,7 @@ describe("metrics-server overview", () => {
     expect(state.list).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
-  it("replaces CSS-module native panels, preserves Pods, fills the grid and restores its original layout", async () => {
+  it("replaces CSS-module native panels, hides native pies and restores their original layout", async () => {
     vi.useFakeTimers();
     state.enabled = true;
     state.list.mockResolvedValue([{ usage: { cpu: "500m", memory: "1Gi" }, timestamp: new Date().toISOString() }]);
@@ -438,7 +439,7 @@ describe("metrics-server overview", () => {
     expect(issues?.parentElement).toBe(overview);
     expect(document.querySelector<HTMLElement>("#legacy")?.style.display).toBe("none");
     expect(document.querySelector<HTMLElement>("#cpu")?.style.display).toBe("none");
-    expect(document.querySelector<HTMLElement>("#pies")?.style.display).toBe("");
+    expect(document.querySelector<HTMLElement>("#pies")?.style.display).toBe("none");
     expect(document.querySelector<HTMLElement>("#pods")?.style.display).toBe("");
     expect(document.querySelector<HTMLElement>("[data-freelens-power-monitoring]")?.style.gridColumn).toBe("1 / -1");
     const chart = document.querySelector("[data-monitoring-trend]")!;
@@ -493,16 +494,19 @@ describe("metrics-server overview", () => {
     const diagnostics = overview.querySelector("[data-freelens-power-cluster-diagnostics]");
     const pies = document.createElement("div");
     pies.className = "native-pies";
+    pies.innerHTML = '<div><div class="PieChart"><div class="chart-title">Pods</div></div></div>';
     const issues = document.createElement("div");
     issues.className = "ClusterIssues_abcd";
     overview.append(pies, issues);
     await vi.advanceTimersByTimeAsync(1);
     expect(diagnostics?.previousElementSibling).toBe(pies);
     expect(diagnostics?.nextElementSibling).toBe(issues);
+    expect(pies.style.display).toBe("none");
     expect(pies.parentElement).toBe(overview);
     expect(issues.parentElement).toBe(overview);
     stop();
     expect(Array.from(overview.children)).toEqual([pies, issues]);
+    expect(pies.getAttribute("style")).toBeNull();
     vi.useRealTimers();
   });
   it("restores native issues when Cluster diagnostics is switched off", async () => {
@@ -510,13 +514,14 @@ describe("metrics-server overview", () => {
     state.enabled = true;
     state.list.mockResolvedValue([]);
     document.body.innerHTML =
-      '<div data-testid="cluster-overview-page"><div class="ClusterIssues_abcd" style="grid-area:issues">Issues</div></div>';
+      '<div data-testid="cluster-overview-page"><div class="ClusterIssues_abcd" style="grid-area:issues">Issues</div><div id="native-pies" style="display:flex!important;color:red"><div class="PieChart"><div class="chart-title">Pods</div></div></div></div>';
     const original = document.body.innerHTML;
     const overview = document.querySelector('[data-testid="cluster-overview-page"]')!;
     const issues = overview.firstElementChild as HTMLElement;
     const stop = startMonitoring();
     await vi.advanceTimersByTimeAsync(1);
     expect(issues.style.display).toBe("none");
+    expect(document.querySelector<HTMLElement>("#native-pies")?.style.display).toBe("none");
     expect(document.querySelector("[data-freelens-power-cluster-diagnostics]")).not.toBeNull();
     const metricsHost = document.querySelector("[data-freelens-power-monitoring]");
     const chart = document.querySelector("[data-monitoring-trend]");
@@ -539,6 +544,8 @@ describe("metrics-server overview", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(issues.parentElement).toBe(overview);
     expect(issues.style.display).toBe("");
+    expect(document.querySelector<HTMLElement>("#native-pies")?.style.display).toBe("flex");
+    expect(document.querySelector<HTMLElement>("#native-pies")?.style.getPropertyPriority("display")).toBe("important");
     expect(issues.style.flexGrow).toBe("1");
     expect(document.querySelector("[data-freelens-power-cluster-diagnostics]")).toBeNull();
     expect(document.querySelector("[data-freelens-power-monitoring]")).toBe(metricsHost);
@@ -551,6 +558,7 @@ describe("metrics-server overview", () => {
     });
     await vi.advanceTimersByTimeAsync(1);
     expect(issues.style.display).toBe("none");
+    expect(document.querySelector<HTMLElement>("#native-pies")?.style.display).toBe("none");
     expect(document.querySelectorAll("[data-freelens-power-cluster-diagnostics]")).toHaveLength(1);
     expect(document.querySelector("[data-monitoring-trend]")).toBe(chart);
     expect(state.list).toHaveBeenCalledTimes(requests);
