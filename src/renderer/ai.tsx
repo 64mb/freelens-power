@@ -136,7 +136,7 @@ export function hasAiResourceDetails(): boolean {
   if (new URLSearchParams(window.location.search).get("kube-details")) return true;
   return Array.from(
     document.querySelectorAll<HTMLElement>(
-      ".Drawer.KubeObjectDetails, .Drawer.ReleaseDetails, .Drawer.helm-native-drawer, .DetailsDrawer, .power-logs-detail",
+      ".Drawer.KubeObjectDetails, .Drawer.ReleaseDetails, .Drawer.helm-native-drawer, .DetailsDrawer",
     ),
   ).some((element) => {
     const style = window.getComputedStyle(element);
@@ -434,6 +434,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
     };
     const update = () => {
       updateDock();
+      if (isPowerLogsWorkspace() || document.querySelector(".power-diagnostics-overview")) setLauncherHidden(false);
       const nextContext = readAiContext();
       setContext(nextContext);
       setResourceAttachment((current) => (current?.clusterId === nextContext.clusterId ? current : undefined));
@@ -575,7 +576,7 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       if (
         !(target instanceof HTMLElement) ||
         target.closest(
-          '.power-ai-panel, .Sidebar, [role="navigation"], aside, .power-logs-detail, .Select__menu-list, .Menu, input, textarea, [contenteditable]',
+          '.power-ai-panel, .Sidebar, [role="navigation"], aside, .power-logs-detail, .power-diagnostics-overview .diagnostics-table, .Select__menu-list, .Menu, input, textarea, [contenteditable]',
         )
       )
         return;
@@ -594,11 +595,15 @@ const AiChat = observer(({ isClusterDocument }: { isClusterDocument: () => boole
       };
     };
     const onScroll = (event: Event) => {
+      if (isPowerLogsWorkspace() || document.querySelector(".power-diagnostics-overview")) {
+        setLauncherHidden(false);
+        return;
+      }
       const target = event.target;
       if (
         !(target instanceof HTMLElement) ||
         target.closest(
-          '.power-ai-panel, .Sidebar, [role="navigation"], aside, .power-logs-detail, .Select__menu-list, .Menu, textarea',
+          '.power-ai-panel, .Sidebar, [role="navigation"], aside, .power-logs-detail, .power-diagnostics-overview .diagnostics-table, .Select__menu-list, .Menu, textarea',
         )
       )
         return;

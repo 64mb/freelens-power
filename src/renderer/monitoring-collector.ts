@@ -31,7 +31,11 @@ let pending: Promise<MonitoringSnapshot> | undefined;
 let extraPending: Promise<MonitoringSnapshot> | undefined;
 let extraTime = 0;
 let epoch = 0;
-let collectingCluster: string | undefined;
+let collectingIdentity: string | undefined;
+const activeIdentity = () => {
+  const cluster = Renderer.Catalog.activeCluster.get();
+  return JSON.stringify([cluster?.metadata.uid, cluster?.spec?.kubeconfigContext]);
+};
 let retained = 0;
 const listeners = new Set<(snapshot: MonitoringSnapshot) => void>();
 
@@ -41,7 +45,7 @@ export function resetMonitoringCollector(): void {
   pending = undefined;
   extraPending = undefined;
   extraTime = 0;
-  collectingCluster = undefined;
+  collectingIdentity = undefined;
 }
 
 export function retainMonitoringCollector(): () => void {
@@ -63,9 +67,9 @@ export function onMonitoringSnapshot(listener: (snapshot: MonitoringSnapshot) =>
 export async function getMonitoringSnapshot(diagnostics = false): Promise<MonitoringSnapshot> {
   const clusterId = Renderer.Catalog.activeCluster.get()?.metadata.uid;
   if (!clusterId) throw new Error("Select a connected cluster");
-  if ((snapshot?.clusterId ?? collectingCluster) && (snapshot?.clusterId ?? collectingCluster) !== clusterId)
-    resetMonitoringCollector();
-  collectingCluster = clusterId;
+  const identity = activeIdentity();
+  if (collectingIdentity && collectingIdentity !== identity) resetMonitoringCollector();
+  collectingIdentity = identity;
   if (!snapshot || Date.now() - snapshot.time >= MONITORING_INTERVAL) {
     if (!pending) {
       const current = epoch;
@@ -76,8 +80,7 @@ export async function getMonitoringSnapshot(diagnostics = false): Promise<Monito
           Promise.resolve().then(() => Renderer.K8sApi.podsApi.list()),
           Promise.resolve().then(() => Renderer.K8sApi.podsMetricsApi.list()),
         ]);
-        if (current !== epoch || Renderer.Catalog.activeCluster.get()?.metadata.uid !== clusterId)
-          throw new Error("Cluster changed during collection");
+        if (current !== epoch || activeIdentity() !== identity) throw new Error("Cluster changed during collection");
         const [metrics, nodes, pods, podMetrics] = results;
         const next: MonitoringSnapshot = {
           owners: snapshot?.owners,
@@ -105,7 +108,8 @@ export async function getMonitoringSnapshot(diagnostics = false): Promise<Monito
     }
     await pending;
   }
-  if (!snapshot || snapshot.clusterId !== clusterId) throw new Error("Cluster changed during collection");
+  if (!snapshot || snapshot.clusterId !== clusterId || activeIdentity() !== identity)
+    throw new Error("Cluster changed during collection");
   if (diagnostics && (!extraTime || Date.now() - extraTime >= MONITORING_INTERVAL)) {
     if (!extraPending) {
       const current = epoch;
@@ -126,8 +130,7 @@ export async function getMonitoringSnapshot(diagnostics = false): Promise<Monito
           Promise.resolve().then(() => Renderer.K8sApi.eventApi.list()),
           Promise.resolve().then(() => Renderer.K8sApi.pvcApi.list()),
         ]);
-        if (current !== epoch || Renderer.Catalog.activeCluster.get()?.metadata.uid !== clusterId)
-          throw new Error("Cluster changed during collection");
+        if (current !== epoch || activeIdentity() !== identity) throw new Error("Cluster changed during collection");
         const owners = results
           .slice(0, apis.length)
           .flatMap((result) =>
@@ -161,8 +164,7 @@ export async function getMonitoringSnapshot(diagnostics = false): Promise<Monito
     }
     await extraPending;
   }
-  if (!snapshot || Renderer.Catalog.activeCluster.get()?.metadata.uid !== clusterId)
-    throw new Error("Cluster changed during collection");
+  if (!snapshot || activeIdentity() !== identity) throw new Error("Cluster changed during collection");
   return snapshot;
 }
 

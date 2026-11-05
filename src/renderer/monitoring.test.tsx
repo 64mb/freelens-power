@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { runInAction } from "mobx";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
 
@@ -9,6 +10,7 @@ const state = vi.hoisted(() => ({
   nodes: vi.fn(),
   pods: vi.fn(),
   cluster: "test-cluster",
+  appearance: { clusterDiagnostics: true },
 }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
@@ -34,6 +36,14 @@ vi.mock("@freelensapp/extensions", () => ({
 }));
 vi.mock("../common/store/monitoring-preferences-store", () => ({
   MonitoringPreferencesStore: { getInstanceOrCreate: () => state },
+}));
+vi.mock("../common/store/appearance-preferences-store", async () => {
+  const { observable } = await import("mobx");
+  state.appearance = observable(state.appearance);
+  return { AppearancePreferencesStore: { getInstanceOrCreate: () => state.appearance } };
+});
+vi.mock("./diagnostics", () => ({
+  ClusterDiagnosticsOverview: () => <div>Cluster diagnostics</div>,
 }));
 
 import { fireEvent, render } from "@testing-library/react";
@@ -62,6 +72,9 @@ afterEach(() => {
 
 describe("metrics-server overview", () => {
   beforeEach(() => {
+    runInAction(() => {
+      state.appearance.clusterDiagnostics = true;
+    });
     state.enabled = false;
     state.cluster = "test-cluster";
     state.list.mockReset();
@@ -410,10 +423,16 @@ describe("metrics-server overview", () => {
     state.enabled = true;
     state.list.mockResolvedValue([{ usage: { cpu: "500m", memory: "1Gi" }, timestamp: new Date().toISOString() }]);
     document.body.innerHTML =
-      '<div data-testid="cluster-overview-page" style="height:100%"><div id="legacy" class="ClusterMetrics_abcd flex column">Master Worker 1 hour CPU Memory Loading</div><div id="pies"><div id="cpu"><div class="PieChart"><div class="chart-title">CPU</div></div></div><div id="pods"><div class="PieChart"><div class="chart-title">Pods</div></div></div></div><div id="issues" style="grid-area:issues">Issues</div></div>';
+      '<div data-testid="cluster-overview-page" style="height:100%"><div id="legacy" class="ClusterMetrics_abcd flex column">Master Worker 1 hour CPU Memory Loading</div><div id="pies"><div id="cpu"><div class="PieChart"><div class="chart-title">CPU</div></div></div><div id="pods"><div class="PieChart"><div class="chart-title">Pods</div></div></div></div><div id="issues" class="ClusterIssues_abcd flex column" style="grid-area:issues">Issues</div></div>';
     const original = document.body.innerHTML;
+    const overview = document.querySelector('[data-testid="cluster-overview-page"]');
+    const issues = document.querySelector("#issues");
     const stop = startMonitoring();
     await vi.advanceTimersByTimeAsync(1);
+    expect(document.querySelector("[data-freelens-power-cluster-events]")).toBeNull();
+    expect(document.querySelector<HTMLElement>("#issues")?.style.display).toBe("none");
+    expect(document.querySelector("#issues")).toBe(issues);
+    expect(issues?.parentElement).toBe(overview);
     expect(document.querySelector<HTMLElement>("#legacy")?.style.display).toBe("none");
     expect(document.querySelector<HTMLElement>("#cpu")?.style.display).toBe("none");
     expect(document.querySelector<HTMLElement>("#pies")?.style.display).toBe("");
@@ -425,6 +444,89 @@ describe("metrics-server overview", () => {
     expect(document.querySelector("[data-monitoring-crosshair]")).not.toBeNull();
     expect(chart.querySelectorAll("text")).toHaveLength(6);
     expect(formatMonitoringTime(new Date(2026, 0, 1, 23, 4, 5).getTime())).toBe("23:04:05");
+    stop();
+    expect(document.querySelector("#issues")).toBe(issues);
+    expect(issues?.parentElement).toBe(overview);
+    expect(document.body.innerHTML).toBe(original);
+    vi.useRealTimers();
+  });
+  it("restores removed native issues when they remount in the same overview", async () => {
+    vi.useFakeTimers();
+    state.enabled = true;
+    state.list.mockResolvedValue([]);
+    document.body.innerHTML =
+      '<div data-testid="cluster-overview-page"><div class="ClusterIssues_abcd" style="grid-area:issues">Original issues</div></div>';
+    const overview = document.querySelector('[data-testid="cluster-overview-page"]')!;
+    const previous = overview.firstElementChild!;
+    const previousStyle = previous.getAttribute("style");
+    const stop = startMonitoring();
+    await vi.advanceTimersByTimeAsync(1);
+    const replacement = document.createElement("div");
+    replacement.className = "ClusterIssues_abcd";
+    replacement.style.gridArea = "issues";
+    replacement.textContent = "Replacement issues";
+    const replacementStyle = replacement.getAttribute("style");
+    previous.replaceWith(replacement);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(overview.querySelector("[data-freelens-power-cluster-events]")).toBeNull();
+    expect(replacement.style.display).toBe("none");
+    expect(replacement.parentElement).toBe(overview);
+    expect(previous.getAttribute("style")).toBe(previousStyle);
+    stop();
+    expect(overview.children).toHaveLength(1);
+    expect(overview.firstElementChild).toBe(replacement);
+    expect(replacement.getAttribute("style")).toBe(replacementStyle);
+    vi.useRealTimers();
+  });
+  it("restores native issues when Cluster diagnostics is switched off", async () => {
+    vi.useFakeTimers();
+    state.enabled = true;
+    state.list.mockResolvedValue([]);
+    document.body.innerHTML =
+      '<div data-testid="cluster-overview-page"><div class="ClusterIssues_abcd" style="grid-area:issues">Issues</div></div>';
+    const original = document.body.innerHTML;
+    const overview = document.querySelector('[data-testid="cluster-overview-page"]')!;
+    const issues = overview.firstElementChild as HTMLElement;
+    const stop = startMonitoring();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(issues.style.display).toBe("none");
+    expect(document.querySelector("[data-freelens-power-cluster-diagnostics]")).not.toBeNull();
+    const metricsHost = document.querySelector("[data-freelens-power-monitoring]");
+    const chart = document.querySelector("[data-monitoring-trend]");
+    fireEvent.keyDown(document.querySelector('[aria-label="History range"]')!, {
+      key: "ArrowDown",
+      code: "ArrowDown",
+    });
+    fireEvent.click(
+      [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent === "30 min")!,
+    );
+    const historyRange = document.querySelector(".power-history-compact");
+    expect(chart).not.toBeNull();
+    expect(historyRange).not.toBeNull();
+    const historyText = historyRange?.textContent;
+    expect(historyText).toContain("30 min");
+    const requests = state.list.mock.calls.length;
+    runInAction(() => {
+      state.appearance.clusterDiagnostics = false;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(issues.parentElement).toBe(overview);
+    expect(issues.style.display).toBe("");
+    expect(issues.style.flexGrow).toBe("1");
+    expect(document.querySelector("[data-freelens-power-cluster-diagnostics]")).toBeNull();
+    expect(document.querySelector("[data-freelens-power-monitoring]")).toBe(metricsHost);
+    expect(document.querySelector("[data-monitoring-trend]")).toBe(chart);
+    expect(document.querySelector(".power-history-compact")).toBe(historyRange);
+    expect(historyRange?.textContent).toBe(historyText);
+    expect(state.list).toHaveBeenCalledTimes(requests);
+    runInAction(() => {
+      state.appearance.clusterDiagnostics = true;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(issues.style.display).toBe("none");
+    expect(document.querySelectorAll("[data-freelens-power-cluster-diagnostics]")).toHaveLength(1);
+    expect(document.querySelector("[data-monitoring-trend]")).toBe(chart);
+    expect(state.list).toHaveBeenCalledTimes(requests);
     stop();
     expect(document.body.innerHTML).toBe(original);
     vi.useRealTimers();

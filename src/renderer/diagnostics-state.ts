@@ -77,3 +77,38 @@ export function focusDiagnosticsNamespace(
     new CustomEvent(DIAGNOSTICS_NAMESPACE_EVENT, { detail: { clusterId, namespace, resourceScope } }),
   );
 }
+
+export const DIAGNOSTICS_ATTENTION_EVENT = "power-diagnostics-attention";
+export function focusDiagnosticsAttention(clusterId: string): void {
+  if (!clusterId) return;
+  saveDiagnosticsState(clusterId, {
+    ...readDiagnosticsState(clusterId),
+    tab: "Consumers",
+    namespaceScope: undefined,
+    resourceScope: undefined,
+    filter: "",
+    needsAttention: true,
+    groupMode: "workload",
+    namespacesOpen: [],
+    scrollTop: 0,
+  });
+  window.dispatchEvent(new CustomEvent(DIAGNOSTICS_ATTENTION_EVENT, { detail: { clusterId } }));
+}
+
+export const DIAGNOSTICS_TIMELINE_EVENT = "power-diagnostics-timeline";
+export function focusDiagnosticsTimeline(clusterId: string): void {
+  if (!clusterId) return;
+  saveDiagnosticsState(clusterId, {
+    ...readDiagnosticsState(clusterId),
+    tab: "Timeline",
+    namespaceScope: undefined,
+    resourceScope: undefined,
+    filter: "",
+    selected: "",
+    reason: "",
+    warningOnly: true,
+    openTimeline: [],
+    scrollTop: 0,
+  });
+  window.dispatchEvent(new CustomEvent(DIAGNOSTICS_TIMELINE_EVENT, { detail: { clusterId } }));
+}
