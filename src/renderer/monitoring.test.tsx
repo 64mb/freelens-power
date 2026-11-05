@@ -34,9 +34,11 @@ vi.mock("@freelensapp/extensions", () => ({
     K8sApi: { nodesMetricsApi: { list: state.list }, nodesApi: { list: state.nodes }, podsApi: { list: state.pods } },
   },
 }));
-vi.mock("../common/store/monitoring-preferences-store", () => ({
-  MonitoringPreferencesStore: { getInstanceOrCreate: () => state },
-}));
+vi.mock("../common/store/monitoring-preferences-store", async () => {
+  const { makeObservable, observable } = await import("mobx");
+  makeObservable(state, { enabled: observable });
+  return { MonitoringPreferencesStore: { getInstanceOrCreate: () => state } };
+});
 vi.mock("../common/store/appearance-preferences-store", async () => {
   const { observable } = await import("mobx");
   state.appearance = observable(state.appearance);
@@ -80,6 +82,69 @@ describe("metrics-server overview", () => {
     state.list.mockReset();
     state.nodes.mockReset().mockRejectedValue(new Error("Forbidden"));
     state.pods.mockReset().mockRejectedValue(new Error("Forbidden"));
+  });
+  it("controls diagnostics independently and restores native panels when both features are disabled", async () => {
+    vi.useFakeTimers();
+    state.list.mockResolvedValue([]);
+    document.body.innerHTML =
+      '<div data-testid="cluster-overview-page" style="display:grid"><div id="metrics" class="ClusterMetrics_abcd" style="display:flex!important">Metrics</div><div id="native-pies" class="flex" style="grid-area:charts"><div class="flex justify-center box grow gaps"><div id="cpu" style="color:red"><div class="PieChart"><div class="chart-title">CPU</div></div></div><div id="memory" style="color:blue"><div class="PieChart"><div class="chart-title">Memory</div></div></div><div id="pods" style="display:flex!important"><div class="PieChart"><div class="chart-title">Pods</div></div></div></div></div><div id="issues" class="ClusterIssues_abcd" style="flex-grow:2">Issues</div></div>';
+    const original = document.body.innerHTML;
+    const metrics = document.querySelector<HTMLElement>("#metrics")!;
+    const cpu = document.querySelector<HTMLElement>("#cpu")!;
+    const memory = document.querySelector<HTMLElement>("#memory")!;
+    const pies = document.querySelector<HTMLElement>("#native-pies")!;
+    const pods = document.querySelector<HTMLElement>("#pods")!;
+    const issues = document.querySelector<HTMLElement>("#issues")!;
+    const stop = startMonitoring();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.querySelector<HTMLElement>("[data-freelens-power-cluster-diagnostics]")?.style.gridColumn).toBe(
+      "1 / -1",
+    );
+    expect(document.querySelector("[data-freelens-power-monitoring]")).toBeNull();
+    expect(document.head.querySelector("[data-freelens-power-native-metrics-suppression]")).toBeNull();
+    expect(metrics.style.display).toBe("flex");
+    expect(cpu.style.display).toBe("");
+    expect(memory.style.display).toBe("");
+    expect(getComputedStyle(cpu).display).not.toBe("none");
+    expect(getComputedStyle(memory).display).not.toBe("none");
+    expect(pies.style.display).not.toBe("none");
+    expect(pies.firstElementChild?.getAttribute("style")).toBeNull();
+    expect(pods.style.display).toBe("none");
+    expect(issues.style.display).toBe("none");
+    expect(state.list).not.toHaveBeenCalled();
+    runInAction(() => {
+      state.enabled = true;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.querySelector("[data-freelens-power-monitoring]")).not.toBeNull();
+    expect(metrics.style.display).toBe("none");
+    expect(cpu.style.display).toBe("none");
+    const requests = state.list.mock.calls.length;
+    runInAction(() => {
+      state.enabled = false;
+    });
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(document.querySelector("[data-freelens-power-monitoring]")).toBeNull();
+    expect(document.querySelector("[data-freelens-power-cluster-diagnostics]")).not.toBeNull();
+    expect(metrics.getAttribute("style")).toBe("display:flex!important");
+    expect(cpu.getAttribute("style")).toBe("color:red");
+    expect(memory.getAttribute("style")).toBe("color:blue");
+    expect(pies.getAttribute("style")).toBe("grid-area:charts");
+    expect(pies.firstElementChild?.getAttribute("style")).toBeNull();
+    expect(pods.style.display).toBe("none");
+    expect(state.list).toHaveBeenCalledTimes(requests);
+    runInAction(() => {
+      state.appearance.clusterDiagnostics = false;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.body.innerHTML).toBe(original);
+    runInAction(() => {
+      state.appearance.clusterDiagnostics = true;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pods.style.display).toBe("none");
+    stop();
+    expect(document.body.innerHTML).toBe(original);
   });
   it("fills a wide plot and tracks the nearest sample in the same coordinate system", async () => {
     vi.useFakeTimers();
@@ -645,6 +710,7 @@ describe("metrics-server overview", () => {
     vi.useRealTimers();
   });
   it("does not change native charts or read cluster metrics by default", () => {
+    state.appearance.clusterDiagnostics = false;
     document.body.innerHTML =
       '<div data-testid="cluster-overview-page"><div style="color:red"><div class="PieChart"><div class="chart-title">CPU</div></div></div></div>';
     const original = document.body.innerHTML;
