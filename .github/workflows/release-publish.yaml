@@ -124,7 +124,9 @@ jobs:
               cat "${RUNNER_TEMP}/npm-view-error.log" >&2
               exit 1
             fi
-            npm publish "${PACKAGE_ARCHIVE}" --access public --provenance=false
+            publication_tag=latest
+            case "${version}" in 1.*) publication_tag=freelens-1 ;; esac
+            npm publish "${PACKAGE_ARCHIVE}" --access public --provenance=false --tag "${publication_tag}"
           fi
       - name: Publish release with extension package
         env:
