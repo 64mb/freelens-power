@@ -2,6 +2,9 @@ export function startHostLayoutStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-layout";
   style.textContent = `
+    :root .HotbarMenu .HotbarItems.flex.flex-col > .HotbarCell:not(:last-child) {
+      margin-bottom: var(--padding, 8px);
+    }
     :root .Notifications .notification {
       width: min(520px, calc(100vw - 32px));
       min-width: 0;
