@@ -1,13 +1,28 @@
 import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
+import { AppearancePreferencesStore } from "../../common/store/appearance-preferences-store";
 import { MonitoringPreferencesStore } from "../../common/store/monitoring-preferences-store";
 import { PowerPreferencesStore } from "../../common/store/power-preferences-store";
 
 export const OtherPreferences = observer(() => {
   const preferences = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
   const monitoring = MonitoringPreferencesStore.getInstanceOrCreate<MonitoringPreferencesStore>();
+  const appearance = AppearancePreferencesStore.getInstanceOrCreate<AppearancePreferencesStore>();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div>
+        <Renderer.Component.Switch
+          checked={appearance.clusterDiagnostics}
+          onChange={(value) => {
+            appearance.clusterDiagnostics = value;
+          }}
+        >
+          Cluster overview diagnostics
+        </Renderer.Component.Switch>
+        <div className="power-settings-hint">
+          Replace the events panel with workload diagnostics on the Cluster overview.
+        </div>
+      </div>
       <div>
         <Renderer.Component.Switch
           checked={preferences.nodeBulkActions}
