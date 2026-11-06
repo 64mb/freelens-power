@@ -2,6 +2,7 @@
 /TASKS.md
 /node_modules/
 /out/
+/dist/
 /coverage/
 *.tgz
 *.log
