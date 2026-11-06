@@ -1,10 +1,14 @@
 packages:
   - .
 
-onlyBuiltDependencies:
-  - electron
-  - esbuild
-  - node-pty
-  - playwright
+allowBuilds:
+  electron: true
+  esbuild: true
+  "@parcel/watcher": true
 
+engineStrict: true
 shellEmulator: true
+strictPeerDependencies: true
+minimumReleaseAgeExclude:
+  - "@freelensapp/extensions"
+  - electron@44.10.0

@@ -13,12 +13,12 @@ test("packed captures and API transport load without installed dependencies or n
     const unpacked = join(directory, "unpacked");
     const manifest = JSON.parse(await readFile("package.json", "utf8"));
     await mkdir(project);
-    await cp("out", join(project, "out"), { recursive: true });
+    await cp("dist", join(project, "dist"), { recursive: true });
     await cp("THIRD_PARTY_LICENSES", join(project, "THIRD_PARTY_LICENSES"));
     await writeFile(join(project, "package.json"), JSON.stringify(manifest));
     // old build output must never reintroduce native assets into the package
-    await mkdir(join(project, "out/main/duckdb/native"), { recursive: true });
-    await writeFile(join(project, "out/main/duckdb/native/duckdb.node"), "stale native asset");
+    await mkdir(join(project, "dist/duckdb/native"), { recursive: true });
+    await writeFile(join(project, "dist/duckdb/native/duckdb.node"), "stale native asset");
     const environment = {
       ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key))),
       NODE_PATH: "",
@@ -30,24 +30,26 @@ test("packed captures and API transport load without installed dependencies or n
         { cwd: project, encoding: "utf8", env: environment },
       ),
     );
-    const files = packed.files.map(({ path }) => path);
+    const files = /** @type {{files: {path: string}[]}} */ (packed).files.map(({ path }) => path);
     assert.equal(files.some((path) => /duckdb|\.(?:node|so|dylib|dll)$/i.test(path)), false);
     assert.equal(Object.keys(manifest.dependencies).some((name) => name.startsWith("@duckdb/")), false);
-    assert.ok(files.includes("out/main/power-logs-child.js"));
-    assert.ok(files.includes("out/main/power-logs-query-child.js"));
+    assert.ok(files.includes("dist/power-logs-child.js"));
+    assert.ok(files.includes("dist/power-logs-query-child.js"));
     await mkdir(unpacked);
     execFileSync("tar", ["-xzf", join(directory, packed.filename), "--strip-components=1", "-C", unpacked]);
     assert.equal(existsSync(join(unpacked, "node_modules")), false);
     const transport = execFileSync(
       process.execPath,
       ["-e", `
-        const Module=require('node:module');
-        const original=Module._load;
-        Module._load=function(name,...args){return name==='electron'?{app:{},safeStorage:{}}:original.call(this,name,...args)};
-        const {createCodexApiSession}=require('./out/main/ai-codex-api.js');
+        globalThis.FreelensExtensionApi={Common:{},Main:{Util:{fetch:globalThis.fetch}},Renderer:{}};
+        const {registerHooks}=require('node:module');
+        registerHooks({resolve(specifier,context,next){return specifier==='electron'?{url:'data:text/javascript,export const app={}; export const safeStorage={}; export const net={};',shortCircuit:true}:next(specifier,context)}});
+        (async()=>{
+        const {createCodexApiSession}=await import('./dist/ai-codex-api.js');
         const session=createCodexApiSession('example',{},'');
         session.close();
         process.stdout.write('ready');
+        })().catch(error=>{console.error(error);process.exitCode=1});
       `],
       { cwd: unpacked, encoding: "utf8", env: environment },
     );
@@ -58,9 +60,9 @@ test("packed captures and API transport load without installed dependencies or n
     const output = execFileSync(
       process.execPath,
       ["-e", `
-        const {PowerLogsDatabase}=require('./out/main/power-logs-database.js');
-        const {runPowerLogsQuery}=require('./out/main/power-logs-query.js');
         (async()=>{
+        const {PowerLogsDatabase}=await import('./dist/power-logs-database.js');
+        const {runPowerLogsQuery}=await import('./dist/power-logs-query.js');
           const database=new PowerLogsDatabase('./captures');
           try {
             const context={clusterId:'example-cluster',contextId:'example-context'};

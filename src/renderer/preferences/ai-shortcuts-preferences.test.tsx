@@ -19,7 +19,11 @@ vi.mock("../../common/store/ai-shortcuts-store", () => ({
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
-      Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+      Dialog: ({ children, className }: { children: import("react").ReactNode; className?: string }) => (
+        <div className={`Dialog modal ${className ?? ""}`}>
+          <div className="dialog-content">{children}</div>
+        </div>
+      ),
       Icon: () => <span />,
       Button: ({
         label,

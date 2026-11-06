@@ -1,5 +1,6 @@
-// @vitest-environment jsdom
 // SPDX-License-Identifier: Apache-2.0
+
+// @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 import { openPreferencesSection } from "./section-navigation";
 

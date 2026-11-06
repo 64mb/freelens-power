@@ -19,13 +19,14 @@ import { registerClusterIconsCatalog } from "./cluster-icons-catalog";
 import { registerDashboardCatalog } from "./dashboard-catalog";
 import { startDashboardPicker } from "./dashboard-picker";
 import { startDashboardViews } from "./dashboard-views";
-import { startDiagnosticsMenuOrder } from "./diagnostics-menu-order";
 import { startDockIconOverride } from "./dock-icon";
 import { startExtensionUpdates } from "./extension-updates";
 import { startPowerHelm } from "./helm-ipc";
 import { startMonitoringHistory } from "./monitoring-history";
 import { startNodeBulk } from "./node-bulk";
+import { disposePowerIpc, initializePowerIpc } from "./power-ipc";
 import { startPowerLogs } from "./power-logs-ipc";
+import { startRendererServices } from "./renderer-services";
 import { startResourceSearchIndex } from "./resource-search";
 import { startSettingsExport } from "./settings-export";
 import { startSplashAccentOverride } from "./splash-accent";
@@ -44,6 +45,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
   }
 
   onActivate() {
+    initializePowerIpc(this);
     const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
     power.loadExtension(this);
     LogsPreferencesStore.getInstanceOrCreate().loadExtension(this);
@@ -58,6 +60,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
     ClusterIconsStore.getInstanceOrCreate().loadExtension(this);
     this.stopFeatures?.();
     const stopExport = startSettingsExport();
+    const stopRendererServices = startRendererServices();
     let disposers: (() => void)[] = [];
     const stop = reaction(
       () => power.enabled,
@@ -71,7 +74,6 @@ export default class FreelensPowerMain extends Main.LensExtension {
               startPowerLogs(),
               startPowerHelm(),
               startNodeBulk(),
-              startDiagnosticsMenuOrder(),
               startAiIpc(),
               startAiModels(),
               startDockIconOverride(),
@@ -89,6 +91,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
     this.stopFeatures = () => {
       stop();
       stopExport();
+      stopRendererServices();
       for (const dispose of disposers) dispose();
       disposers = [];
     };
@@ -97,5 +100,6 @@ export default class FreelensPowerMain extends Main.LensExtension {
   onDeactivate() {
     this.stopFeatures?.();
     this.stopFeatures = undefined;
+    disposePowerIpc();
   }
 }

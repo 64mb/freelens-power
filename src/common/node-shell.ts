@@ -1,4 +1,4 @@
-import { isIP } from "node:net";
+import { isIP } from "./ip-address";
 
 export function selectNodeAddress(
   addresses: { type: string; address: string }[],

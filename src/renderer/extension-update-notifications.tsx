@@ -1,5 +1,4 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { reaction } from "mobx";
 import { useEffect, useRef, useState } from "react";
 import { version as VERSION } from "../../package.json";
@@ -11,6 +10,7 @@ import {
 } from "../common/extension-updates";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { EXTENSION_UPDATE_STARTED, requestExtensionUpdate } from "./extension-update";
+import { ipcRenderer } from "./ipc";
 
 const { Notifications, Button, Icon } = Renderer.Component;
 const attemptKey = "freelens-power-update-attempt";
@@ -20,12 +20,12 @@ type Attempt = { version: string; startedAt: number };
 function RestartButton({ version, active }: { version: string; active: () => boolean }) {
   const [restarting, setRestarting] = useState(false);
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   return (
     <Button
       disabled={restarting}
@@ -66,7 +66,7 @@ function readAttempt(): Attempt | undefined {
 }
 
 export function startExtensionUpdateNotifications(): () => void {
-  if (process.isMainFrame === false) return () => {};
+  if (window.top !== window) return () => {};
   const preferences = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
   let stopped = false;
   let checking = false;

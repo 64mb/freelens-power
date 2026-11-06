@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   createTerminalTab: vi.fn(() => ({ id: "terminal-tab" })),
   sendCommand: vi.fn(async () => {}),
 }));
-vi.mock("electron", () => ({ clipboard: { writeText: mocks.writeText }, shell: { openExternal: mocks.openExternal } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: mocks.writeText }, shell: { openExternal: mocks.openExternal } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
@@ -102,7 +102,7 @@ describe("AI message content", () => {
     render(<AiMessageContent text={`\`\`\`sql\n${"x".repeat(65537)}\n\`\`\``} />);
     expect((screen.getByRole("button", { name: "Insert into SQL" }) as HTMLButtonElement).disabled).toBe(true);
   });
-  it("renders formatting as safe React text and copies exact fenced contents only on click", () => {
+  it("renders formatting as safe React text and copies exact fenced contents only on click", async () => {
     const command = 'printf "<example> & text"\n';
     const { container } = render(
       <AiMessageContent text={'**Inspect** `pods`\n\n<img src=x onerror="alert(1)">\n\n```sh\n' + command + "```"} />,
@@ -112,6 +112,7 @@ describe("AI message content", () => {
     expect(mocks.writeText).not.toHaveBeenCalled();
     expect(mocks.createTerminalTab).not.toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText("Copy code"));
+    await act(async () => {});
     expect(mocks.writeText).toHaveBeenCalledWith(command);
     expect(screen.getByRole("status").textContent).toBe("Copied");
   });
@@ -366,11 +367,12 @@ it("rechecks API readiness on click without queuing a deferred command", () => {
   expect(mocks.createTerminalTab).not.toHaveBeenCalled();
 });
 
-it("copies the full assistant answer with original Markdown only after an explicit click", () => {
+it("copies the full assistant answer with original Markdown only after an explicit click", async () => {
   const text = "## Result\n\n- **Ready**\n\n```sh\necho example\n```";
   render(<AiCopyAnswer text={text} />);
   expect(mocks.writeText).not.toHaveBeenCalled();
   fireEvent.click(screen.getByLabelText("Copy answer"));
+  await act(async () => {});
   expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith(text);
   expect(tooltipText(screen.getByLabelText("Copy answer"))).toBe("Copied");
 });

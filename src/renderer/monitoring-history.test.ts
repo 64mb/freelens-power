@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   historyEnabled: true,
   listener: undefined as undefined | ((data: any) => void),
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: vi.fn() } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: vi.fn() } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: { Catalog: { activeCluster: { get: () => ({ metadata: { uid: "cluster-id" } }) } } },
 }));

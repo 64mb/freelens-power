@@ -1,5 +1,5 @@
 export const powerLogsStyles = `
-.ConfirmDialog:has(.power-logs-confirmation) > .box { min-width:min(360px,calc(100vw - 32px)); max-width:min(640px,calc(100vw - 32px)); }
+.ConfirmDialog:has(.power-logs-confirmation) > .dialog-content { min-width:min(360px,calc(100vw - 32px)); max-width:min(640px,calc(100vw - 32px)); }
 .ConfirmDialog:has(.power-logs-confirmation) .confirm-content { gap:12px; }
 .ConfirmDialog:has(.power-logs-confirmation) .confirm-content > .Icon { flex-shrink:0; margin:0; }
 .ConfirmDialog .power-logs-confirmation { display:block; min-width:0; overflow-wrap:anywhere; }

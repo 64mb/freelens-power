@@ -321,7 +321,7 @@ it("keeps skeleton state until selector application and actual page readiness fi
   expect(contents.executeJavaScript).toHaveBeenCalledWith(
     'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
   );
-  expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true]);
+  expect(contents.setBackgroundThrottling.mock.calls.map(([value]: [boolean]) => value)).toEqual([false, true]);
   expect(container.setVisible).toHaveBeenLastCalledWith(true);
   expect(owner.sender.send).toHaveBeenLastCalledWith(
     "freelens-power:dashboard-views:loading",
@@ -358,7 +358,12 @@ it("ignores an old readiness completion after a newer reload fails", async () =>
   owner.sender.send.mockClear();
   finishReady();
   await loading;
-  expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true, false, true]);
+  expect(contents.setBackgroundThrottling.mock.calls.map(([value]: [boolean]) => value)).toEqual([
+    false,
+    true,
+    false,
+    true,
+  ]);
   expect(owner.sender.send).not.toHaveBeenCalledWith(
     "freelens-power:dashboard-views:loading",
     expect.objectContaining({ failed: false }),
@@ -381,7 +386,7 @@ it("restores temporary throttling on removal and preserves an originally unthrot
   expect(contents.getBackgroundThrottling()).toBe(true);
   finishLoad();
   await loading;
-  expect(contents.setBackgroundThrottling.mock.calls.map(([value]) => value)).toEqual([false, true]);
+  expect(contents.setBackgroundThrottling.mock.calls.map(([value]: [boolean]) => value)).toEqual([false, true]);
   dispose();
 
   mocks.backgroundThrottling = false;
@@ -417,7 +422,7 @@ it("accepts only the dashboard top frame and configured card URLs", () => {
     sandbox: true,
     webSecurity: true,
     partition: "persist:freelens-power-websites",
-    preload: expect.stringMatching(/dashboard-preload\.js$/),
+    preload: expect.stringMatching(/dashboard-preload\.cjs$/),
   });
   expect(view.webContents.loadURL).toHaveBeenCalledWith("https://example.com/");
   expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: -10, width: 300, height: 200 });
@@ -495,21 +500,15 @@ it("uses safe website-reported icons and repeats them when an existing view is s
   contents.emit("page-favicon-updated", {}, ["javascript:alert(1)", "https://user:password@example.com/icon.png"]);
   expect(owner.sender.send).not.toHaveBeenCalled();
   contents.emit("page-favicon-updated", {}, ["javascript:alert(1)", "https://example.com/assets/icon.png"]);
-  expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icon", {
-    id: "site",
-    url: "https://example.com/assets/icon.png",
-  });
-  await vi.waitFor(() =>
-    expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icon", {
-      id: "site",
-      url: "data:image/png;base64,AQID",
-    }),
-  );
+  expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icons");
+  await vi.waitFor(() => expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icons"));
   owner.sender.send.mockClear();
   await handler(owner, payload);
-  expect(
-    owner.sender.send.mock.calls.filter(([channel]) => channel === "freelens-power:dashboard-site-icon"),
-  ).toHaveLength(1);
+  const iconInvalidations = owner.sender.send.mock.calls.filter(
+    ([channel]) => channel === "freelens-power:dashboard-site-icons",
+  );
+  expect(iconInvalidations.length).toBeGreaterThan(0);
+  expect(iconInvalidations.every((args) => args.length === 1)).toBe(true);
   dispose();
   owner.sender.send.mockClear();
   contents.emit("page-favicon-updated", {}, ["https://example.com/other.png"]);
@@ -522,12 +521,7 @@ it("loads icons through the website session and cancels late updates on disposal
   await mocks.handlers.get(sync)(owner, payload);
   const contents = mocks.views[0].webContents;
   contents.emit("page-favicon-updated", {}, ["https://example.com/icon.png"]);
-  await vi.waitFor(() =>
-    expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icon", {
-      id: "site",
-      url: "data:image/png;base64,AQID",
-    }),
-  );
+  await vi.waitFor(() => expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icons"));
   expect(mocks.permissions.fetch).toHaveBeenCalledWith(
     "https://example.com/icon.png",
     expect.objectContaining({ credentials: "include", redirect: "manual" }),
@@ -672,10 +666,7 @@ it("caches an icon that finishes loading away from the dashboard and replays it 
   expect(owner.sender.send).toHaveBeenCalledExactlyOnceWith("freelens-power:dashboard-site-icons");
   owner.sender.mainFrame.url = url;
   await mocks.handlers.get(sync)(owner, payload);
-  expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icon", {
-    id: "site",
-    url: "data:image/png;base64,AQID",
-  });
+  expect(owner.sender.send).toHaveBeenLastCalledWith("freelens-power:dashboard-site-icons");
   dispose();
 });
 
@@ -799,7 +790,7 @@ it("pins one hardened duplicate, preserves the cached grid view and focuses with
         sandbox: true,
         webSecurity: true,
         partition: "persist:freelens-power-websites",
-        preload: expect.stringMatching(/dashboard-preload\.js$/),
+        preload: expect.stringMatching(/dashboard-preload\.cjs$/),
       },
     });
     expect(floating.setMenu).toHaveBeenCalledWith(null);
@@ -1359,7 +1350,7 @@ it("prepares and releases cached self-navigation without issuing a second loadUR
     const contents = mocks.views[0].webContents;
     contents.executeJavaScript.mockClear();
     let finishReady!: () => void;
-    contents.executeJavaScriptInIsolatedWorld.mockImplementation((_world, scripts) =>
+    contents.executeJavaScriptInIsolatedWorld.mockImplementation((_world: number, scripts: { code: string }[]) =>
       scripts[0].code.includes("dashboardReadinessAdapter")
         ? new Promise<void>((resolve) => {
             finishReady = resolve;
@@ -1751,4 +1742,17 @@ it.each(["close", "navigate"])("rejects pinned content when its window changes d
   } finally {
     dispose();
   }
+});
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
 });

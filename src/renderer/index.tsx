@@ -10,6 +10,7 @@ import { EXTENSION_DISPLAY_NAME, EXTENSION_ID } from "../common/extension-info";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { AppearancePreferencesStore } from "../common/store/appearance-preferences-store";
+import { ClusterIconsStore } from "../common/store/cluster-icons-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 import { HelmPreferencesStore } from "../common/store/helm-preferences-store";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
@@ -19,6 +20,7 @@ import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { startAiChat } from "./ai";
 import { startAppearanceOverride } from "./appearance";
+import { startClusterIconOverlay } from "./cluster-icon-overlay";
 import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
 import { HpaDiagnosticsDetails } from "./details/hpa-diagnostics-details";
@@ -28,6 +30,7 @@ import { SecretCertificateDetails } from "./details/secret-certificate-details";
 import { ServiceDiagnosticsDetails } from "./details/service-diagnostics-details";
 import { DiagnosticsPage } from "./diagnostics";
 import { type DiagnosticsResourceScope, focusDiagnosticsNamespace } from "./diagnostics-state";
+import { ExtensionBoundary } from "./extension-boundary";
 import { startExtensionUpdate } from "./extension-update";
 import { startExtensionUpdateNotifications } from "./extension-update-notifications";
 import { PowerHelmPage } from "./helm";
@@ -35,6 +38,7 @@ import { startPowerHelmEntrypoints } from "./helm-entrypoints";
 import { startHostExtensionsStyles } from "./host-extensions";
 import { startHostLayoutStyles } from "./host-layout";
 import { startHostPreferencesStyles } from "./host-preferences";
+import { disposeIpc, initializeIpc } from "./ipc";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
@@ -49,6 +53,7 @@ import { PowerLogsPage } from "./power-logs";
 import { PowerLogsMenu, startPowerLogsEntrypoints } from "./power-logs-entrypoints";
 import { PowerPreferences } from "./preferences/preferences";
 import { openPreferencesSection } from "./preferences/section-navigation";
+import { clearRenderedContainers, PortalHost } from "./react-roots";
 import { startReadOnlyMode } from "./read-only";
 import { ResourceRelationshipsPage } from "./resource-relationships";
 import { startResourceSearch } from "./resource-search";
@@ -57,7 +62,9 @@ import { startWelcomeOverride } from "./welcome";
 import type { ReactNode } from "react";
 
 const PowerEnabled = observer(({ children }: { children: ReactNode }) =>
-  PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled ? <>{children}</> : null,
+  PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled ? (
+    <ExtensionBoundary>{children}</ExtensionBoundary>
+  ) : null,
 );
 
 const RelationshipsPage = observer(() => (
@@ -82,6 +89,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   private stopFeatures?: () => void;
 
   onActivate() {
+    initializeIpc(this);
     const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
     power.loadExtension(this);
     LogsPreferencesStore.getInstanceOrCreate().loadExtension(this);
@@ -93,6 +101,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     MonitoringPreferencesStore.getInstanceOrCreate().loadExtension(this);
     AppearancePreferencesStore.getInstanceOrCreate().loadExtension(this);
     DashboardPreferencesStore.getInstanceOrCreate().loadExtension(this);
+    ClusterIconsStore.getInstanceOrCreate().loadExtension(this);
     this.stopFeatures?.();
     let disposers: (() => void)[] = [];
     const stop = reaction(
@@ -117,6 +126,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startExtensionUpdate,
             startExtensionUpdateNotifications,
             startAppearanceOverride,
+            startClusterIconOverlay,
             startWelcomeOverride,
             startAiChat,
             startResourceSearch,
@@ -143,13 +153,22 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
   onDeactivate() {
     this.stopFeatures?.();
     this.stopFeatures = undefined;
+    clearRenderedContainers();
+    disposeIpc();
   }
 
   appPreferences = [
     {
       id: "freelens-power-settings",
       title: "",
-      components: { Input: PowerPreferences, Hint: () => null },
+      components: {
+        Input: () => (
+          <ExtensionBoundary>
+            <PowerPreferences />
+          </ExtensionBoundary>
+        ),
+        Hint: () => null,
+      },
     },
   ];
 
@@ -272,7 +291,16 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
     },
   ];
 
+  clusterFrameComponents = [
+    {
+      id: "freelens-power-portals",
+      Component: PortalHost,
+      shouldRender: computed(() => window.top !== window),
+    },
+  ];
+
   topBarItems = [
+    { components: { Item: () => (window.top === window ? <PortalHost /> : null) } },
     {
       components: {
         Item: () => (
@@ -280,7 +308,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             <Renderer.Component.Icon
               material="battery_charging_full"
               className="freelens-power-settings-icon"
-              style={process.platform === "darwin" ? { marginRight: 4 } : undefined}
+              style={Common.App.isMac ? { marginRight: 4 } : undefined}
               tooltip="Freelens Power settings"
               onClick={() => this.navigateToPreferences()}
             />

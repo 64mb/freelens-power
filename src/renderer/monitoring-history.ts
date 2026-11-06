@@ -1,4 +1,3 @@
-import { ipcRenderer } from "electron";
 import {
   type HistoryPoint,
   type HistoryQuery,
@@ -6,6 +5,7 @@ import {
   type HistoryStatus,
   MONITORING_HISTORY_CHANNEL,
 } from "../common/monitoring-history";
+import { ipcRenderer } from "./ipc";
 export const monitoringHistory = {
   append: (samples: HistorySample[]): Promise<boolean> =>
     ipcRenderer.invoke(MONITORING_HISTORY_CHANNEL, { operation: "append", samples }),

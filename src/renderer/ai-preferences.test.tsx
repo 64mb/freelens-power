@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AiPreferences } from "./preferences/ai-preferences";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), preferences: {} as Record<string, unknown> }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("../common/store/ai-preferences-store", () => ({
   AiPreferencesStore: { getInstanceOrCreate: () => mocks.preferences },
 }));

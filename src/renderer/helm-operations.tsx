@@ -1,9 +1,9 @@
 import { Renderer } from "@freelensapp/extensions";
-import { clipboard, ipcRenderer } from "electron";
 import { makeAutoObservable, runInAction } from "mobx";
 import { observer } from "mobx-react";
 import { useEffect, useRef, useState } from "react";
 import { HELM_CHANNEL, type HelmOperation, type HelmRequest, type HelmResponse } from "../common/helm";
+import { clipboard, ipcRenderer } from "./ipc";
 
 const { Dialog: NativeDialog, Button, Icon, Checkbox } = Renderer.Component;
 const MAX_RECORDS = 30;
@@ -410,8 +410,10 @@ const OperationDialog = observer(
               <Button
                 className="power-helm-operation-copy-button"
                 onClick={() => {
-                  clipboard.writeText(copyText);
-                  setCopied(true);
+                  void clipboard
+                    .writeText(copyText)
+                    .then(() => setCopied(true))
+                    .catch(() => setCopied(false));
                 }}
               >
                 <Icon material="content_copy" size={16} />
@@ -509,7 +511,7 @@ export const HelmOperationsPanel = observer(
       .power-helm-operations .power-helm-operation-card { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px; margin:8px 0; border:1px solid var(--borderColor); border-radius:6px; background:var(--contentColor); }
       .power-helm-operation-card > .power-helm-operation-progress-button { margin-left:auto; }
       .power-helm-operation-dialog { z-index:12000; background:rgb(0 0 0 / 55%); }
-      :root .Dialog.power-helm-operation-dialog > .box { background:var(--contentColor); border:1px solid var(--borderColor); border-radius:12px; overflow:hidden; box-shadow:0 20px 70px rgb(0 0 0 / 35%); }
+      :root .Dialog.power-helm-operation-dialog > .dialog-content { background:var(--contentColor); border:1px solid var(--borderColor); border-radius:12px; overflow:hidden; box-shadow:0 20px 70px rgb(0 0 0 / 35%); }
       .power-helm-operation-content { display:flex; flex-direction:column; gap:20px; box-sizing:border-box; padding:28px; width:min(680px,calc(100vw - 48px)); max-height:calc(100vh - 64px); overflow:auto; outline:none; }
       .power-helm-operation-content .power-helm-operation-heading { display:flex; align-items:center; gap:10px; margin:0; font-size:20px; line-height:28px; }
       .power-helm-operation-heading > .Icon { color:var(--primary); flex-shrink:0; }
@@ -530,7 +532,7 @@ export const HelmOperationsPanel = observer(
       .power-helm-operation-log-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 16px; }
       .power-helm-operation-log-toolbar .Checkbox { position:relative; }
       .power-helm-operation-log-toolbar .Checkbox input[type="checkbox"] { display:block; position:absolute; width:1px; height:1px; margin:0; opacity:0; }
-      .power-helm-operation-log-toolbar .Checkbox:focus-within > .box { outline:2px solid var(--primary); outline-offset:3px; border-radius:3px; }
+      .power-helm-operation-log-toolbar .Checkbox:focus-within > .check-icon { outline:2px solid var(--primary); outline-offset:3px; border-radius:3px; }
       .power-helm-operation-copy-status { margin-left:auto; min-width:42px; color:var(--textColorSecondary); font-size:12px; }
       .power-helm-operation-content .power-helm-operation-log pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:260px; overflow:auto; margin:0; padding:14px 16px; background:var(--mainBackground); border-top:1px solid var(--borderColor); user-select:text; font-size:12px; line-height:1.6; }
       .power-helm-operation-log > small { display:block; padding:10px 16px; color:var(--textColorSecondary); font-size:11px; }

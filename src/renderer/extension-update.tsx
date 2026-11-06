@@ -12,7 +12,9 @@ export function requestExtensionUpdate() {
 
 function installControls() {
   const page = document.querySelector(pageSelector);
-  const input = page?.querySelector<HTMLInputElement>('input[placeholder="Name or file path or URL"]');
+  const input = page?.querySelector<HTMLInputElement>(
+    'input[placeholder="Name, URL, or path to a package or directory"]',
+  );
   const section = input?.closest("section");
   const button = [...(section?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
     (element) => element.textContent?.trim() === "Install",
@@ -26,7 +28,7 @@ function setInput(input: HTMLInputElement, value: string) {
 }
 
 export function startExtensionUpdate(): () => void {
-  if (process.isMainFrame === false) return () => {};
+  if (window.top !== window) return () => {};
   let stopped = false;
   let scheduled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -97,9 +99,9 @@ export function startExtensionUpdate(): () => void {
       }
     }
     const table = document.querySelector(`${pageSelector} [data-testid="extensions-table"]`);
-    const row = [...(table?.querySelectorAll<HTMLElement>(".tr") ?? [])].find(
+    const row = [...(table?.querySelectorAll<HTMLElement>("tbody > tr") ?? [])].find(
       (element) =>
-        element.querySelector(".td.extension > div > div > div:first-child")?.textContent?.trim() === packageName,
+        element.querySelector(":scope > td:first-child > div > div:first-child")?.textContent?.trim() === packageName,
     );
     const trigger = row?.querySelector<HTMLElement>('[id^="menu-actions-for-installed-extensions-for-"]:not(ul)');
     const menu =

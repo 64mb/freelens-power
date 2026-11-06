@@ -1,5 +1,6 @@
-// @vitest-environment jsdom
 // SPDX-License-Identifier: Apache-2.0
+
+// @vitest-environment jsdom
 import { runInAction } from "mobx";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -218,13 +219,14 @@ describe("application accent override", () => {
     }
   });
 
-  it("scopes catalog floating accents to enabled primary actions and restores native styles", () => {
-    document.body.innerHTML = `<div class="CatalogAddButton"><button class="MuiFab-primary"></button><button class="MuiFab-primary Mui-disabled"></button><button class="MuiSpeedDialAction-fab"></button></div><button class="MuiFab-primary"></button><div class="AddRemoveButtons"><button class="Button primary add-button"></button><button class="Button primary remove-button"></button></div>`;
+  it("scopes catalog floating accents to the enabled v2 SpeedDial trigger and restores native styles", () => {
+    document.body.innerHTML = `<div class="CatalogAddButton"><button id="catalog-add-trigger" class="MuiFab-root MuiSpeedDial-fab"></button><button class="MuiFab-root MuiSpeedDial-fab Mui-disabled"></button><button class="MuiFab-root MuiSpeedDialAction-fab"></button></div><button class="MuiFab-root MuiSpeedDial-fab"></button><div class="AddRemoveButtons"><button class="Button primary add-button"></button><button class="Button primary remove-button"></button></div>`;
     try {
       dispose = startAppearanceOverride();
       const floatingRules = () => rules().filter((rule) => rule.selectorText.includes(".CatalogAddButton"));
       const [normal, hover] = floatingRules();
       expect(document.querySelectorAll(normal.selectorText)).toHaveLength(1);
+      expect(document.querySelector(normal.selectorText)?.id).toBe("catalog-add-trigger");
       expect(normal.style.getPropertyValue("background-color")).toBe("var(--primary)");
       expect(document.querySelector('style[data-freelens-power="accent-color"]')?.textContent).toContain(
         `${normal.selectorText} { background-color: var(--primary) !important;`,

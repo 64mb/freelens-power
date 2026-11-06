@@ -1,12 +1,11 @@
-import { createHash } from "node:crypto";
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import {
   RESOURCE_SEARCH_CHANNEL,
   type SearchDocument,
   type SearchIndexStatus,
   type SearchQueryResult,
 } from "../common/resource-search";
+import { ipcRenderer } from "./ipc";
 
 import type { SearchTransport } from "./resource-search-discovery";
 import type { SearchSink } from "./resource-search-sync";
@@ -16,14 +15,13 @@ export function createResourceSearchTransport(
   signal?: AbortSignal,
   options: { timeoutMs?: number } = {},
 ): SearchTransport {
-  const frameHost = window.location.host;
   if (
     window.location.protocol !== "https:" ||
     window.location.hostname !== `${clusterId}.renderer.freelens.app` ||
     Renderer.Catalog.activeCluster.get()?.metadata.uid !== clusterId
   )
     throw new Error("Resource requests require the active cluster frame");
-  const api = Renderer.K8sApi.KubeJsonApi.forCluster.call(undefined, clusterId);
+  const api = Renderer.K8sApi.KubeJsonApi.forCluster(clusterId);
   return {
     get: async <T>(path: string, query?: Record<string, string | number>, headers?: Record<string, string>) => {
       if (signal?.aborted) throw new Error("Resource request canceled");
@@ -33,13 +31,12 @@ export function createResourceSearchTransport(
         contextId: searchContextId(),
       });
       if (signal?.aborted) throw new Error("Resource request canceled");
-      const requestHeaders = {
-        ...Object.fromEntries(Object.entries(headers ?? {}).filter(([key]) => key.toLowerCase() !== "host")),
-        Host: frameHost,
-      };
+      const requestHeaders = Object.fromEntries(
+        Object.entries(headers ?? {}).filter(([key]) => key.toLowerCase() !== "host"),
+      );
       const controller = new AbortController();
       let timedOut = false;
-      let responseBody: { destroy(): void } | null | undefined;
+      let responseBody: ReadableStreamDefaultReader<Uint8Array> | undefined;
       const cancel = () => controller.abort();
       signal?.addEventListener("abort", cancel, { once: true });
       let rejectAbort!: (error: Error) => void;
@@ -47,7 +44,7 @@ export function createResourceSearchTransport(
         rejectAbort = reject;
       });
       const onAbort = () => {
-        responseBody?.destroy();
+        void responseBody?.cancel().catch(() => {});
         rejectAbort(
           timedOut
             ? Object.assign(new Error("Resource request timed out"), { timedOut: true })
@@ -60,28 +57,38 @@ export function createResourceSearchTransport(
         controller.abort();
       }, options.timeoutMs ?? 30000);
       const request = async (): Promise<T> => {
-        const response = await api.getResponse(
-          path,
-          { query },
-          { signal: controller.signal, headers: requestHeaders, ...{ size: 4 * 1024 * 1024 } },
-        );
+        const response = await api.getResponse(path, { query }, { signal: controller.signal, headers: requestHeaders });
         if (controller.signal.aborted) {
-          response.body?.destroy();
+          void response.body?.cancel().catch(() => {});
           throw new Error("Resource request canceled");
         }
-        responseBody = response.body;
         if (!response.ok) {
           const error = Object.assign(new Error(`Resource API returned ${response.status}`), {
             status: response.status,
             retryAfter: response.headers.get("retry-after"),
           });
-          response.body?.destroy();
+          void response.body?.cancel().catch(() => {});
           throw error;
         }
         try {
-          return JSON.parse(await response.text()) as T;
+          const decoder = new TextDecoder();
+          let text = "";
+          let bytes = 0;
+          responseBody = response.body?.getReader();
+          if (responseBody) {
+            for (;;) {
+              const chunk = await responseBody.read();
+              if (chunk.done) break;
+              bytes += chunk.value.byteLength;
+              if (bytes > 4 * 1024 * 1024)
+                throw Object.assign(new Error("Resource page exceeded the response budget"), { oversized: true });
+              text += decoder.decode(chunk.value, { stream: true });
+            }
+          }
+          text += decoder.decode();
+          return JSON.parse(text) as T;
         } catch (error) {
-          if ((error as { type?: string }).type === "max-size")
+          if ((error as { oversized?: boolean }).oversized)
             throw Object.assign(new Error("Resource page exceeded the response budget"), { oversized: true });
           throw new Error("Resource response could not be parsed");
         }
@@ -90,6 +97,10 @@ export function createResourceSearchTransport(
         return await Promise.race([request(), aborted]);
       } finally {
         clearTimeout(timeout);
+        if (responseBody) {
+          void responseBody.cancel().catch(() => {});
+          responseBody.releaseLock();
+        }
         signal?.removeEventListener("abort", cancel);
         controller.signal.removeEventListener("abort", onAbort);
       }
@@ -98,9 +109,7 @@ export function createResourceSearchTransport(
 }
 export function searchContextId(): string {
   const cluster = Renderer.Catalog.activeCluster.get();
-  return createHash("sha256")
-    .update(JSON.stringify([cluster?.metadata.uid, cluster?.spec?.kubeconfigContext]))
-    .digest("hex");
+  return Renderer.Util.sha256Hex(JSON.stringify([cluster?.metadata.uid, cluster?.spec?.kubeconfigContext]));
 }
 export function createResourceSearchClient(
   clusterId: string,

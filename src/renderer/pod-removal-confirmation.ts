@@ -41,7 +41,7 @@ export function startPodRemovalConfirmation(
   const scope = ".ConfirmDialog:has(.power-pod-removal-summary)";
   style.textContent = `
     ${scope} .power-pod-removal-original { display: none; }
-    ${scope} > .box { max-width: min(720px,calc(100vw - 32px)); min-width: min(360px,calc(100vw - 32px)); }
+    ${scope} > .dialog-content { max-width: min(720px,calc(100vw - 32px)); min-width: min(360px,calc(100vw - 32px)); }
     ${scope} .confirm-content { align-items: flex-start; gap: 12px; }
     ${scope} .confirm-content > .Icon { flex-shrink: 0; margin: 2px 0 0; }
     .power-pod-removal-summary { min-width: 0; overflow-wrap: anywhere; }
@@ -58,6 +58,7 @@ export function startPodRemovalConfirmation(
   document.head.append(style);
   let selectedNames: readonly string[] | undefined;
   let armed = false;
+  let armedPath = "";
   let resource = nativeResourceRemovals.Pods;
   let stopped = false;
   let expiration: number | undefined;
@@ -84,7 +85,7 @@ export function startPodRemovalConfirmation(
         return;
       restore();
     }
-    if (!armed || !dialog) return;
+    if (!armed || !dialog || armedPath !== window.location.pathname) return;
     const message = dialog.querySelector<HTMLElement>(".confirm-content > p");
     const button = dialog.querySelector<HTMLButtonElement>('.confirm-buttons .Button.ok[data-testid="confirm"]');
     const parsed = message && summary(message);
@@ -152,6 +153,8 @@ export function startPodRemovalConfirmation(
   const arm = (event: MouseEvent) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    armed = false;
+    selectedNames = undefined;
     const button = target.closest<HTMLButtonElement>(
       Object.keys(nativeResourceRemovals)
         .map((root) => `.${root} .AddRemoveButtons .remove-button`)
@@ -173,16 +176,22 @@ export function startPodRemovalConfirmation(
       selectedNames = undefined;
     }
     armed = true;
+    armedPath = window.location.pathname;
     window.clearTimeout(expiration);
-    // keep capture armed through native click handlers and their microtask checkpoints
+    // the React 19 renderer can commit the native dialog after the click task and its first timer checkpoint
     expiration = window.setTimeout(() => {
       expiration = undefined;
       reconcile();
       armed = false;
       selectedNames = undefined;
-    }, 0);
+    }, 1000);
+  };
+  const disarm = () => {
+    armed = false;
+    selectedNames = undefined;
   };
   document.addEventListener("click", arm, true);
+  document.addEventListener("keydown", disarm, true);
   const observer = new MutationObserver(reconcile);
   observer.observe(document.body, {
     childList: true,
@@ -197,6 +206,7 @@ export function startPodRemovalConfirmation(
     armed = false;
     window.clearTimeout(expiration);
     document.removeEventListener("click", arm, true);
+    document.removeEventListener("keydown", disarm, true);
     observer.disconnect();
     restore();
     style.remove();

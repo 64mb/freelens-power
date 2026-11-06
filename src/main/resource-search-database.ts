@@ -1,6 +1,9 @@
+import { createRequire } from "node:module";
 import { COMMON_RESOURCE_KINDS } from "../common/resource-search-kind-priority";
 
 import type { SearchDocument, SearchIndexRequest, SearchQueryResult } from "../common/resource-search";
+
+const require = createRequire(import.meta.url);
 
 export class ResourceSearchDatabase {
   private db: import("node:sqlite").DatabaseSync;
@@ -9,8 +12,9 @@ export class ResourceSearchDatabase {
     private path: string,
     maxBytes = 256 * 1024 * 1024,
     commonKinds: readonly string[] = COMMON_RESOURCE_KINDS,
+    private load: NodeRequire = require,
   ) {
-    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const { DatabaseSync } = this.load("node:sqlite") as typeof import("node:sqlite");
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=2000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA cache_size=-4096;
       CREATE TABLE IF NOT EXISTS documents (
@@ -45,7 +49,7 @@ export class ResourceSearchDatabase {
     });
     this.db.function("search_parts", { deterministic: true }, (name, token) => this.parts(String(name), String(token)));
     try {
-      require("node:fs").chmodSync(path, 0o600);
+      this.load("node:fs").chmodSync(path, 0o600);
     } catch {
       /* in-memory databases have no file */
     }
@@ -273,7 +277,7 @@ export class ResourceSearchDatabase {
   private bytes(): number {
     return [this.path, `${this.path}-journal`].reduce((sum, path) => {
       try {
-        return sum + require("node:fs").statSync(path).size;
+        return sum + this.load("node:fs").statSync(path).size;
       } catch {
         return sum;
       }

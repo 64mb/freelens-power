@@ -3,7 +3,7 @@ import { POWER_LOGS_CHANNEL } from "../common/power-logs";
 import { createPowerLogsClient } from "./power-logs-client";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 afterEach(() => mocks.invoke.mockReset());
 
 it("saves an exact per-capture SQL draft in its partition and returns updated capture metadata", async () => {

@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+vi.mock("./ipc", () => ({ clipboard: { writeText: vi.fn() }, ipcRenderer: { invoke: vi.fn() } }));
+
+vi.mock("./react-roots", async () => import("./react-roots.test-utils"));
 
 import { runInAction } from "mobx";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

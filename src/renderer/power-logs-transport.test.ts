@@ -4,7 +4,7 @@ import { POWER_LOGS_CHANNEL } from "../common/power-logs";
 import { createPowerLogsTransport } from "./power-logs-transport";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), getResponse: vi.fn(), context: "context-a" }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("./resource-search-client", () => ({ searchContextId: () => mocks.context }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
@@ -25,15 +25,17 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 const path = "/api/v1/namespaces/demo/pods/sample/log";
 function response(text: string) {
-  const destroy = vi.fn();
-  const body = {
-    destroy,
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(text);
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
     },
-  };
+  });
+  const reader = body.getReader();
+  const cancel = vi.spyOn(reader, "cancel");
+  vi.spyOn(body, "getReader").mockReturnValue(reader);
   mocks.getResponse.mockResolvedValue({ ok: true, body });
-  return destroy;
+  return cancel;
 }
 it("uses a shared stream lease and byte budgets with exact context and frame host", async () => {
   const destroy = response("hello 🦆\n");
@@ -54,7 +56,7 @@ it("uses a shared stream lease and byte budgets with exact context and frame hos
   expect(requests[0].follow).toBe(true);
   expect(requests[2].bytes).toBe(Buffer.byteLength("hello 🦆\n"));
   expect(requests[3].streamId).toBe(requests[0].streamId);
-  expect(mocks.getResponse.mock.calls[0][2].headers.Host).toBe("cluster-a.renderer.freelens.app:1234");
+  expect(mocks.getResponse.mock.calls[0][2]).not.toHaveProperty("headers.Host");
 });
 it("stops immediately while a shared permit is queued without issuing HTTP", async () => {
   mocks.invoke.mockImplementation((_channel, request) =>
@@ -91,4 +93,17 @@ it("rejects a changed context after acquiring a permit", async () => {
   const read = createPowerLogsTransport("cluster-a").stream(path, {})[Symbol.asyncIterator]().next();
   await expect(read).rejects.toThrow("context changed");
   expect(mocks.getResponse).not.toHaveBeenCalled();
+});
+
+it("decodes resource JSON when a multibyte character crosses stream chunks", async () => {
+  const encoded = new TextEncoder().encode('{"message":"hello 🦆"}');
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoded.subarray(0, encoded.length - 4));
+      controller.enqueue(encoded.subarray(encoded.length - 4));
+      controller.close();
+    },
+  });
+  mocks.getResponse.mockResolvedValue({ ok: true, body });
+  await expect(createPowerLogsTransport("cluster-a").get("/api/v1/pods")).resolves.toEqual({ message: "hello 🦆" });
 });

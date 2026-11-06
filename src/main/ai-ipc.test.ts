@@ -15,7 +15,17 @@ const mocks = vi.hoisted(() => {
   const json = vi.fn(() => {
     throw new Error("Plain log text must not be parsed as JSON");
   });
-  const getResponse = vi.fn().mockResolvedValue({ ok: true, text, json });
+  const getResponse = vi.fn().mockImplementation(async () => ({
+    ok: true,
+    text,
+    json,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("ERROR EXAMPLE_KEY=example-sensitive"));
+        controller.close();
+      },
+    }),
+  }));
   const get = vi.fn().mockResolvedValue({ items: [] });
   const factory = vi.fn(() => ({ getResponse, get }));
   const forCluster = new Proxy(
@@ -151,9 +161,9 @@ describe("AI IPC native logs compatibility", () => {
       expect(mocks.getResponse).toHaveBeenCalledExactlyOnceWith(
         query.path,
         { query: query.query },
-        { signal: expect.any(AbortSignal), size: 65536 },
+        { signal: expect.any(AbortSignal) },
       );
-      expect(mocks.text).toHaveBeenCalledOnce();
+      expect(mocks.text).not.toHaveBeenCalled();
       expect(mocks.permit).toHaveBeenNthCalledWith(1, "example-cluster", undefined, expect.any(AbortSignal));
       expect(mocks.permit).toHaveBeenNthCalledWith(
         2,
@@ -454,5 +464,51 @@ it("uses only saved API model/provider preferences instead of renderer overrides
   } finally {
     stop();
     mocks.preferences.provider = "codex";
+  }
+});
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
+});
+
+it("aborts the AI request visibly when its originating event queue cannot accept progress", async () => {
+  vi.clearAllMocks();
+  mocks.preferences.enabled = true;
+  const frame = {
+    url: "https://renderer.freelens.app/",
+    detached: false,
+    send: vi.fn(() => {
+      throw new Error("event queue full");
+    }),
+  };
+  mocks.runAiChat.mockImplementation(async (_request, _resolve, signal, _activity, progress) => {
+    progress({ phase: "answer", elapsedMs: 1, round: 0, text: "partial answer" });
+    expect(signal.aborted).toBe(true);
+    return { text: "final answer must not report success after delivery failed" };
+  });
+  const stop = startAiIpc();
+  try {
+    const chat = mocks.handle.mock.calls.find(([channel]) => channel === AI_CHAT_CHANNEL)![1];
+    await expect(
+      chat(
+        { sender: Object.assign(new EventEmitter(), { id: 219 }), senderFrame: frame },
+        {
+          requestId: "bounded-events",
+          messages: [],
+          context: {},
+        },
+      ),
+    ).rejects.toThrow("FREELENS_AI_");
+  } finally {
+    stop();
   }
 });

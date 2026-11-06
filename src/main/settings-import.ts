@@ -1,5 +1,5 @@
 import { open } from "node:fs/promises";
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, dialog } from "electron";
 import { runInAction } from "mobx";
 import {
   parseSettingsImport,
@@ -9,13 +9,14 @@ import {
 } from "../common/settings-export";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { powerIpc } from "./power-ipc";
 
 const MAX_BYTES = SETTINGS_BACKUP_MAX_BYTES;
 
 export function startSettingsImport(): () => void {
   let active = true;
   const pending = new WeakSet<object>();
-  ipcMain.handle(SETTINGS_IMPORT, async (event): Promise<SettingsImportResult> => {
+  powerIpc.handle(SETTINGS_IMPORT, async (event): Promise<SettingsImportResult> => {
     const sender = event.sender;
     const window = BrowserWindow.fromWebContents(sender);
     const startingFrame = event.senderFrame;
@@ -96,6 +97,6 @@ export function startSettingsImport(): () => void {
   });
   return () => {
     active = false;
-    ipcMain.removeHandler(SETTINGS_IMPORT);
+    powerIpc.removeHandler(SETTINGS_IMPORT);
   };
 }

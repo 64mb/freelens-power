@@ -7,6 +7,8 @@ import { runAiChat } from "./ai";
 import type { AiChatRequest } from "../common/ai";
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
+vi.mock("electron", () => ({}));
+
 vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 vi.mock("./ai-claude-policy", () => ({ verifyClaudeManagedPolicy: vi.fn().mockResolvedValue(undefined) }));
 

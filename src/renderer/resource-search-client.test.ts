@@ -1,17 +1,19 @@
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ forCluster: vi.fn(), getResponse: vi.fn(), invoke: vi.fn() }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
+    Util: { sha256Hex: (value: string) => createHash("sha256").update(value).digest("hex") },
     Catalog: {
       activeCluster: { get: () => ({ metadata: { uid: "cluster-a" }, spec: { kubeconfigContext: "test" } }) },
     },
     K8sApi: {
-      KubeJsonApi: { forCluster: { call: (_this: unknown, clusterId: string) => state.forCluster(clusterId) } },
+      KubeJsonApi: { forCluster: (clusterId: string) => state.forCluster(clusterId) },
     },
   },
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: state.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: state.invoke } }));
 
 import { createResourceSearchTransport, searchContextId } from "./resource-search-client";
 
@@ -20,9 +22,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-it("uses the host legacy factory proxy and bounds raw response parsing without logging bodies", async () => {
+it("uses the host cluster factory and bounds raw response parsing without logging bodies", async () => {
   state.forCluster.mockReturnValue({ getResponse: state.getResponse });
-  state.getResponse.mockResolvedValue({ ok: true, text: async () => '{"items":[]}' });
+  state.getResponse.mockResolvedValue({ ok: true, body: new Response('{"items":[]}').body });
   const transport = createResourceSearchTransport("cluster-a");
   await expect(transport.get("/api/v1/secrets", { limit: 250 }, { Accept: "metadata" })).resolves.toEqual({
     items: [],
@@ -31,7 +33,7 @@ it("uses the host legacy factory proxy and bounds raw response parsing without l
   expect(state.getResponse).toHaveBeenCalledWith(
     "/api/v1/secrets",
     { query: { limit: 250 } },
-    expect.objectContaining({ size: 4194304 }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
   );
   expect(searchContextId()).toMatch(/^[a-f0-9]{64}$/);
 });
@@ -39,7 +41,13 @@ it("reports status and retry-after without reading or retaining denied response 
   const destroy = vi.fn();
   const text = vi.fn();
   state.forCluster.mockReturnValue({ getResponse: state.getResponse });
-  state.getResponse.mockResolvedValue({ ok: false, status: 429, headers: { get: () => "3" }, body: { destroy }, text });
+  state.getResponse.mockResolvedValue({
+    ok: false,
+    status: 429,
+    headers: { get: () => "3" },
+    body: { cancel: destroy.mockResolvedValue(undefined) },
+    text,
+  });
   await expect(createResourceSearchTransport("cluster-a").get("/api")).rejects.toMatchObject({
     status: 429,
     retryAfter: "3",
@@ -52,9 +60,7 @@ it("exposes a safe oversized marker and requests a global permit before transfer
   state.forCluster.mockReturnValue({ getResponse: state.getResponse });
   state.getResponse.mockResolvedValue({
     ok: true,
-    text: async () => {
-      throw { type: "max-size", message: "sensitive-body" };
-    },
+    body: new Response("x".repeat(4 * 1024 * 1024 + 1)).body,
   });
   await expect(createResourceSearchTransport("cluster-a").get("/api/v1/secrets")).rejects.toMatchObject({
     oversized: true,
@@ -66,19 +72,19 @@ it("exposes a safe oversized marker and requests a global permit before transfer
   );
 });
 
-it("overrides the doubled cluster factory Host while preserving metadata headers, cancellation and bounds", async () => {
+it("preserves metadata headers and cancellation without overriding browser-controlled Host", async () => {
   const controller = new AbortController();
   let effectiveHeaders: Record<string, string> = {};
   state.forCluster.mockImplementation((clusterId) => ({
     getResponse: async (
       _path: string,
       _query: unknown,
-      init: { headers: Record<string, string>; signal: AbortSignal; size: number },
+      init: { headers: Record<string, string>; signal: AbortSignal },
     ) => {
-      effectiveHeaders = { Host: `${clusterId}.cluster-a.renderer.freelens.app:12345`, ...init.headers };
+      effectiveHeaders = init.headers;
       expect(init.signal.aborted).toBe(false);
-      expect(init.size).toBe(4194304);
-      return { ok: true, text: async () => '{"items":[]}' };
+
+      return { ok: true, body: new Response('{"items":[]}').body };
     },
   }));
   await createResourceSearchTransport("cluster-a", controller.signal).get(
@@ -86,7 +92,7 @@ it("overrides the doubled cluster factory Host while preserving metadata headers
     { limit: 250 },
     { Accept: "metadata" },
   );
-  expect(effectiveHeaders).toEqual({ Host: "cluster-a.renderer.freelens.app:12345", Accept: "metadata" });
+  expect(effectiveHeaders).toEqual({ Accept: "metadata" });
 });
 it("rejects a transport for another cluster or an untrusted frame host", () => {
   expect(() => createResourceSearchTransport("cluster-b")).toThrow("active cluster frame");
@@ -119,7 +125,7 @@ it("bounds stalled body parsing and destroys the response stream", async () => {
   vi.useFakeTimers();
   const destroy = vi.fn();
   state.forCluster.mockReturnValue({
-    getResponse: async () => ({ ok: true, body: { destroy }, text: () => new Promise(() => {}) }),
+    getResponse: async () => ({ ok: true, body: new ReadableStream({ cancel: destroy }) }),
   });
   const result = createResourceSearchTransport("cluster-a", undefined, { timeoutMs: 25 }).get("/api");
   const assertion = expect(result).rejects.toMatchObject({ timedOut: true });
@@ -144,7 +150,7 @@ it("preserves caller cancellation and ignores late network responses after abort
   await vi.waitFor(() => expect(resolve).toBeTypeOf("function"));
   caller.abort();
   await assertion;
-  resolve({ ok: true, text, body: { destroy } });
+  resolve({ ok: true, text, body: { cancel: destroy.mockResolvedValue(undefined) } });
   await Promise.resolve();
   expect(text).not.toHaveBeenCalled();
   expect(destroy).toHaveBeenCalledOnce();
@@ -153,7 +159,9 @@ it("clears network deadlines and caller listeners after successful parsing", asy
   vi.useFakeTimers();
   const caller = new AbortController();
   const remove = vi.spyOn(caller.signal, "removeEventListener");
-  state.forCluster.mockReturnValue({ getResponse: async () => ({ ok: true, text: async () => '{"items":[]}' }) });
+  state.forCluster.mockReturnValue({
+    getResponse: async () => ({ ok: true, body: new Response('{"items":[]}').body }),
+  });
   await expect(
     createResourceSearchTransport("cluster-a", caller.signal, { timeoutMs: 25 }).get("/api"),
   ).resolves.toEqual({ items: [] });

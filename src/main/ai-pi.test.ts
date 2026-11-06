@@ -491,3 +491,5 @@ describe("Pi read-only CLI", () => {
     expect(hidden).toEqual([]);
   });
 });
+
+vi.mock("electron", () => ({}));

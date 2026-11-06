@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
 import { Renderer } from "@freelensapp/extensions";
-import { clipboard } from "electron";
 import { observer } from "mobx-react";
 import {
   type CSSProperties,
@@ -37,6 +35,7 @@ import { powerLogLineEvidence, powerLogQueryEvidence } from "../common/power-log
 import { applyPowerLogsLimits, normalizePowerLogsLimits } from "../common/power-logs-limits";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
 import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
+import { clipboard } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 import { createLogColumnSizer } from "./power-log-column-widths";
 import { createLogColumnReader, logColumnLabel, logColumnNames } from "./power-log-columns";
@@ -528,9 +527,9 @@ function LogDetails({
                   type="button"
                   className="power-logs-detail-field-copy"
                   aria-label={field.copyLabel}
-                  onClick={() => {
+                  onClick={async () => {
                     try {
-                      clipboard.writeText(field.value!);
+                      await clipboard.writeText(field.value!);
                       setFieldCopyFeedback({ kind: field.kind, text: "Copied" });
                     } catch {
                       setFieldCopyFeedback({ kind: field.kind, text: field.failure });
@@ -581,9 +580,9 @@ function LogDetails({
                 type="button"
                 className="power-logs-detail-copy"
                 aria-label="Copy structured JSON"
-                onClick={() => {
+                onClick={async () => {
                   try {
-                    clipboard.writeText(structuredFields);
+                    await clipboard.writeText(structuredFields);
                     setCopyFeedback("Copied");
                   } catch {
                     setCopyFeedback("Unable to copy JSON");
@@ -809,9 +808,9 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
       window.removeEventListener("keydown", escape);
     };
   }, []);
-  const historyController = useRef<AbortController>();
-  const liveController = useRef<AbortController>();
-  const captureController = useRef<AbortController>();
+  const historyController = useRef<AbortController | undefined>(undefined);
+  const liveController = useRef<AbortController | undefined>(undefined);
+  const captureController = useRef<AbortController | undefined>(undefined);
   const queryRef = useRef("");
   const epoch = useRef(0);
   const alive = useRef(true);
@@ -819,7 +818,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
   const recordsRef = useRef(records);
   recordsRef.current = records;
   const pending = useRef<LogRecord[]>([]);
-  const flushTimer = useRef<ReturnType<typeof setTimeout>>();
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const refreshCaptures = () =>
     client
       .list()
@@ -843,7 +842,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     const next = batch.map((record) => ({
       ...record,
       key: ++sequence.current,
-      bytes: Buffer.byteLength(JSON.stringify(record)),
+      bytes: new TextEncoder().encode(JSON.stringify(record)).byteLength,
     }));
     setRecords((current) => {
       const combined = [...current, ...next];
@@ -1084,7 +1083,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
             let bytes = 2;
             while (offset < batch.length && chunk.length < L.batchRows) {
               const record = batch[offset];
-              const size = Buffer.byteLength(JSON.stringify(record)) + 1;
+              const size = new TextEncoder().encode(JSON.stringify(record)).byteLength + 1;
               if (chunk.length && bytes + size > L.batchBytes) break;
               chunk.push(record);
               bytes += size;
@@ -1147,7 +1146,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     if (queryRef.current || (!selectedCapture && captureController.current)) return;
     const captured = selectedCapture ?? captures.find((item) => item.id === captureId);
     if (!captured || captured.state === "collecting" || deleting.current.has(captured.id)) return;
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     queryRef.current = id;
     setQueryId(id);
     setError("");
@@ -1198,7 +1197,7 @@ function Workspace({ clusterId, contextId }: { clusterId: string; contextId: str
     )
       return;
     const draft = execute ? examples[0][1] : sqlDraft.current;
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     queryRef.current = id;
     setQueryId(id);
     setSqlError("");

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { parseSecretCertificates } from "./secret-certificates";
+import { parseSecretCertificates } from "../main/secret-certificates";
 
 const certificate = `-----BEGIN CERTIFICATE-----
 MIIDKDCCAhCgAwIBAgIJAK93OMQ4k0dkMA0GCSqGSIb3DQEBCwUAMDcxFjAUBgNV

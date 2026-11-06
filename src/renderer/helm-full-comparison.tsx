@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
-import { clipboard } from "electron";
 import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { compareHelmLines, type HelmDiff, type HelmLineRange } from "../common/helm-diff";
+import { clipboard } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 
 const { Button, Icon } = Renderer.Component;
@@ -61,7 +61,7 @@ export function HelmFullComparison({
   after: string;
   beforeLabel: ReactNode;
   afterLabel: ReactNode;
-  viewport: RefObject<HTMLDivElement>;
+  viewport: RefObject<HTMLDivElement | null>;
   renderDocument: (document: FullComparisonDocument) => ReactNode;
   onClose: () => void;
 }) {
@@ -115,9 +115,9 @@ export function HelmFullComparison({
     setOffset(Math.max(0, Math.floor(row / 100) * 100 - 100));
     if (viewport.current) viewport.current.scrollTop = row * 18;
   };
-  const copy = (source: boolean) => {
+  const copy = async (source: boolean) => {
     try {
-      clipboard.writeText(source ? before : after);
+      await clipboard.writeText(source ? before : after);
       setCopyStatus("Full document copied");
     } catch {
       setCopyStatus("Could not copy the document. Try copying again.");

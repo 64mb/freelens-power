@@ -1,5 +1,4 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { observer } from "mobx-react";
 import { useEffect, useState } from "react";
 import { type DashboardCard, type DashboardCardSize, normalizeDashboardUrl } from "../../common/dashboard";
@@ -7,6 +6,7 @@ import { DASHBOARD_PICK_ELEMENT, type DashboardPickerResult } from "../../common
 import { dashboardSelectorLimit, normalizeDashboardSelector } from "../../common/dashboard-selector";
 import { DASHBOARD_SITE_ICONS, type DashboardSiteIcon } from "../../common/dashboard-views";
 import { DashboardPreferencesStore } from "../../common/store/dashboard-preferences-store";
+import { ipcRenderer } from "../ipc";
 import { NativeTooltip } from "../native-tooltip";
 import { SettingsIconAction } from "./settings-icon-action";
 import { SettingsField, SettingsModal } from "./settings-modal";
@@ -46,7 +46,7 @@ function CardEditor({
     setSubmitted(true);
     if (!normalizedUrl || selectorInvalid) return;
     onSave({
-      id: card?.id ?? crypto.randomUUID(),
+      id: card?.id ?? globalThis.crypto.randomUUID(),
       title: title.trim() || new URL(normalizedUrl).hostname,
       url: normalizedUrl,
       size,

@@ -1,9 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { autorun } from "mobx";
 import { observer } from "mobx-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import ReactDOM from "react-dom";
 import {
   AI_CHAT_CHANNEL,
   AI_PROGRESS_CHANNEL,
@@ -40,7 +38,9 @@ import {
   activeAiTerminal,
   captureAiTerminal,
 } from "./ai-terminal-context";
+import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 
 export interface AiScreenContext {
   clusterId?: string;
@@ -1342,7 +1342,7 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
   const removeOverview = () => {
     overviewResize?.disconnect();
     overviewResize = undefined;
-    if (overviewIcon) ReactDOM.unmountComponentAtNode(overviewIcon);
+    if (overviewIcon) unmountContainer(overviewIcon);
     overviewIcon = undefined;
     overviewLabel = undefined;
     overviewActions?.remove();
@@ -1382,7 +1382,7 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
       overviewResize = new ResizeObserver(updateOverviewLabel);
       overviewResize.observe(overview);
     }
-    ReactDOM.render(
+    renderIntoContainer(
       <>
         <AiIcon material="auto_awesome" size={16} />
         <Renderer.Component.Tooltip targetId="power-ai-overview-button">
@@ -1397,10 +1397,10 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
     if (preferences.enabled && !mounted) {
       observer.observe(document.body, { childList: true, subtree: true });
       mounted = true;
-      ReactDOM.render(<AiChat isClusterDocument={isClusterDocument} />, container);
+      renderIntoContainer(<AiChat isClusterDocument={isClusterDocument} />, container);
     } else if (!preferences.enabled && mounted) {
       observer.disconnect();
-      ReactDOM.unmountComponentAtNode(container);
+      unmountContainer(container);
       mounted = false;
     }
     reconcile();
@@ -1409,7 +1409,7 @@ export function startAiChat(isClusterDocument: () => boolean = isAiClusterDocume
     stop();
     observer.disconnect();
     removeOverview();
-    ReactDOM.unmountComponentAtNode(container);
+    unmountContainer(container);
     container.remove();
   };
 }

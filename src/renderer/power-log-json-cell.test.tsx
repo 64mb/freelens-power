@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { formatDateTime } from "../common/date-time";
 import { MockTooltip, tooltipText } from "./native-tooltip.test-utils";
@@ -8,7 +8,7 @@ import { LogJsonCell } from "./power-log-json-cell";
 import { formatJsonLiteral } from "./power-log-json-fields";
 
 const mocks = vi.hoisted(() => ({ writeText: vi.fn() }));
-vi.mock("electron", () => ({ clipboard: { writeText: mocks.writeText } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: mocks.writeText } }));
 const Icon = ({ material }: { material: string }) => <span data-icon={material} />;
 afterEach(() => {
   cleanup();
@@ -116,11 +116,12 @@ it("escapes JSON markup and escaped quotes", () => {
   expect(container.querySelector("img, script")).toBeNull();
 });
 
-it("copies the complete raw JSON while bounding the preview", () => {
+it("copies the complete raw JSON while bounding the preview", async () => {
   const value = JSON.stringify({ long: "x".repeat(10000) }, null, 2);
   const { container, getByRole } = render(<LogJsonCell value={value} Icon={Icon} />);
   expect(container.querySelector(".power-log-json")?.textContent?.length).toBe(2049);
   fireEvent.click(getByRole("button", { name: "Copy JSON" }));
+  await act(async () => {});
   expect(mocks.writeText).toHaveBeenCalledWith(formatJsonLiteral(value));
   expect(getByRole("status").textContent).toBe("Copied");
   expect(container.querySelector('[data-icon="check"]')).not.toBeNull();
@@ -154,18 +155,20 @@ it("keeps click and keyboard copy activation from opening the SQL row", () => {
   expect(rowClick).toHaveBeenCalledTimes(1);
 });
 
-it("reports clipboard failures and resets feedback when the cell changes", () => {
+it("reports clipboard failures and resets feedback when the cell changes", async () => {
   mocks.writeText.mockImplementationOnce(() => {
     throw new Error("clipboard unavailable");
   });
   const { getByRole, container, rerender } = render(<LogJsonCell value='{"a":1}' Icon={Icon} />);
   fireEvent.click(getByRole("button", { name: "Copy JSON" }));
+  await act(async () => {});
   expect(getByRole("status").textContent).toBe("Unable to copy JSON");
   expect(tooltipText(getByRole("button"))).toBe("Unable to copy JSON");
   expect(container.querySelector('[data-icon="check"]')).toBeNull();
   rerender(<LogJsonCell value="[]" Icon={Icon} />);
   expect(getByRole("status").textContent).toBe("");
   fireEvent.click(getByRole("button"));
+  await act(async () => {});
   expect(getByRole("status").textContent).toBe("Copied");
 });
 

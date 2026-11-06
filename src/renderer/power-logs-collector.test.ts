@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectHistoricalLogs,
@@ -109,3 +110,7 @@ describe("Power Logs discovery", () => {
     expect(get).not.toHaveBeenCalled();
   });
 });
+
+vi.mock("@freelensapp/extensions", () => ({
+  Renderer: { Util: { sha256Hex: (text: string) => createHash("sha256").update(text).digest("hex") } },
+}));

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Main } from "@freelensapp/extensions";
-import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain } from "electron";
+import { app, BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { reaction } from "mobx";
 import {
   projectSearchDocuments,
@@ -11,6 +11,7 @@ import {
   validSearchPartition,
 } from "../common/resource-search";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
+import { powerIpc } from "./power-ipc";
 import { ResourceSearchWorker } from "./resource-search-worker";
 
 export function trustedSearchSender(event: IpcMainInvokeEvent, clusterId: string): boolean {
@@ -131,7 +132,7 @@ export function startResourceSearchIndex(): () => void {
       .update(readFileSync(cluster.kubeConfigPath))
       .digest("hex");
   };
-  ipcMain.handle(RESOURCE_SEARCH_CHANNEL, async (event, input: unknown) => {
+  powerIpc.handle(RESOURCE_SEARCH_CHANNEL, async (event, input: unknown) => {
     const request = validateSearchRequest(input);
     if (!active || !trustedSearchSender(event, request.clusterId)) throw new Error("Search index unavailable");
     const contextId = contextFingerprint(request);
@@ -169,7 +170,7 @@ export function startResourceSearchIndex(): () => void {
   return () => {
     active = false;
     stopPreference();
-    ipcMain.removeHandler(RESOURCE_SEARCH_CHANNEL);
+    powerIpc.removeHandler(RESOURCE_SEARCH_CHANNEL);
     for (const [timer, resolve] of waits) {
       clearTimeout(timer);
       resolve();

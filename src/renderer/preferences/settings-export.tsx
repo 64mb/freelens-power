@@ -1,4 +1,3 @@
-import { ipcRenderer } from "electron";
 import { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import {
@@ -7,13 +6,14 @@ import {
   type SettingsExportResult,
   type SettingsImportResult,
 } from "../../common/settings-export";
+import { ipcRenderer } from "../ipc";
 import { SettingsIconAction } from "./settings-icon-action";
 
 export function SettingsExport() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const marker = useRef<HTMLSpanElement>(null);
-  const [target, setTarget] = useState<HTMLSpanElement>();
+  const [target, setTarget] = useState<HTMLSpanElement | undefined>(undefined);
   useEffect(() => {
     let heading: Element | null = null;
     for (

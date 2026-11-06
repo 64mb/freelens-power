@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { IncidentCopyButton } from "./incident-copy-button";
 import { MockTooltip } from "./native-tooltip.test-utils";
@@ -12,14 +12,15 @@ vi.mock("@freelensapp/extensions", () => ({
     Catalog: { activeCluster: { get: () => ({ metadata: { uid: mocks.clusterId, name: mocks.clusterName } }) } },
   },
 }));
-vi.mock("electron", () => ({ clipboard: { writeText: mocks.write } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: mocks.write } }));
 afterEach(() => {
   cleanup();
   mocks.write.mockReset();
 });
-it("copies once with visible success feedback", () => {
+it("copies once with visible success feedback", async () => {
   const view = render(<IncidentCopyButton incident={{ problem: "Pending pod", facts: ["Insufficient cpu"] }} />);
   fireEvent.click(view.getByLabelText("Copy incident summary"));
+  await act(async () => {});
   expect(mocks.write).toHaveBeenCalledTimes(1);
   expect(mocks.write.mock.calls[0][0]).toContain("Insufficient cpu");
   expect(view.getByRole("status").textContent).toBe("Copied");

@@ -1,19 +1,19 @@
 {
   "name": "@64mb/freelens-power",
-  "version": "1.7.0",
+  "version": "2.20.0",
   "description": "Power tools for Freelens Kubernetes IDE",
-  "main": "out/main/index.js",
-  "renderer": "out/renderer/index.js",
+  "main": "dist/main.js",
+  "renderer": "dist/renderer.js",
   "files": [
-    "out/**/*",
-    "!out/**/duckdb/**",
+    "dist/**/*",
+    "!dist/**/duckdb/**",
     "THIRD_PARTY_LICENSES"
   ],
   "engines": {
-    "node": ">= 22.0.0",
-    "freelens": "^1.8.0"
+    "node": ">= 24.0.0",
+    "freelens": "^2.0.0"
   },
-  "copyright": "© 2025-2026 Freelens Authors",
+  "copyright": "\u00a9 2025-2026 Freelens Authors",
   "license": "Apache-2.0",
   "author": "64mb",
   "publishConfig": {
@@ -29,43 +29,51 @@
     "lint:fix": "pnpm biome:fix",
     "test": "pnpm test:unit",
     "test:unit": "vitest run",
-    "type:check": "tsc --noEmit -p tsconfig.json --composite false",
+    "type:check": "pnpm type:check:sources && pnpm type:check:tests && pnpm type:check:tooling",
     "prebuild": "pnpm type:check",
-    "build": "electron-vite build",
-    "build:production": "VITE_PRESERVE_MODULES=false electron-vite build",
+    "build": "vite build && vite build --mode main && vite build --mode preload",
+    "build:production": "pnpm build",
     "bump-version": "pnpm version --no-commit-hooks --no-git-tag-version",
     "pack:dev": "pnpm build && pnpm pack",
     "clean": "pnpm clean:out",
     "clean:node_modules": "pnpm dlx shx@0.4.0 rm -rf node_modules",
-    "clean:out": "pnpm dlx shx@0.4.0 rm -rf out",
+    "clean:out": "pnpm dlx shx@0.4.0 rm -rf dist",
     "clean:tgz": "pnpm dlx shx@0.4.0 rm -f \"*.tgz\"",
     "clean:all": "pnpm \"/^clean:(node_modules|out|tgz)\\$/\"",
-    "dev": "electron-vite build --watch",
+    "dev": "pnpm \"/^dev:(renderer|main|preload)\\$/\"",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:provision": "node e2e/provision.mjs",
     "type:check:e2e": "tsc -p e2e/tsconfig.json",
-    "test:packaging": "pnpm build && node --test build/power-logs-assets.test.mjs"
+    "test:packaging": "pnpm build && node --test build/power-logs-assets.test.mjs",
+    "type:check:sources": "tsc -p src/main && tsc -p src/renderer && tsc -p src/common && tsc -p src/preload && tsc -p src/browser",
+    "type:check:tests": "tsc -p src/tsconfig.json",
+    "type:check:tooling": "tsc -p tsconfig.json",
+    "dev:renderer": "vite build --watch --no-emptyOutDir",
+    "dev:main": "vite build --watch --mode main",
+    "dev:preload": "vite build --watch --mode preload"
   },
   "devDependencies": {
-    "@babel/plugin-proposal-decorators": "^8.0.2",
-    "@electron-toolkit/tsconfig": "^2.0.0",
-    "@freelensapp/extensions": "^1.10.2",
+    "@freelensapp/extensions": "2.0.0",
     "@playwright/test": "1.64.1",
-    "@testing-library/react": "^12.1.5",
-    "@types/node": "~24.12.4",
-    "@types/react": "^17.0.93",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "@types/ws": "^8.18.2",
-    "@vitejs/plugin-react": "^6.0.3",
-    "electron": "41.9.0",
-    "electron-vite": "^5.0.0",
-    "jsdom": "^29.1.1",
-    "mobx": "6.13.7",
-    "mobx-react": "7.6.0",
-    "react": "17.0.2",
-    "react-dom": "17.0.2",
-    "typescript": "5.9.3",
-    "vite": "^8.1.2",
-    "vitest": "^4.1.9"
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.10.0",
+    "esbuild": "0.28.2",
+    "jsdom": "30.1.3",
+    "mobx": "7.0.6",
+    "mobx-react": "10.0.2",
+    "monaco-editor": "0.57.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sass-embedded": "1.105.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
   },
   "keywords": [
     "extension",
@@ -74,7 +82,7 @@
     "openlens",
     "freelens"
   ],
-  "packageManager": "pnpm@10.34.4+sha512.8768be55200ae3f2226b6527fcca2687e14bc4e5f12d7721a0f25da3df47915177058648db4177baf348120fa0ba2752d8d8d93f6beaf1fe64ae18da8de961af",
+  "packageManager": "pnpm@12.15.0+sha512.b3951d6d6ff4a9f13dc7cf56cd28d2b8eb37dbcc9c68e52e1e1191873ea9f82a017287ab50baadc5ccc494f036c67c0e47eb13608c2fa36f47711b61ea128e61",
   "dependencies": {
     "markdown-it": "15.0.2",
     "react-select": "5.10.2",
@@ -88,5 +96,6 @@
   "homepage": "https://github.com/64mb/freelens-power",
   "bugs": {
     "url": "https://github.com/64mb/freelens-power/issues"
-  }
+  },
+  "type": "module"
 }

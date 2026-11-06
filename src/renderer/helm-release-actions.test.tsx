@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   readOnly: { enabled: false },
   power: { enabled: true },
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("./native-tooltip", () => ({ NativeTooltip: ({ children }: any) => children }));
 vi.mock("../common/store/read-only-preferences-store", () => ({
   ReadOnlyPreferencesStore: { getInstanceOrCreate: () => mocks.readOnly },
@@ -24,7 +24,11 @@ vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
       Icon: ({ material }: any) => <span aria-hidden="true">{material}</span>,
-      Dialog: ({ children }: any) => <div>{children}</div>,
+      Dialog: ({ children, className }: { children: import("react").ReactNode; className?: string }) => (
+        <div className={`Dialog modal ${className ?? ""}`}>
+          <div className="dialog-content">{children}</div>
+        </div>
+      ),
       Input: ({ value, onChange, onSubmit, trim: _trim, ...props }: any) => (
         <input
           {...props}
@@ -299,6 +303,11 @@ it("opens the typed confirmation only after the first native dialog closes", asy
   expect(mocks.invoke).not.toHaveBeenCalled();
   const input = await screen.findByRole("textbox", { name: "Release name" });
   expect(document.activeElement).toBe(input);
+  const nativePanel = document.querySelector<HTMLElement>(
+    ".Dialog.power-helm-release-delete-dialog > .dialog-content",
+  )!;
+  expect(getComputedStyle(nativePanel).borderRadius).toBe("12px");
+  expect(getComputedStyle(nativePanel).overflow).toBe("hidden");
   expect(screen.getByTestId("confirmation-dialog")).toBe(screen.getByRole("dialog"));
   expect((screen.getByRole("button", { name: "Delete release" }) as HTMLButtonElement).disabled).toBe(true);
   expect(mocks.invoke).not.toHaveBeenCalled();

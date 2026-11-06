@@ -1,7 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import ReactDOM from "react-dom";
 import { formatDateTime } from "../common/date-time";
 import {
   aggregateMetrics,
@@ -16,6 +15,7 @@ import { ClusterDiagnosticsOverview } from "./diagnostics";
 import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
 import { MonitoringHistoryRange, useMonitoringHistory } from "./monitoring-history-view";
 import { NativeTooltip } from "./native-tooltip";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 
 export {
   aggregateMetrics,
@@ -416,7 +416,7 @@ function ResourceDonut({
   sample?: MonitoringSample;
   status: string;
 }) {
-  const [activeRing, setActiveRing] = useState<number>();
+  const [activeRing, setActiveRing] = useState<number | undefined>(undefined);
   useEffect(() => {
     if (activeRing === undefined) return;
     const dismiss = (event: KeyboardEvent) => {
@@ -696,7 +696,7 @@ function mountMonitoring(
   const hidden = new Map<HTMLElement, string | null>();
   const restore = () => {
     if (diagnosticsHost) {
-      ReactDOM.unmountComponentAtNode(diagnosticsHost);
+      unmountContainer(diagnosticsHost);
       diagnosticsHost.remove();
       diagnosticsHost = undefined;
     }
@@ -706,7 +706,7 @@ function mountMonitoring(
     }
     hidden.clear();
     if (host) {
-      ReactDOM.unmountComponentAtNode(host);
+      unmountContainer(host);
       host.remove();
       host = undefined;
       renderedSamples = undefined;
@@ -758,9 +758,9 @@ function mountMonitoring(
       diagnosticsHost.style.minWidth = "0";
       diagnosticsHost.style.gridColumn = "1 / -1";
       overview.append(diagnosticsHost);
-      ReactDOM.render(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />, diagnosticsHost);
+      renderIntoContainer(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />, diagnosticsHost);
     } else if (!clusterDiagnostics && diagnosticsHost) {
-      ReactDOM.unmountComponentAtNode(diagnosticsHost);
+      unmountContainer(diagnosticsHost);
       diagnosticsHost.remove();
       diagnosticsHost = undefined;
     }
@@ -851,7 +851,7 @@ function mountMonitoring(
     }
     const render = () => {
       if (host && (renderedSamples !== samples || renderedStatus !== status)) {
-        ReactDOM.render(<MonitoringCharts samples={samples} status={status} />, host);
+        renderIntoContainer(<MonitoringCharts samples={samples} status={status} />, host);
         renderedSamples = samples;
         renderedStatus = status;
       }

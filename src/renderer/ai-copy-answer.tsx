@@ -1,6 +1,6 @@
-import { clipboard } from "electron";
 import { useEffect, useState } from "react";
 import { AiIcon } from "./ai-icon";
+import { clipboard } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 
 export function AiCopyAnswer({ text }: { text: string }) {
@@ -16,9 +16,9 @@ export function AiCopyAnswer({ text }: { text: string }) {
         type="button"
         className="power-ai-copy-answer"
         aria-label="Copy answer"
-        onClick={() => {
+        onClick={async () => {
           try {
-            clipboard.writeText(text);
+            await clipboard.writeText(text);
             setFeedback("Copied");
           } catch {
             setFeedback("Unable to copy answer");

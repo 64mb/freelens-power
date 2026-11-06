@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   aiFailureCode,
   claudeAiArguments,
@@ -630,3 +630,5 @@ it("rejects unstructured, malformed and executable Claude replies before any rea
     parseClaudeAiOutput(envelope('{"text":"Approved summary","tool":{"method":"pods","namespace":"default"}}')),
   ).toEqual({ text: "Approved summary", tool: { method: "pods", namespace: "default" } });
 });
+
+vi.mock("electron", () => ({}));

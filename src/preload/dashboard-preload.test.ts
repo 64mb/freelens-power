@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { dashboardSelectorAdapter } from "../common/dashboard-selector";
+import { dashboardSelectorAdapter } from "../browser/dashboard-selector";
 
 afterEach(() => {
   window.dispatchEvent(new Event("pagehide"));

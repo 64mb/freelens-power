@@ -8,7 +8,7 @@ import { ClusterIconsPage } from "./cluster-icons";
 import type { ReactNode } from "react";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", () => ({
   Common: { Store: { ExtensionStore: class {} } },
   Renderer: {
@@ -19,7 +19,11 @@ vi.mock("@freelensapp/extensions", () => ({
           {src ? <img src={src} alt={title} /> : title}
         </div>
       ),
-      Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+      Dialog: ({ children, className }: { children: import("react").ReactNode; className?: string }) => (
+        <div className={`Dialog modal ${className ?? ""}`}>
+          <div className="dialog-content">{children}</div>
+        </div>
+      ),
       Icon: () => <span />,
       Input: ({ onChange, ...props }: { onChange: (value: string) => void }) => (
         <input {...props} onChange={(event) => onChange(event.target.value)} />

@@ -21,7 +21,9 @@ export function AiResizeHandle({
   available: number;
   onChange: (width: number) => void;
 }) {
-  const drag = useRef<{ x: number; y: number; width: number; movement: number; pointerId: number }>();
+  const drag = useRef<{ x: number; y: number; width: number; movement: number; pointerId: number } | undefined>(
+    undefined,
+  );
   const change = useRef(onChange);
   const limit = useRef(available);
   change.current = onChange;

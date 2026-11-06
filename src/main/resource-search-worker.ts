@@ -16,7 +16,7 @@ export class ResourceSearchWorker {
       `const {parentPort,workerData}=require('node:worker_threads');
       const Engine=${ResourceSearchDatabase.toString()};let engine;
       parentPort.on('message',({id,request})=>{
-        try { engine??=new Engine(workerData.path,undefined,workerData.commonKinds);parentPort.postMessage({id,result:engine.run(request)}); }
+        try { engine??=new Engine(workerData.path,undefined,workerData.commonKinds,require);parentPort.postMessage({id,result:engine.run(request)}); }
         catch(error) { parentPort.postMessage({id,error:error?.errcode===13?'Search storage is full; clear the local search cache to continue':'Search index operation failed'}); }
       });`,
       { eval: true, workerData: { path, commonKinds: COMMON_RESOURCE_KINDS } },

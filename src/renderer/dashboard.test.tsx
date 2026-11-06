@@ -37,7 +37,7 @@ vi.mock("@freelensapp/extensions", () => ({
   },
 }));
 
-vi.mock("electron", () => ({
+vi.mock("./ipc", () => ({
   ipcRenderer: { invoke: mocks.invoke, on: mocks.on, removeListener: mocks.removeListener },
   shell: { openExternal: mocks.openExternal },
 }));
@@ -543,5 +543,33 @@ describe("DashboardPage", () => {
     act(() => listener?.({}, []));
     expect(screen.getByRole("button", { name: "Pin Example" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Focus pinned Example" })).toBeNull();
+  });
+  it("reports browser launch failures and clears the error after a successful retry", async () => {
+    mocks.preferences.cards = [{ id: "site", title: "Example", url: "https://example.com", size: "m" }];
+    mocks.openExternal.mockRejectedValueOnce(new Error("private platform error")).mockResolvedValueOnce(undefined);
+    render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    const open = screen.getByRole("link", { name: "Open Example in browser" });
+    fireEvent.click(open);
+    expect((await screen.findByRole("alert")).textContent).toBe("Unable to open this page in your browser. Try again.");
+    expect(document.body.textContent).not.toContain("private platform error");
+    fireEvent.click(open);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+  it("keeps the cached site icon when a card is resized", async () => {
+    const dataUrl = "data:image/png;base64,AQID";
+    mocks.preferences.cards = [{ id: "site", title: "Example", url: "https://example.com", size: "m" }];
+    mocks.invoke.mockImplementation(async (channel) =>
+      channel === "freelens-power:dashboard-site-icons"
+        ? [{ id: "site", pageUrl: "https://example.com", dataUrl }]
+        : undefined,
+    );
+    const view = render(<DashboardPage onOpenPreferences={vi.fn()} />);
+    await waitFor(() =>
+      expect(view.container.querySelector("img.power-dashboard-site-icon")?.getAttribute("src")).toBe(dataUrl),
+    );
+    mocks.preferences.cards = [{ ...mocks.preferences.cards[0], size: "xl" }];
+    view.rerender(<DashboardPage onOpenPreferences={vi.fn()} />);
+    await act(async () => {});
+    expect(view.container.querySelector("img.power-dashboard-site-icon")?.getAttribute("src")).toBe(dataUrl);
   });
 });

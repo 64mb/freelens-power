@@ -19,8 +19,21 @@ const mocks = vi.hoisted(() => ({
   readOnly: { enabled: false },
 }));
 vi.mock("@freelensapp/extensions", () => ({
-  Common: { App: { Preferences: { getKubectlPath: () => "/neutral/kubectl" } } },
-  Main: { Catalog: { getClusterById: mocks.cluster } },
+  Common: {
+    Clusters: { ClusterConnectionStatus: { CONNECTED: "connected" } },
+    App: { Preferences: { getKubectlPath: () => "/neutral/kubectl" } },
+  },
+  Main: {
+    Catalog: { getClusterById: mocks.cluster },
+    Shell: {
+      getEnvironment: vi.fn(async () => ({
+        PATH: "/usr/bin",
+        KUBECONFIG: "/host-generated/config",
+        HTTPS_PROXY: "http://127.0.0.1:12345",
+      })),
+      getKubectlPath: async () => "/neutral/kubectl",
+    },
+  },
 }));
 vi.mock("electron", () => ({ ipcMain: { handle: mocks.handle, removeHandler: mocks.remove } }));
 vi.mock("node:fs", () => ({
@@ -60,7 +73,7 @@ beforeEach(() => {
   mocks.power = observable({ enabled: true, nodeBulkActions: true });
   mocks.readOnly = observable({ enabled: false });
   mocks.trusted.mockReturnValue(true);
-  mocks.cluster.mockReturnValue({ contextName: "neutral", kubeConfigPath: "/neutral/config" });
+  mocks.cluster.mockReturnValue({ status: "connected", contextName: "neutral", kubeConfigPath: "/neutral/config" });
   mocks.config = "neutral";
 });
 it("validates node identities, explicit confirmation and the batch bound", () => {
@@ -132,6 +145,7 @@ it("kills an active subprocess on cancellation and redacts process errors", asyn
   });
   const controller = new AbortController();
   const execution = executeNodeKubectl("/neutral/kubectl", ["drain", "node-a"], controller.signal, () => {});
+  await vi.waitFor(() => expect(mocks.exec).toHaveBeenCalled());
   controller.abort();
   expect(kill).toHaveBeenCalledWith("SIGKILL");
   finish!(Error("credential-secret"), "", "credential-secret");
@@ -195,7 +209,7 @@ it.each(["readOnly", "nodeBulkActions"])("%s kills a running job and prevents th
     jobId: result.job.id,
   });
   expect(status.job.status).toBe("cancelled");
-  expect(status.job.nodes.map((n) => n.status)).toEqual(["cancelled", "skipped"]);
+  expect(status.job.nodes.map((n: { status: string }) => n.status)).toEqual(["cancelled", "skipped"]);
   expect(mocks.exec).toHaveBeenCalledTimes(1);
   stop();
 });
@@ -258,19 +272,16 @@ it("binds all node reads and changes to one private flattened snapshot and remov
   const session = await beginJob();
   try {
     await vi.waitFor(async () => expect((await session.status()).job.status).toBe("succeeded"));
-    expect(mocks.exec.mock.calls[0][1]).toEqual([
-      "--kubeconfig",
-      "/neutral/config",
-      "--context",
-      "neutral",
-      "config",
-      "view",
-      "--raw",
-      "--flatten",
-      "--minify",
-      "--output=json",
-    ]);
+    expect(mocks.exec.mock.calls[0][1]).toEqual(["config", "view", "--raw", "--flatten", "--minify", "--output=json"]);
+    expect(mocks.exec.mock.calls[0][2].env).toMatchObject({
+      KUBECONFIG: "/host-generated/config",
+      HTTPS_PROXY: "http://127.0.0.1:12345",
+    });
     for (const call of mocks.exec.mock.calls.slice(1)) {
+      expect(call[2].env).toMatchObject({
+        KUBECONFIG: "/host-generated/config",
+        HTTPS_PROXY: "http://127.0.0.1:12345",
+      });
       expect(call[1].slice(0, 4)).toEqual(["--kubeconfig", "/neutral/private-job/config.json", "--context", "neutral"]);
       expect(call[1]).not.toContain("/neutral/config");
     }
@@ -278,7 +289,7 @@ it("binds all node reads and changes to one private flattened snapshot and remov
     expect(mocks.chmod).toHaveBeenCalledWith("/neutral/private-job", 0o700);
     expect(mocks.write.mock.calls[0][2]).toEqual({ mode: 0o600, flag: "wx" });
     const written = JSON.parse(mocks.write.mock.calls[0][1]);
-    expect(written.users[0].user.exec.command).toBe("/neutral/plugins/auth");
+    expect(written.users[0].user.exec.command).toBe("/host-generated/plugins/auth");
     expect(written.clusters[0].cluster["certificate-authority-data"]).toBe("private-ca");
     expect(JSON.stringify(await session.status())).not.toMatch(/private-token|private-ca|private-auth-arg|private-job/);
     expect(mocks.rm).toHaveBeenCalledWith("/neutral/private-job", { recursive: true, force: true });
@@ -336,7 +347,9 @@ it("lets the owner poll and cancel an old context after configuration changes st
 });
 it("rejects a snapshot of a different context without creating a private file or launching node commands", async () => {
   mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
-    queueMicrotask(() => callback(null, privateConfig().replaceAll('"neutral"', '"other"')));
+    queueMicrotask(() =>
+      callback(null, privateConfig().replace('"current-context":"neutral"', '"current-context":"other"')),
+    );
     return { kill: vi.fn() };
   });
   const session = await beginJob();
@@ -387,5 +400,93 @@ it("removes a snapshot after cancelling an active node lookup and starts no muta
     expect(mocks.exec).toHaveBeenCalledTimes(2);
   } finally {
     session.stop();
+  }
+});
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
+});
+
+it("cancels the running process across a disconnect and reconnect without reusing its host environment", async () => {
+  const cluster = observable({ status: "connected", contextName: "neutral", kubeConfigPath: "/neutral/config" });
+  mocks.cluster.mockReturnValue(cluster);
+  let finish!: (error: Error, stdout: string, stderr: string) => void;
+  const kill = vi.fn();
+  mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
+    finish = callback;
+    return { kill };
+  });
+  const session = await beginJob();
+  try {
+    await vi.waitFor(() => expect(mocks.exec).toHaveBeenCalledOnce());
+    runInAction(() => {
+      cluster.status = "disconnected";
+    });
+    runInAction(() => {
+      cluster.status = "connected";
+    });
+    expect(kill).toHaveBeenCalledWith("SIGKILL");
+    finish(Error("disconnected"), "", "");
+    await vi.waitFor(async () => expect((await session.status()).job.status).toBe("cancelled"));
+    expect(mocks.exec).toHaveBeenCalledOnce();
+    const { Main } = await import("@freelensapp/extensions");
+    expect(Main.Shell.getEnvironment).toHaveBeenCalledWith("cluster");
+  } finally {
+    session.stop();
+  }
+});
+
+it("reserves the cluster before asynchronous shell preparation so concurrent begins cannot overlap", async () => {
+  const { Main } = await import("@freelensapp/extensions");
+  let finishEnvironment!: (value: Record<string, string>) => void;
+  vi.mocked(Main.Shell.getEnvironment).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishEnvironment = resolve;
+      }),
+  );
+  mockSuccessfulCommands();
+  const stop = startNodeBulk();
+  const handler = mocks.handle.mock.calls[0][1];
+  const event = { sender: Object.assign(new EventEmitter(), { id: 1 }), senderFrame: { processId: 1, routingId: 1 } };
+  const context = await handler(event, { operation: "context", clusterId: "cluster" });
+  const request = {
+    operation: "begin",
+    clusterId: "cluster",
+    contextId: context.contextId,
+    action: "cordon",
+    confirmed: true,
+    nodes: [{ name: "node-a", uid: "uid-a" }],
+  };
+  const first = handler(event, request);
+  expect(await handler(event, request)).toMatchObject({ ok: false, error: { code: "operation-running" } });
+  expect(mocks.exec).not.toHaveBeenCalled();
+  finishEnvironment({ KUBECONFIG: "/host-generated/config", PATH: "/usr/bin" });
+  const result = await first;
+  expect(result.ok).toBe(true);
+  try {
+    await vi.waitFor(async () =>
+      expect(
+        (
+          await handler(event, {
+            operation: "status",
+            clusterId: "cluster",
+            contextId: context.contextId,
+            jobId: result.job.id,
+          })
+        ).job.status,
+      ).toBe("succeeded"),
+    );
+  } finally {
+    stop();
   }
 });

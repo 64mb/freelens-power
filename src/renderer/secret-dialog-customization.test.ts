@@ -50,3 +50,39 @@ it("preserves Update actions and namespace name confirmations", () => {
   stop();
   document.body.innerHTML = "";
 });
+
+it.each(["AddSecretDialog", "AddNamespaceDialog"])("sizes the native v2 %s content wrapper", (name) => {
+  document.body.innerHTML = `<div class="Dialog modal ${name}"><div class="dialog-content"><div class="Wizard"><div class="header"><h5>Create resource</h5></div><form class="WizardStep"><div class="buttons"><button type="submit" class="Button">Create</button></div></form></div></div></div>`;
+  const stop = startSecretDialogCustomization();
+  const panel = document.querySelector<HTMLElement>(".Dialog > .dialog-content")!;
+  expect(getComputedStyle(panel).width).toContain(name === "AddSecretDialog" ? "720px" : "640px");
+  expect(getComputedStyle(panel.querySelector(".Wizard")!).width).toBe("100%");
+  stop();
+  document.body.innerHTML = "";
+});
+
+it("keeps the audited v2 flex-column creation fields fourteen pixels apart and labels six pixels from controls", () => {
+  document.body.innerHTML =
+    '<style>.gap-2 { gap:8px; }</style><div class="Dialog AddRoleDialog"><div class="dialog-content"><div class="Wizard"><form class="WizardStep"><div class="step-content flex gap-2 flex-col"><div class="SubTitle">Name</div><input id="role-name" required /><div class="SubTitle" id="next-label">Namespace</div><input id="namespace-name" /></div></form></div></div></div>';
+  const stop = startSecretDialogCustomization();
+  expect(getComputedStyle(document.querySelector(".step-content")!).gap).toBe("0px");
+  expect(getComputedStyle(document.querySelector("#role-name")!).marginTop).toBe("6px");
+  expect(getComputedStyle(document.querySelector("#next-label")!).marginTop).toBe("14px");
+  expect(getComputedStyle(document.querySelector("#next-label")!).marginBottom).toBe("0px");
+  expect(document.querySelector<HTMLInputElement>("#role-name")!.required).toBe(true);
+  stop();
+  document.body.innerHTML = "";
+});
+
+it("uses one sixteen-pixel gap for v2 Secret groups without stacking native space-y margins", () => {
+  document.body.innerHTML =
+    '<style>.space-y-3 > * { margin-block:0 12px; }</style><div class="Dialog AddSecretDialog"><div class="dialog-content"><div class="Wizard"><form class="WizardStep"><div class="step-content space-y-3"><div class="secret-name">Name</div><div class="flex gap-3">Namespace and type</div></div></form></div></div></div>';
+  const stop = startSecretDialogCustomization();
+  const content = document.querySelector(".step-content")!;
+  expect(getComputedStyle(content).display).toBe("flex");
+  expect(getComputedStyle(content).flexDirection).toBe("column");
+  expect(getComputedStyle(content).gap).toBe("16px");
+  expect(Number.parseFloat(getComputedStyle(content.firstElementChild!).marginBlockEnd)).toBe(0);
+  stop();
+  document.body.innerHTML = "";
+});

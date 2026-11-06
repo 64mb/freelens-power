@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
 import { observable, runInAction } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { stubMainFrame } from "./frame.test-utils";
 
 const stores = vi.hoisted(() => ({
   helm: { enabled: false },
@@ -19,7 +21,7 @@ let stop: (() => void) | undefined;
 beforeEach(() => {
   stores.helm = observable({ enabled: false });
   stores.power = observable({ enabled: true });
-  vi.stubGlobal("process", { isMainFrame: false });
+  stubMainFrame(false);
   document.body.innerHTML = `<nav data-testid="cluster-sidebar">
     <div role="button" aria-roledescription="sortable" id="native-helm">
       <div class="SidebarItem_host-module" data-testid="sidebar-item-helm">
@@ -90,7 +92,7 @@ it("handles sidebar replacement and restores native markup on detach", () => {
   expect(display("native-helm")).toBe("none");
 });
 it("does not change the root window sidebar", () => {
-  vi.stubGlobal("process", { isMainFrame: true });
+  stubMainFrame(true);
   enable(true);
   stop = startPowerHelmEntrypoints();
   expect(display("native-helm")).not.toBe("none");

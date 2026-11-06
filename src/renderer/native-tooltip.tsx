@@ -1,15 +1,22 @@
 import { Renderer } from "@freelensapp/extensions";
-import { cloneElement, type ReactElement, type ReactNode, useState } from "react";
+import { cloneElement, type ReactElement, useState } from "react";
 
 let nextTooltipId = 0;
 
-export function NativeTooltip({ children, title }: { children: ReactElement; title?: ReactNode }) {
+export function NativeTooltip({
+  children,
+  title,
+}: {
+  children: ReactElement;
+  title?: Renderer.Component.TooltipProps["children"];
+}) {
   const [generatedId] = useState(() => `power-tooltip-${++nextTooltipId}`);
-  const targetId = children.props.id || generatedId;
+  const target = children as ReactElement<{ id?: string; title?: string }>;
+  const targetId = target.props.id || generatedId;
   const Tooltip = Renderer.Component?.Tooltip;
   return (
     <>
-      {cloneElement(children, { id: targetId, title: undefined })}
+      {cloneElement(target, { id: targetId, title: undefined })}
       {title != null && title !== "" && Tooltip ? (
         <Tooltip
           key={`${targetId}:${String(children.type)}:${children.key ?? ""}`}

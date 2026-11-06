@@ -2,14 +2,33 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
+import { useEffect, useState } from "react";
 import { formatDateTime } from "../../common/date-time";
-import { parseSecretCertificates } from "../../common/secret-certificates";
+import { ipcRenderer } from "../ipc";
+
+import type { SecretCertificate } from "../../common/secret-certificates";
 
 const { DrawerTitle, DrawerItem } = Renderer.Component;
 
 export const SecretCertificateDetails = observer(
   ({ object }: Renderer.Component.KubeObjectDetailsProps<Renderer.K8sApi.Secret>) => {
-    const certificates = parseSecretCertificates(object.data);
+    const serializedData = JSON.stringify(object.data ?? {});
+    const [certificates, setCertificates] = useState<SecretCertificate[]>([]);
+    useEffect(() => {
+      let active = true;
+      setCertificates([]);
+      void ipcRenderer.invoke("freelens-power:secret-certificates", JSON.parse(serializedData)).then(
+        (parsed: SecretCertificate[]) => {
+          if (active) setCertificates(parsed);
+        },
+        () => {
+          if (active) setCertificates([]);
+        },
+      );
+      return () => {
+        active = false;
+      };
+    }, [serializedData]);
     const now = Date.now();
 
     if (certificates.length === 0) return null;

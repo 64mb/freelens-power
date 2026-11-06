@@ -4,7 +4,6 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { Common, Main } from "@freelensapp/extensions";
-import { ipcMain } from "electron";
 import { reaction } from "mobx";
 import {
   NODE_BULK_CHANNEL,
@@ -15,6 +14,7 @@ import {
 } from "../common/node-bulk";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
+import { powerIpc } from "./power-ipc";
 import { trustedSearchSender } from "./resource-search";
 
 export class NodeBulkError extends Error {
@@ -63,34 +63,38 @@ export function executeNodeKubectl(
   args: string[],
   signal: AbortSignal,
   guard: () => void,
+  environment?: Record<string, string>,
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    guard();
-    if (signal.aborted) return reject(new NodeBulkError("cancelled", "Node operation cancelled"));
-    const child = execFile(
-      binary,
-      args,
-      { timeout: 330_000, maxBuffer: 1024 * 1024, killSignal: "SIGKILL", windowsHide: true },
-      (error, stdout) => {
-        signal.removeEventListener("abort", abort);
-        if (signal.aborted)
-          return reject(
-            new NodeBulkError("cancelled", "Node operation cancelled; refresh nodes to check the current state"),
-          );
-        if (error)
-          return reject(
-            new NodeBulkError(
-              "command-failed",
-              "Node command failed or timed out; refresh nodes and check Kubernetes events before retrying",
-            ),
-          );
-        resolve(String(stdout));
-      },
-    );
-    const abort = () => child.kill("SIGKILL");
-    signal.addEventListener("abort", abort, { once: true });
-    if (signal.aborted) abort();
-  });
+  return Promise.resolve(environment ?? Main.Shell.getEnvironment()).then(
+    (env) =>
+      new Promise<string>((resolve, reject) => {
+        guard();
+        if (signal.aborted) return reject(new NodeBulkError("cancelled", "Node operation cancelled"));
+        const child = execFile(
+          binary,
+          args,
+          { env, timeout: 330_000, maxBuffer: 1024 * 1024, killSignal: "SIGKILL", windowsHide: true },
+          (error, stdout) => {
+            signal.removeEventListener("abort", abort);
+            if (signal.aborted)
+              return reject(
+                new NodeBulkError("cancelled", "Node operation cancelled; refresh nodes to check the current state"),
+              );
+            if (error)
+              return reject(
+                new NodeBulkError(
+                  "command-failed",
+                  "Node command failed or timed out; refresh nodes and check Kubernetes events before retrying",
+                ),
+              );
+            resolve(String(stdout));
+          },
+        );
+        const abort = () => child.kill("SIGKILL");
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      }),
+  );
 }
 export async function runNodeBulkJob(
   job: NodeBulkJob,
@@ -137,7 +141,8 @@ export function startNodeBulk(): () => void {
   const jobs = new Map<string, { job: NodeBulkJob; owner: string; controller: AbortController }>();
   const fingerprint = (id: string) => {
     const cluster = Main.Catalog.getClusterById(id);
-    if (!cluster) throw new NodeBulkError("unavailable", "Cluster unavailable");
+    if (!cluster || cluster.status !== Common.Clusters.ClusterConnectionStatus.CONNECTED)
+      throw new NodeBulkError("unavailable", "Cluster unavailable");
     return createHash("sha256")
       .update(id)
       .update("\0")
@@ -157,7 +162,8 @@ export function startNodeBulk(): () => void {
       if (!enabled) abortAll();
     },
   );
-  ipcMain.handle(NODE_BULK_CHANNEL, async (event, input): Promise<NodeBulkResponse> => {
+  powerIpc.handle(NODE_BULK_CHANNEL, async (event, input): Promise<NodeBulkResponse> => {
+    let preparationCleanup: (() => void) | undefined;
     try {
       const r = validateNodeBulkRequest(input);
       if (!active || !power.enabled || !trustedSearchSender(event, r.clusterId))
@@ -197,15 +203,24 @@ export function startNodeBulk(): () => void {
         nodes: r.nodes!.map((n) => ({ name: n.name, uid: n.uid, status: "pending" })),
         startedAt: Date.now(),
       };
-      const cluster = Main.Catalog.getClusterById(r.clusterId)!;
-      const originalPath = cluster.kubeConfigPath;
-      const contextName = cluster.contextName;
-      const args = ["--kubeconfig", originalPath, "--context", contextName];
+      jobs.set(job.id, { job, owner, controller });
+      const stopConnection = reaction(
+        () => Main.Catalog.getClusterById(r.clusterId)?.status,
+        (status) => {
+          if (status !== Common.Clusters.ClusterConnectionStatus.CONNECTED) controller.abort();
+        },
+        { fireImmediately: true },
+      );
+      preparationCleanup = () => {
+        stopConnection();
+        jobs.delete(job.id);
+        controller.abort();
+      };
+      const environment = await Main.Shell.getEnvironment(r.clusterId);
+      let snapshotContext: string | undefined;
       let snapshotDirectory: string | undefined;
       let snapshotPath: string | undefined;
-      const binary =
-        Common.App.Preferences.getKubectlPath() ||
-        join(process.resourcesPath, process.arch, process.platform === "win32" ? "kubectl.exe" : "kubectl");
+      const binary = await Main.Shell.getKubectlPath(r.clusterId);
       const guard = () => {
         try {
           if (
@@ -226,7 +241,6 @@ export function startNodeBulk(): () => void {
           "Node operation stopped because access or cluster context changed; refresh nodes to check the current state",
         );
       };
-      jobs.set(job.id, { job, owner, controller });
       const interval = setInterval(() => {
         try {
           guard();
@@ -241,23 +255,26 @@ export function startNodeBulk(): () => void {
         if (!snapshotPath) {
           const raw = await executeNodeKubectl(
             binary,
-            [...args, "config", "view", "--raw", "--flatten", "--minify", "--output=json"],
+            ["config", "view", "--raw", "--flatten", "--minify", "--output=json"],
             controller.signal,
             guard,
+            environment,
           );
           guard();
           if (controller.signal.aborted) throw new NodeBulkError("cancelled", "Node operation cancelled");
           const config = JSON.parse(raw);
           if (
-            config?.["current-context"] !== contextName ||
+            typeof config?.["current-context"] !== "string" ||
+            !config["current-context"] ||
             config?.contexts?.length !== 1 ||
-            config.contexts[0]?.name !== contextName
+            config.contexts[0]?.name !== config["current-context"]
           )
             throw new NodeBulkError("context-changed", "Cluster context changed; refresh nodes before retrying");
+          snapshotContext = config["current-context"];
           for (const entry of config.users ?? []) {
             const exec = entry?.user?.exec;
             if (typeof exec?.command === "string" && /[\\/]/.test(exec.command) && !isAbsolute(exec.command))
-              exec.command = resolve(dirname(originalPath), exec.command);
+              exec.command = resolve(dirname(environment.KUBECONFIG), exec.command);
           }
           snapshotDirectory = mkdtempSync(join(tmpdir(), "freelens-power-node-bulk-"));
           chmodSync(snapshotDirectory, 0o700);
@@ -266,9 +283,10 @@ export function startNodeBulk(): () => void {
         }
         return executeNodeKubectl(
           binary,
-          ["--kubeconfig", snapshotPath, "--context", contextName, ...command],
+          ["--kubeconfig", snapshotPath, "--context", snapshotContext!, ...command],
           controller.signal,
           guard,
+          environment,
         );
       };
       void runNodeBulkJob(job, controller.signal, guard, execute).finally(() => {
@@ -279,12 +297,15 @@ export function startNodeBulk(): () => void {
             // cleanup must not expose private kubeconfig contents in operation progress
           }
         }
+        stopConnection();
         clearInterval(interval);
         event.sender.removeListener("destroyed", abort);
         event.sender.removeListener("did-start-navigation", abort);
       });
+      preparationCleanup = undefined;
       return { ok: true, contextId: context, job: structuredClone(job) };
     } catch (error) {
+      preparationCleanup?.();
       return {
         ok: false,
         error:
@@ -298,6 +319,6 @@ export function startNodeBulk(): () => void {
     active = false;
     stop();
     abortAll();
-    ipcMain.removeHandler(NODE_BULK_CHANNEL);
+    powerIpc.removeHandler(NODE_BULK_CHANNEL);
   };
 }

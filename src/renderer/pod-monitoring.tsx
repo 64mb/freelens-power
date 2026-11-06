@@ -1,6 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
-import ReactDOM from "react-dom";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import {
   effectivePodResource,
@@ -12,6 +11,7 @@ import {
 import { getMonitoringSnapshot, retainMonitoringCollector } from "./monitoring-collector";
 import { MonitoringDetailsChart } from "./monitoring-details-chart";
 import { useMonitoringHistory } from "./monitoring-history-view";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 
 type PodIdentity = { name: string; namespace: string };
 type PodMetrics = {
@@ -138,7 +138,7 @@ function mountPodMonitoring(): () => void {
   let renderedMetric: string | undefined;
   const restore = () => {
     if (host) {
-      ReactDOM.unmountComponentAtNode(host);
+      unmountContainer(host);
       host.remove();
     }
     host = undefined;
@@ -268,7 +268,7 @@ function mountPodMonitoring(): () => void {
     }
     const render = () => {
       if (host && (renderedSamples !== samples || renderedStatus !== status || renderedMetric !== metric)) {
-        ReactDOM.render(
+        renderIntoContainer(
           <PodMonitoringChart
             clusterId={cluster}
             uid={resourceUid}

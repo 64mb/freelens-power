@@ -1,5 +1,8 @@
-// @vitest-environment jsdom
 // SPDX-License-Identifier: Apache-2.0
+
+// @vitest-environment jsdom
+
+vi.mock("./react-roots", async () => import("./react-roots.test-utils"));
 
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";

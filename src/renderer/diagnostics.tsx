@@ -624,7 +624,7 @@ export function DiagnosticsPage() {
     };
   }, []);
   const [observed, setObserved] = useState<TimelineEntry[]>([]);
-  const previous = useRef<MonitoringSnapshot>();
+  const previous = useRef<MonitoringSnapshot | undefined>(undefined);
   useEffect(() => {
     const release = retainMonitoringCollector();
     let disposed = false;

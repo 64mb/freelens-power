@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     moveCard: vi.fn(),
   },
 }));
-vi.mock("electron", () => ({
+vi.mock("../ipc", () => ({
   ipcRenderer: { invoke: mocks.invoke, on: mocks.on, removeListener: mocks.removeListener },
 }));
 vi.mock("../../common/store/dashboard-preferences-store", () => ({
@@ -28,7 +28,11 @@ vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
       Icon: () => <span aria-hidden="true" />,
-      Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+      Dialog: ({ children, className }: { children: import("react").ReactNode; className?: string }) => (
+        <div className={`Dialog modal ${className ?? ""}`}>
+          <div className="dialog-content">{children}</div>
+        </div>
+      ),
       Button: ({
         label,
         children,
@@ -235,7 +239,7 @@ it("enables automatic refresh for new cards and aligns its native checkbox with 
   expect(checkbox.closest(".power-settings-row")?.querySelector("label [aria-hidden=true]")).not.toBeNull();
   expect(checkbox.parentElement?.parentElement?.style.width).toBe("340px");
   fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.org" } });
-  fireEvent.click(screen.getAllByRole("button", { name: "Add card" })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Add card" }).at(-1)!);
   expect(mocks.preferences.upsertCard).toHaveBeenCalledWith(expect.objectContaining({ autoRefresh: true }));
   cleanup();
 });

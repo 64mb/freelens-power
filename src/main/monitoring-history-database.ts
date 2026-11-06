@@ -1,12 +1,16 @@
+import { createRequire } from "node:module";
 import { type HistoryPoint, type HistoryQuery, type HistorySample } from "../common/monitoring-history";
+
+const require = createRequire(import.meta.url);
 
 export class MonitoringHistoryDatabase {
   private db: import("node:sqlite").DatabaseSync;
   constructor(
     private path: string,
     private maxBytes = 100 * 1024 * 1024,
+    private load: NodeRequire = require,
   ) {
-    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const { DatabaseSync } = this.load("node:sqlite") as typeof import("node:sqlite");
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-2048; PRAGMA auto_vacuum=FULL;
       CREATE TABLE IF NOT EXISTS points (cluster TEXT, scope TEXT, uid TEXT, metric TEXT, resolution INTEGER, time INTEGER, min REAL, max REAL, total REAL, count INTEGER, first INTEGER, last INTEGER, PRIMARY KEY(cluster,scope,uid,metric,resolution,time)) WITHOUT ROWID;`);
@@ -120,7 +124,7 @@ export class MonitoringHistoryDatabase {
   bytes(): number {
     return [this.path, `${this.path}-journal`, `${this.path}-wal`, `${this.path}-shm`].reduce((sum, path) => {
       try {
-        return sum + require("node:fs").statSync(path).size;
+        return sum + this.load("node:fs").statSync(path).size;
       } catch {
         return sum;
       }

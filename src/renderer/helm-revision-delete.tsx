@@ -1,11 +1,11 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { observer } from "mobx-react";
 import { useEffect, useRef, useState } from "react";
 import { HELM_CHANNEL, type HelmReleaseMetadata, type HelmRequest, type HelmResponse } from "../common/helm";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { helmOperations } from "./helm-operations";
+import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 
 const { Icon } = Renderer.Component;
@@ -48,7 +48,7 @@ export const HelmRevisionDelete = observer((props: HelmRevisionDeleteProps) => {
   const live = useRef(true);
   const latest = useRef(props);
   latest.current = props;
-  const operation = useRef<HelmRequest>();
+  const operation = useRef<HelmRequest | undefined>(undefined);
   useEffect(() => {
     live.current = true;
     return () => {

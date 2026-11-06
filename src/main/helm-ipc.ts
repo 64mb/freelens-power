@@ -1,9 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { Main } from "@freelensapp/extensions";
-import { ipcMain } from "electron";
+import { Common, Main } from "@freelensapp/extensions";
 import { reaction } from "mobx";
 import {
   HELM_CHANNEL,
@@ -18,6 +16,7 @@ import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-
 import { HelmError, HelmLimiter, HelmService, latestReleases } from "./helm";
 import { installedChartFiles, withInstalledChart } from "./helm-installed-chart";
 import { chartChoices, validateHelmValues, withHelmValues } from "./helm-values";
+import { powerIpc } from "./power-ipc";
 import { trustedSearchSender } from "./resource-search";
 
 const reads = new HelmLimiter(2);
@@ -96,9 +95,11 @@ export function executeHelmRead(
   signal: AbortSignal,
   beforeStart: () => void | Promise<void> = () => {},
   launchGuard: () => void = () => {},
+  environmentInput?: Record<string, string>,
 ): Promise<string> {
   return processes.run(signal, async () => {
     await beforeStart();
+    const environment = environmentInput ?? (await Main.Shell.getEnvironment());
     return new Promise<string>((resolve, reject) => {
       if (signal.aborted) return reject(new HelmError("cancelled", "Helm request cancelled"));
       launchGuard();
@@ -106,7 +107,7 @@ export function executeHelmRead(
         binary,
         args,
         {
-          env: { ...process.env },
+          env: environment,
           timeout: 60_000,
           maxBuffer: 8 * 1024 * 1024,
           killSignal: "SIGKILL",
@@ -143,9 +144,11 @@ export function executeHelmRollback(
   beforeStart: () => void | Promise<void> = () => {},
   launchGuard: () => void = () => {},
   progress: (phase: "preparing" | "applying" | "waiting", message: string) => void = () => {},
+  environmentInput?: Record<string, string>,
 ): Promise<void> {
   return processes.run(signal, async () => {
     await beforeStart();
+    const environment = environmentInput ?? (await Main.Shell.getEnvironment());
     return new Promise<void>((resolve, reject) => {
       if (signal.aborted) return reject(new HelmError("cancelled", "Helm request cancelled"));
       launchGuard();
@@ -153,7 +156,7 @@ export function executeHelmRollback(
         binary,
         args,
         {
-          env: { ...process.env },
+          env: environment,
           // allow Helm to report readiness before the outer process deadline
           timeout: operation === "rollback" ? 330_000 : 75_000,
           maxBuffer: 8 * 1024 * 1024,
@@ -289,7 +292,8 @@ export function startPowerHelm(): () => void {
   );
   const fingerprint = (id: string) => {
     const cluster = Main.Catalog.getClusterById(id);
-    if (!cluster) throw new HelmError("unavailable", "Helm cluster unavailable");
+    if (!cluster || cluster.status !== Common.Clusters.ClusterConnectionStatus.CONNECTED)
+      throw new HelmError("unavailable", "Helm cluster unavailable");
     return createHash("sha256")
       .update(id)
       .update("\0")
@@ -300,10 +304,11 @@ export function startPowerHelm(): () => void {
       .update(readFileSync(cluster.kubeConfigPath))
       .digest("hex");
   };
-  ipcMain.handle(HELM_CHANNEL, async (event, input): Promise<HelmResponse> => {
+  powerIpc.handle(HELM_CHANNEL, async (event, input): Promise<HelmResponse> => {
     let key: string | undefined;
     let controller: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopConnection: (() => void) | undefined;
     let record: HelmOperation | undefined;
     let reserved: string | undefined;
     try {
@@ -345,7 +350,6 @@ export function startPowerHelm(): () => void {
           r.contextId !== context)
       )
         throw new HelmError("context-changed", "Helm context changed; refresh release history before rollback");
-      const cluster = Main.Catalog.getClusterById(r.clusterId)!;
       const check = () => {
         if (
           !active ||
@@ -399,6 +403,13 @@ export function startPowerHelm(): () => void {
       controller = new AbortController();
       pending.set(key, controller);
       const signal = controller.signal;
+      stopConnection = reaction(
+        () => Main.Catalog.getClusterById(r.clusterId)?.status,
+        (status) => {
+          if (status !== Common.Clusters.ClusterConnectionStatus.CONNECTED) controller?.abort();
+        },
+        { fireImmediately: true },
+      );
       timer = setTimeout(
         () => controller?.abort(),
         r.operation === "rollback"
@@ -444,7 +455,6 @@ export function startPowerHelm(): () => void {
               const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
               bytes += buffer.length;
               if (bytes > 24 * 1024 * 1024) {
-                response.body.destroy();
                 throw new HelmError("limit", "Helm API response exceeds safety limits");
               }
               chunks.push(buffer);
@@ -462,8 +472,8 @@ export function startPowerHelm(): () => void {
         if (r.operation !== "rollback") services.set(context, service);
       }
       const rollbackAllowed = !readOnly.enabled;
-      const binary = () =>
-        join(process.resourcesPath, process.arch, process.platform === "win32" ? "helm.exe" : "helm");
+      const binary = () => Main.Shell.getHelmPath(r.clusterId);
+      const environment = await Main.Shell.getEnvironment(r.clusterId);
       const writeCheck = () => {
         check();
         if (readOnly.enabled) throw new HelmError("read-only", "Disable read-only mode to change Helm releases");
@@ -533,7 +543,7 @@ export function startPowerHelm(): () => void {
                 }),
               },
             );
-            response.body?.destroy();
+            await response.body?.cancel();
             if (response.status === 404 || response.status === 409)
               throw new HelmError("stale-revision", "Release revision changed; refresh history before deleting it");
             if (response.status === 401 || response.status === 403)
@@ -577,19 +587,8 @@ export function startPowerHelm(): () => void {
         await mutate(async () => {
           try {
             await executeHelmRollback(
-              binary(),
-              [
-                "uninstall",
-                r.name!,
-                "--namespace",
-                r.namespace,
-                "--kubeconfig",
-                cluster.kubeConfigPath,
-                "--kube-context",
-                cluster.contextName,
-                "--timeout",
-                "60s",
-              ],
+              await binary(),
+              ["uninstall", r.name!, "--namespace", r.namespace, "--timeout", "60s"],
               signal,
               "uninstall",
               beforeStart,
@@ -597,6 +596,8 @@ export function startPowerHelm(): () => void {
                 writeCheck();
                 checkOutcome();
               },
+              undefined,
+              environment,
             );
           } catch (error) {
             if (error instanceof HelmError && error.code === "uninstall-unknown") uncertain.set(releaseKey, Symbol());
@@ -634,11 +635,12 @@ export function startPowerHelm(): () => void {
           if (!(error instanceof HelmError) || error.code !== "installed-chart-unavailable") throw error;
         }
         const output = await executeHelmRead(
-          binary(),
+          await binary(),
           ["search", "repo", metadata.name, "--version", metadata.version, "--versions", "--output", "json"],
           signal,
           check,
           check,
+          environment,
         ).catch((error) => {
           if (preferInstalled && error instanceof HelmError)
             throw new HelmError(error.code, `The installed chart is incomplete or has dependencies. ${error.message}`);
@@ -670,7 +672,7 @@ export function startPowerHelm(): () => void {
               checkUpgradeOutcome();
               try {
                 await executeHelmRollback(
-                  binary(),
+                  await binary(),
                   [
                     "upgrade",
                     current.name,
@@ -684,10 +686,6 @@ export function startPowerHelm(): () => void {
                     "0",
                     "--namespace",
                     current.namespace,
-                    "--kubeconfig",
-                    cluster.kubeConfigPath,
-                    "--kube-context",
-                    cluster.contextName,
                     "--timeout",
                     "60s",
                   ],
@@ -709,6 +707,8 @@ export function startPowerHelm(): () => void {
                     writeCheck();
                     checkUpgradeOutcome();
                   },
+                  undefined,
+                  environment,
                 );
               } catch (error) {
                 if (error instanceof HelmError && error.code === "upgrade-unknown") uncertain.set(releaseKey, Symbol());
@@ -804,7 +804,7 @@ export function startPowerHelm(): () => void {
         if (readOnly.enabled) throw new HelmError("read-only", "Read-only mode blocks rollback");
         try {
           await executeHelmRollback(
-            join(process.resourcesPath, process.arch, process.platform === "win32" ? "helm.exe" : "helm"),
+            await binary(),
             [
               "rollback",
               row.name,
@@ -813,10 +813,6 @@ export function startPowerHelm(): () => void {
               "0",
               "--namespace",
               row.namespace,
-              "--kubeconfig",
-              cluster.kubeConfigPath,
-              "--kube-context",
-              cluster.contextName,
               "--debug",
               "--wait",
               "--timeout",
@@ -851,6 +847,7 @@ export function startPowerHelm(): () => void {
                 appendLog(record, message);
               }
             },
+            environment,
           );
         } catch (error) {
           if (error instanceof HelmError && error.code === "rollback-unknown") uncertain.set(releaseKey, Symbol());
@@ -899,6 +896,7 @@ export function startPowerHelm(): () => void {
               },
       };
     } finally {
+      stopConnection?.();
       if (timer) clearTimeout(timer);
       if (reserved && reservations.get(reserved) === key) reservations.delete(reserved);
       if (key && record) detached.delete(key);
@@ -912,6 +910,6 @@ export function startPowerHelm(): () => void {
     clear();
     for (const cleanup of observed.values()) cleanup();
     observed.clear();
-    ipcMain.removeHandler(HELM_CHANNEL);
+    powerIpc.removeHandler(HELM_CHANNEL);
   };
 }

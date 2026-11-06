@@ -1,10 +1,10 @@
 import { Renderer } from "@freelensapp/extensions";
-import { clipboard, shell } from "electron";
 import MarkdownIt, { type Token } from "markdown-it";
 import { autorun } from "mobx";
 import { createElement, Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { AiIcon } from "./ai-icon";
 import { isPowerLogsWorkspace, usePowerLogsWorkspace } from "./ai-logs-sql";
+import { clipboard, shell } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 import { tokenizeSql } from "./power-log-sql-editor";
 
@@ -208,9 +208,9 @@ function CodeBlock({ text, language }: { text: string; language: string }) {
             <button
               type="button"
               aria-label="Copy code"
-              onClick={() => {
+              onClick={async () => {
                 try {
-                  clipboard.writeText(text);
+                  await clipboard.writeText(text);
                   setFeedback("Copied");
                 } catch {
                   setFeedback("Unable to copy code.");
