@@ -3,8 +3,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 const stores = vi.hoisted(() => ({
+  appearance: { clusterDiagnostics: true },
   power: { nodeBulkActions: true },
   monitoring: { resourceSearchEnabled: true, relationshipsVisible: true },
+}));
+vi.mock("../../common/store/appearance-preferences-store", () => ({
+  AppearancePreferencesStore: { getInstanceOrCreate: () => stores.appearance },
 }));
 vi.mock("../../common/store/power-preferences-store", () => ({
   PowerPreferencesStore: { getInstanceOrCreate: () => stores.power },
@@ -43,7 +47,7 @@ it("uses one switch for Node actions and Pod customization", () => {
   fireEvent.click(screen.getByRole("checkbox", { name: "Bulk resource actions" }));
   expect(stores.power.nodeBulkActions).toBe(false);
   expect(screen.getByText("Bulk actions and clearer resource dialogs.")).toBeTruthy();
-  expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+  expect(screen.getAllByRole("checkbox")).toHaveLength(3);
 });
 
 it("uses the existing resource search setting with an ASCII shortcut label", () => {
