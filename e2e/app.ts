@@ -135,6 +135,13 @@ export class FreelensSession {
     const installedManifest = JSON.parse(await readFile(join(managedBuild, "package.json"), "utf8"));
     expect(installedManifest.name).toBe("@64mb/freelens-power");
     expect(installedManifest.version).toBe(this.archiveVersion);
+    const installNotice = this.window.locator(".Notifications .notification.info").filter({
+      hasText: `Nothing vouches for the integrity of @64mb/freelens-power@${this.archiveVersion}: no checksum was available for this download. Installing it anyway.`,
+    });
+    await expect(installNotice).toBeVisible();
+    await installNotice.locator('[data-testid^="close-notification-for-"]').click();
+    await expect(installNotice).toHaveCount(0);
+
     await expect(this.window.locator(".freelens-power-settings-icon")).toBeVisible();
     await expect
       .poll(() =>
