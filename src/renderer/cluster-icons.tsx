@@ -1,5 +1,4 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CLUSTER_ICONS_CHANNEL, type ClusterIconEntry } from "../common/cluster-icon-ipc";
 import {
@@ -10,6 +9,7 @@ import {
   normalizeClusterIconDesign,
 } from "../common/cluster-icons";
 import { IconColorPicker, MATCHING_ICON_COLORS } from "./cluster-icon-colors";
+import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 import { SettingsModal } from "./preferences/settings-modal";
 

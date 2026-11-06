@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+
+vi.mock("./react-roots", async () => import("./react-roots.test-utils"));
+
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 

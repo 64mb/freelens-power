@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
 import { afterEach, expect, it, vi } from "vitest";
-import { dashboardAiUrl, dashboardAiWidgets, dashboardDocumentReadScript, readDashboardDocument } from "./dashboard-ai";
+import { readDashboardDocument } from "../browser/dashboard-ai";
+import { dashboardAiUrl, dashboardAiWidgets, dashboardDocumentReadScript } from "./dashboard-ai";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -22,7 +24,7 @@ it("bounds text and rejects missing configured selectors", () => {
   expect(result.truncated).toBe(true);
   expect(() => readDashboardDocument("#missing")).toThrow("unavailable");
   const selector = 'a[data-value="example\\\"),alert(1)//"]';
-  expect(dashboardDocumentReadScript(selector)).toContain(`)(${JSON.stringify(selector)})`);
+  expect(dashboardDocumentReadScript(selector)).toContain(`readDashboardDocument(${JSON.stringify(selector)})`);
 });
 
 it("masks URL credentials in AI context without changing configured URLs", () => {

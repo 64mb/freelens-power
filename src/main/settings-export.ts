@@ -1,9 +1,10 @@
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, dialog } from "electron";
 import { createSettingsExport, SETTINGS_EXPORT, type SettingsExportResult } from "../common/settings-export";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
+import { powerIpc } from "./power-ipc";
 import { startSettingsImport } from "./settings-import";
 
 function trustedUrl(value: string): boolean {
@@ -22,7 +23,7 @@ export function startSettingsExport(): () => void {
   const stopImport = startSettingsImport();
   let active = true;
   const pending = new WeakSet<object>();
-  ipcMain.handle(SETTINGS_EXPORT, async (event): Promise<SettingsExportResult> => {
+  powerIpc.handle(SETTINGS_EXPORT, async (event): Promise<SettingsExportResult> => {
     const sender = event.sender;
     const window = BrowserWindow.fromWebContents(sender);
     if (
@@ -65,6 +66,6 @@ export function startSettingsExport(): () => void {
   return () => {
     stopImport();
     active = false;
-    ipcMain.removeHandler(SETTINGS_EXPORT);
+    powerIpc.removeHandler(SETTINGS_EXPORT);
   };
 }

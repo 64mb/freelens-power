@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import ReactDOM from "react-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { stubMainFrame } from "./frame.test-utils";
+import { renderIntoContainer, unmountContainer } from "./react-roots.test-utils";
 
 const mocks = vi.hoisted(() => ({ install: vi.fn(), error: vi.fn(), close: vi.fn(), navigate: vi.fn() }));
 vi.mock("@freelensapp/extensions", () => ({
@@ -18,7 +20,7 @@ function Install({ initial = "", disabled = false }: { initial?: string; disable
   return (
     <section>
       <input
-        placeholder="Name or file path or URL"
+        placeholder="Name, URL, or path to a package or directory"
         value={value}
         disabled={disabled}
         onChange={(event) => setValue(event.target.value)}
@@ -41,8 +43,8 @@ function Install({ initial = "", disabled = false }: { initial?: string; disable
   );
 }
 function row(name: string, id: string) {
-  return `<div class="tr"><div class="td extension"><div><div><div>${name}</div><div>Description</div></div></div></div>
-    <div class="td actions"><span id="menu-actions-for-installed-extensions-for-${id}">more_vert</span></div></div>`;
+  return `<tr><td class="sortable-table_td_a1"><div><div class="installed-extensions_extensionName_b2">${name}</div><div>Description</div></div></td>
+    <td class="sortable-table_td_a1"><span id="menu-actions-for-installed-extensions-for-${id}">more_vert</span></td></tr>`;
 }
 function openMenu(id = "power") {
   const menu = document.createElement("ul");
@@ -62,12 +64,12 @@ async function start(id = "power") {
 }
 beforeEach(() => {
   vi.clearAllMocks();
-  document.body.innerHTML = `<div data-testid="extensions-page"><div id="install-root"></div><section data-testid="extensions-table">
+  document.body.innerHTML = `<div data-testid="extensions-page"><div id="install-root"></div><section data-testid="extensions-table"><table><tbody>
     ${row("@64mb/freelens-power", "power")}${row("@example/other", "other")}
-    ${row("@64mb/freelens-power-extra", "similar")}</section></div>`;
+    ${row("@64mb/freelens-power-extra", "similar")}</tbody></table></section></div>`;
   form = document.getElementById("install-root")!;
   act(() => {
-    ReactDOM.render(<Install />, form);
+    renderIntoContainer(<Install />, form);
   });
   document
     .querySelector('[id="menu-actions-for-installed-extensions-for-power"]')!
@@ -76,7 +78,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => {
     stop?.();
-    ReactDOM.unmountComponentAtNode(form);
+    unmountContainer(form);
   });
   stop = undefined;
   document.body.innerHTML = "";
@@ -105,11 +107,16 @@ it("updates the React controlled native install form and leaves replacement conf
   expect(mocks.error).not.toHaveBeenCalled();
 });
 it("preserves an unrelated install draft while the native confirmation waits for the user", async () => {
-  fireEvent.change(screen.getByPlaceholderText("Name or file path or URL"), { target: { value: "neutral-package" } });
+  fireEvent.change(screen.getByPlaceholderText("Name, URL, or path to a package or directory"), {
+    target: { value: "neutral-package" },
+  });
   await start();
   fireEvent.click(screen.getByLabelText("Update Freelens Power"));
   await waitFor(() => expect(mocks.install).toHaveBeenCalledExactlyOnceWith("@64mb/freelens-power@latest"));
-  expect(screen.getByPlaceholderText("Name or file path or URL")).toHaveProperty("value", "neutral-package");
+  expect(screen.getByPlaceholderText("Name, URL, or path to a package or directory")).toHaveProperty(
+    "value",
+    "neutral-package",
+  );
   expect(mocks.install).not.toHaveBeenCalledWith("confirmed");
 });
 it("keeps the synchronously captured native target across asynchronous download and cancellation", async () => {
@@ -121,17 +128,25 @@ it("keeps the synchronously captured native target across asynchronous download 
     });
     captured = target;
   });
-  fireEvent.change(screen.getByPlaceholderText("Name or file path or URL"), { target: { value: "neutral-package" } });
+  fireEvent.change(screen.getByPlaceholderText("Name, URL, or path to a package or directory"), {
+    target: { value: "neutral-package" },
+  });
   await start();
   fireEvent.click(screen.getByLabelText("Update Freelens Power"));
   await waitFor(() => expect(downloaded).toBeDefined());
-  expect(screen.getByPlaceholderText("Name or file path or URL")).toHaveProperty("value", "neutral-package");
+  expect(screen.getByPlaceholderText("Name, URL, or path to a package or directory")).toHaveProperty(
+    "value",
+    "neutral-package",
+  );
   await act(async () => {
     downloaded();
   });
   expect(captured).toBe("@64mb/freelens-power@latest");
   screen.getByText("Confirm replacement").remove();
-  expect(screen.getByPlaceholderText("Name or file path or URL")).toHaveProperty("value", "neutral-package");
+  expect(screen.getByPlaceholderText("Name, URL, or path to a package or directory")).toHaveProperty(
+    "value",
+    "neutral-package",
+  );
   expect(mocks.install).not.toHaveBeenCalledWith("confirmed");
 });
 it("supports native keyboard navigation and activates Update with Enter", async () => {
@@ -145,16 +160,23 @@ it("supports native keyboard navigation and activates Update with Enter", async 
   await waitFor(() => expect(mocks.install).toHaveBeenCalledExactlyOnceWith("@64mb/freelens-power@latest"));
 });
 it("restores a native install draft if the handoff cannot start", async () => {
-  fireEvent.change(screen.getByPlaceholderText("Name or file path or URL"), { target: { value: "neutral-package" } });
+  fireEvent.change(screen.getByPlaceholderText("Name, URL, or path to a package or directory"), {
+    target: { value: "neutral-package" },
+  });
   await start();
   fireEvent.click(screen.getByLabelText("Update Freelens Power"));
   document.querySelector<HTMLButtonElement>('[data-testid="extensions-page"] button')!.disabled = true;
   await waitFor(() => expect(mocks.error).toHaveBeenCalledOnce());
-  expect(screen.getByPlaceholderText("Name or file path or URL")).toHaveProperty("value", "neutral-package");
+  expect(screen.getByPlaceholderText("Name, URL, or path to a package or directory")).toHaveProperty(
+    "value",
+    "neutral-package",
+  );
   expect(mocks.install).not.toHaveBeenCalled();
 });
 it("removes controls and restores the draft on disable before handoff", async () => {
-  fireEvent.change(screen.getByPlaceholderText("Name or file path or URL"), { target: { value: "neutral-package" } });
+  fireEvent.change(screen.getByPlaceholderText("Name, URL, or path to a package or directory"), {
+    target: { value: "neutral-package" },
+  });
   const menu = await start();
   fireEvent.click(screen.getByLabelText("Update Freelens Power"));
   act(() => {
@@ -162,7 +184,10 @@ it("removes controls and restores the draft on disable before handoff", async ()
   });
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(menu.querySelector("[data-power-extension-update]")).toBeNull();
-  expect(screen.getByPlaceholderText("Name or file path or URL")).toHaveProperty("value", "neutral-package");
+  expect(screen.getByPlaceholderText("Name, URL, or path to a package or directory")).toHaveProperty(
+    "value",
+    "neutral-package",
+  );
   expect(mocks.install).not.toHaveBeenCalled();
 });
 it("remounts after a native menu rerender and cleans up when Extensions closes", async () => {
@@ -179,7 +204,7 @@ it("remounts after a native menu rerender and cleans up when Extensions closes",
 });
 it("does not install while the native installer is busy or inside a cluster frame", async () => {
   act(() => {
-    ReactDOM.render(<Install disabled />, form);
+    renderIntoContainer(<Install disabled />, form);
   });
   await start();
   const update = screen.getByLabelText("Update Freelens Power");
@@ -189,7 +214,7 @@ it("does not install while the native installer is busy or inside a cluster fram
   act(() => {
     stop?.();
   });
-  vi.stubGlobal("process", { ...process, isMainFrame: false });
+  stubMainFrame(false);
   await act(async () => {
     stop = startExtensionUpdate();
   });

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
+vi.mock("./react-roots", async () => import("./react-roots.test-utils"));
+
 import { serialize } from "node:v8";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
-import { act } from "react-dom/test-utils";
+import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   aiLauncherBottom,
@@ -48,7 +50,7 @@ vi.mock("../common/store/ai-shortcuts-store", () => ({
   },
 }));
 
-vi.mock("electron", () => ({
+vi.mock("./ipc", () => ({
   ipcRenderer: { invoke: mocks.invoke, on: mocks.on, removeListener: mocks.removeListener },
 }));
 vi.mock("../common/store/ai-preferences-store", () => ({

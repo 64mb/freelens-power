@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { Renderer } from "@freelensapp/extensions";
 import { LogLineDecoder, parseLogLine } from "../common/power-log-parser";
 import { type LogRecord, type LogSource, type LogTarget, POWER_LOGS_LIMITS } from "../common/power-logs";
 export type LogQuery = Record<string, string | number | boolean>;
@@ -211,7 +211,7 @@ async function consume(source: LogSource, transport: PowerLogsTransport, options
         })) {
           started = true;
           check(options.signal);
-          const size = typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.byteLength;
+          const size = typeof chunk === "string" ? new TextEncoder().encode(chunk).byteLength : chunk.byteLength;
           bytes += size;
           if (!follow && bytes > Number(query.limitBytes)) return;
           await bytesPermit(size, options.signal);
@@ -304,7 +304,7 @@ export function startLiveLogs(sources: LogSource[], transport: PowerLogsTranspor
       fieldsJson: record.fieldsJson,
       previous: record.previous === true,
     };
-    return createHash("sha256").update(sourceKey(record)).update(JSON.stringify(projected)).digest("hex");
+    return Renderer.Util.sha256Hex(sourceKey(record) + JSON.stringify(projected));
   };
   const initialCounts = new Map<string, number>();
   for (const record of (options.initialRecords ?? []).slice(-POWER_LOGS_LIMITS.liveRows)) {

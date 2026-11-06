@@ -1,6 +1,8 @@
 # 🔋 Freelens Power
 
-Power tools and personal dashboards for Freelens. Built for Freelens 1.x and tested with 1.10.3.
+Power tools and personal dashboards for Freelens. Built for Freelens 2.x and tested with 2.0.0.
+
+For Freelens 1.x, use version `1.7.0` (`@64mb/freelens-power@freelens-1`).
 
 ## Install
 
@@ -68,7 +70,7 @@ Metric history requires an active cluster view and cannot backfill gaps. Timelin
 
 ## Develop
 
-Requires Node.js 24.15.0 and pnpm 10.34.4.
+Requires Node.js 24.22.1 and pnpm 12.15.0.
 
 ```sh
 pnpm install --frozen-lockfile

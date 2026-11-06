@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ writeText: vi.fn() }));
-vi.mock("electron", () => ({ clipboard: { writeText: mocks.writeText } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: mocks.writeText } }));
 
 import { LogJson } from "./power-log-json";
 
@@ -336,7 +336,7 @@ it.each([
 it.each([
   false,
   true,
-])("reports field copy feedback through the native icon tooltip without a visible status (fails: %s)", (fails) => {
+])("reports field copy feedback through the native icon tooltip without a visible status (fails: %s)", async (fails) => {
   const Icon = ({ material, tooltip }: { material: string; tooltip?: string }) => (
     <span data-icon={material} data-tooltip={tooltip} />
   );
@@ -351,6 +351,7 @@ it.each([
       throw new Error("private clipboard diagnostic");
     });
   fireEvent.click(copy);
+  await act(async () => {});
   expect(mocks.writeText).toHaveBeenLastCalledWith("original");
   const feedback = fails ? "Copy failed" : "Copied";
   expect(copy.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(fails ? "content_copy" : "check");
@@ -374,12 +375,13 @@ it.each([
   expect(container.querySelector("pre")?.textContent).toBe(text);
 });
 
-it("shows a check glyph after copying when native icons are unavailable", () => {
+it("shows a check glyph after copying when native icons are unavailable", async () => {
   const { container, getByRole } = render(<LogJson text='{"value":"raw"}' onFilter={vi.fn()} />);
   fireEvent.focus(container.querySelector('[data-token="string"]')!);
   const copy = getByRole("button", { name: "Copy value" });
   expect(copy.textContent).toBe("⧉");
   fireEvent.click(copy);
+  await act(async () => {});
   expect(copy.textContent).toBe("✓");
   expect(getByRole("status").textContent).toBe("Copied");
 });

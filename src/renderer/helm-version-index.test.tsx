@@ -7,7 +7,7 @@ import { helmVersionIdentity, subscribeHelmVersion, useHelmVersionIndex } from "
 import type { HelmReleaseMetadata } from "../common/helm";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: { Component: { Icon: () => <span>Retry</span>, Tooltip: ({ children }: any) => <span>{children}</span> } },
 }));

@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { MockTooltip, tooltipText } from "../native-tooltip.test-utils";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("../ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: { Component: { Tooltip: (props: any) => <MockTooltip {...props} />, Icon: () => <span /> } },
 }));

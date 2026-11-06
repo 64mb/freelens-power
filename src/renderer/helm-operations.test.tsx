@@ -5,12 +5,16 @@ import { HelmOperationsPanel, HelmOperationsStore, helmOperations } from "./helm
 
 import type { HelmOperation, HelmResponse } from "../common/helm";
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), copy: vi.fn() }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke }, clipboard: { writeText: mocks.copy } }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), copy: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke }, clipboard: { writeText: mocks.copy } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
-      Dialog: ({ children }: any) => <div>{children}</div>,
+      Dialog: ({ children, className }: { children: import("react").ReactNode; className?: string }) => (
+        <div className={`Dialog modal ${className ?? ""}`}>
+          <div className="dialog-content">{children}</div>
+        </div>
+      ),
       Button: ({ label, onClick, children }: any) => (
         <button onClick={onClick}>
           {label}
@@ -21,9 +25,9 @@ vi.mock("@freelensapp/extensions", () => ({
       Checkbox: ({ label, value, onChange }: any) => (
         <>
           <style>{'.Checkbox input[type="checkbox"] { display:none; }'}</style>
-          <label className={`Checkbox flex align-center${value ? " checked" : ""}`} data-native-checkbox>
+          <label className={`Checkbox flex items-center${value ? " checked" : ""}`} data-native-checkbox>
             <input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked, event)} />
-            <i className="box flex align-center" />
+            <i className="check-icon flex items-center" />
             <span className="label">{label}</span>
           </label>
         </>
@@ -63,6 +67,7 @@ const flush = async () => {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  mocks.copy.mockResolvedValue(undefined);
   helmOperations.operations = [];
   helmOperations.selectedId = undefined;
   helmOperations.dismissed = [];
@@ -315,6 +320,9 @@ it("uses the native follow control, stable copy action, and both terminal footer
     vi.advanceTimersByTime(0);
   });
   const dialog = screen.getByRole("dialog");
+  const nativePanel = document.querySelector<HTMLElement>(".Dialog.power-helm-operation-dialog > .dialog-content")!;
+  expect(getComputedStyle(nativePanel).borderRadius).toBe("12px");
+  expect(getComputedStyle(nativePanel).boxShadow).toContain("20px 70px");
   const footer = dialog.querySelector(".power-helm-operation-footer")!;
   expect(footer.querySelectorAll("button")).toHaveLength(2);
   expect(footer.textContent).toContain("View history");
@@ -336,7 +344,9 @@ it("uses the native follow control, stable copy action, and both terminal footer
   expect(checkbox.checked).toBe(false);
   const copy = screen.getByRole("button", { name: "Copy log" });
   expect(copy.firstElementChild?.textContent).toBe("content_copy");
-  fireEvent.click(copy);
+  await act(async () => {
+    fireEvent.click(copy);
+  });
   expect(screen.getByRole("button", { name: "Copy log" })).toBe(copy);
   expect(screen.getByRole("status").textContent).toBe("Copied");
   expect(mocks.copy).toHaveBeenCalledOnce();
@@ -468,6 +478,9 @@ it.each([
     vi.advanceTimersByTime(0);
   });
   const dialog = screen.getByRole("dialog");
+  const nativePanel = document.querySelector<HTMLElement>(".Dialog.power-helm-operation-dialog > .dialog-content")!;
+  expect(getComputedStyle(nativePanel).borderRadius).toBe("12px");
+  expect(getComputedStyle(nativePanel).boxShadow).toContain("20px 70px");
   const footer = dialog.querySelector(".power-helm-operation-footer")!;
   const actions = Array.from(footer.querySelectorAll("button"));
   expect(actions).toHaveLength(2);

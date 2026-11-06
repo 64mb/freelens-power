@@ -1,15 +1,13 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
-import ts from "typescript";
+import { transformSync } from "esbuild";
 import { expect, it } from "vitest";
 
 const localRequire = createRequire(import.meta.url);
 function registrations() {
   const source = readFileSync(new URL("./index.tsx", import.meta.url), "utf8");
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText;
+  const compiled = transformSync(source, { loader: "tsx", format: "cjs", target: "es2022", jsx: "automatic" }).code;
   const feature = new Proxy(() => null, { get: () => feature });
   const exports: Record<
     string,
@@ -20,8 +18,10 @@ function registrations() {
       clusterPageMenus: { id?: string }[];
     }
   > = {};
+  const module = { exports };
   runInNewContext(compiled, {
     exports,
+    module,
     require: (name: string) => {
       if (["react/jsx-runtime", "mobx-react", "mobx"].includes(name)) return localRequire(name);
       if (name === "@freelensapp/extensions") return { Common: {}, Renderer: { LensExtension: class {} } };
@@ -30,7 +30,7 @@ function registrations() {
       return feature;
     },
   });
-  return new exports.default();
+  return new module.exports.default();
 }
 
 it("lets the host wrap every registered page in observer exactly once", () => {

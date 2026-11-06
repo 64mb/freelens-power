@@ -1,11 +1,11 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { observer } from "mobx-react";
 import { useEffect, useRef, useState } from "react";
 import { HELM_CHANNEL, type HelmReleaseMetadata, type HelmRequest, type HelmResponse } from "../common/helm";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { helmOperations } from "./helm-operations";
+import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 
 const { Icon, Menu, MenuItem, Dialog: NativeDialog, Input, Button } = Renderer.Component;
@@ -82,7 +82,7 @@ function ReleaseNameConfirmation({
     <NativeDialog isOpen modal close={cancel} className="power-helm-release-delete-dialog">
       <style>{`
       .Dialog.power-helm-release-delete-dialog { z-index:12000; background:rgb(0 0 0 / 55%); }
-      :root .Dialog.power-helm-release-delete-dialog > .box { border:1px solid var(--borderColor); border-radius:12px; background:var(--contentColor); overflow:hidden; }
+      :root .Dialog.power-helm-release-delete-dialog > .dialog-content { border:1px solid var(--borderColor); border-radius:12px; background:var(--contentColor); overflow:hidden; }
       .power-helm-release-delete-content { box-sizing:border-box; display:grid; gap:20px; width:min(520px,calc(100vw - 48px)); max-height:calc(100vh - 64px); overflow:auto; padding:28px; }
       .power-helm-release-delete-content h2 { display:flex; align-items:center; gap:10px; margin:0; font-size:20px; }
       .power-helm-release-delete-content h2 > .Icon { color:var(--colorError); }
@@ -149,12 +149,12 @@ export const HelmReleaseActions = observer((props: HelmReleaseActionsProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState<{ target: string; name: string }>();
-  const deferredConfirmation = useRef<ReturnType<typeof setTimeout>>();
+  const deferredConfirmation = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const button = useRef<HTMLButtonElement>(null);
   const live = useRef(true);
   const latest = useRef(props);
   latest.current = props;
-  const operation = useRef<HelmRequest>();
+  const operation = useRef<HelmRequest | undefined>(undefined);
   const isWritable = writable();
   const enabled =
     isWritable &&

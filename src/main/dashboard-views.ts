@@ -4,7 +4,6 @@ import {
   app,
   BrowserWindow,
   type IpcMainInvokeEvent,
-  ipcMain,
   nativeTheme,
   type Rectangle,
   session,
@@ -30,6 +29,7 @@ import { DashboardPreferencesStore } from "../common/store/dashboard-preferences
 import { setDashboardAiReader, waitForDashboardAiRead } from "./dashboard-ai";
 import { boundedDashboardIcons, loadDashboardIcons, saveDashboardIcons } from "./dashboard-icon-cache";
 import { observeDashboardNetwork } from "./dashboard-network";
+import { powerIpc } from "./power-ipc";
 
 const syncChannel = "freelens-power:dashboard-views:sync";
 const reloadChannel = "freelens-power:dashboard-views:reload";
@@ -374,7 +374,12 @@ export function startDashboardViews(): () => void {
         !configuredCards().some((configured) => configured.id === id && configured.url === card.url)
       )
         continue;
-      sender.send(DASHBOARD_VIEWS_LOADING, { id, url: card.url, loading: card.loading, failed: card.failed });
+      powerIpc.sendToContents(sender, DASHBOARD_VIEWS_LOADING, {
+        id,
+        url: card.url,
+        loading: card.loading,
+        failed: card.failed,
+      });
     }
   };
   const reload = (card: CardView, configuredUrl: string, initial = false, navigation?: Promise<void>) => {
@@ -568,7 +573,7 @@ export function startDashboardViews(): () => void {
     event.senderFrame === event.sender.mainFrame &&
     dashboardUrl(event.senderFrame?.url ?? "") &&
     dashboardUrl(event.sender.getURL());
-  ipcMain.handle(DASHBOARD_SITE_ICONS, async (event) => {
+  powerIpc.handle(DASHBOARD_SITE_ICONS, async (event) => {
     if (
       event.senderFrame !== event.sender.mainFrame ||
       !rendererUrl(event.senderFrame?.url ?? "") ||
@@ -677,7 +682,7 @@ export function startDashboardViews(): () => void {
             sandbox: true,
             webSecurity: true,
             partition: "persist:freelens-power-websites",
-            preload: join(__dirname, "dashboard-preload.js"),
+            preload: join(import.meta.dirname, "dashboard-preload.cjs"),
           },
         });
         view.setBackgroundColor("#00000000");
@@ -709,7 +714,7 @@ export function startDashboardViews(): () => void {
             !trusted(event)
           )
             return;
-          event.sender.send("freelens-power:dashboard-escape");
+          powerIpc.sendToContents(event.sender, "freelens-power:dashboard-escape");
         });
         created.selector = configured.selector;
         view.webContents.on("did-start-navigation", (_event, _url, inPlace, mainFrame) => {
@@ -774,10 +779,10 @@ export function startDashboardViews(): () => void {
               icons.set(item.id, { id: item.id, pageUrl: created.url, dataUrl: url });
               persistIcons();
               if (rendererUrl(event.senderFrame?.url ?? "") && rendererUrl(event.sender.getURL()))
-                event.sender.send(DASHBOARD_SITE_ICONS);
+                powerIpc.sendToContents(event.sender, DASHBOARD_SITE_ICONS);
             }
             if (!trusted(event)) return;
-            event.sender.send("freelens-power:dashboard-site-icon", { id: item.id, url });
+            powerIpc.sendToContents(event.sender, DASHBOARD_SITE_ICONS);
           };
           publish(favicon);
           const timeout = setTimeout(() => request.abort(), 5000);
@@ -865,7 +870,7 @@ export function startDashboardViews(): () => void {
         void reload(card, configured.url, true);
       }
       publishLoading(card);
-      if (card.favicon) event.sender.send("freelens-power:dashboard-site-icon", { id: item.id, url: card.favicon });
+      if (card.favicon) powerIpc.sendToContents(event.sender, DASHBOARD_SITE_ICONS);
     }
     for (const [id, card] of owner.cards) {
       if (!cards.some((configured) => configured.id === id)) remove(owner, id);
@@ -881,15 +886,16 @@ export function startDashboardViews(): () => void {
       pinned: [...owner.cards].filter(([, card]) => card.floating).map(([id]) => id),
     };
   };
-  ipcMain.handle(syncChannel, (event, payload: unknown) => syncViews(event, payload));
+  powerIpc.handle(syncChannel, (event, payload: unknown) => syncViews(event, payload));
   const publishPinned = (sender: WebContents, owner: Owner) => {
     if (!sender.isDestroyed())
-      sender.send(
+      powerIpc.sendToContents(
+        sender,
         DASHBOARD_VIEWS_PINNED,
         [...owner.cards].filter(([, card]) => card.floating).map(([id]) => id),
       );
   };
-  ipcMain.handle(DASHBOARD_VIEWS_PIN, (event, payload: unknown) => {
+  powerIpc.handle(DASHBOARD_VIEWS_PIN, (event, payload: unknown) => {
     if (
       !trusted(event) ||
       !payload ||
@@ -936,7 +942,7 @@ export function startDashboardViews(): () => void {
           sandbox: true,
           webSecurity: true,
           partition: "persist:freelens-power-websites",
-          preload: join(__dirname, "dashboard-preload.js"),
+          preload: join(import.meta.dirname, "dashboard-preload.cjs"),
         },
       });
       floating.setMenu(null);
@@ -1095,7 +1101,7 @@ export function startDashboardViews(): () => void {
     publishPinned(event.sender, owner);
     return { pinned: [...owner.cards].filter(([, item]) => item.floating).map(([id]) => id) };
   });
-  ipcMain.handle(clearChannel, (event) => {
+  powerIpc.handle(clearChannel, (event) => {
     if (
       event.senderFrame === event.sender.mainFrame &&
       rendererUrl(event.senderFrame?.url ?? "") &&
@@ -1103,7 +1109,7 @@ export function startDashboardViews(): () => void {
     )
       hide(event.sender);
   });
-  ipcMain.handle(reloadChannel, async (event, payload: unknown) => {
+  powerIpc.handle(reloadChannel, async (event, payload: unknown) => {
     if (
       !trusted(event) ||
       !payload ||
@@ -1127,11 +1133,11 @@ export function startDashboardViews(): () => void {
   return () => {
     setDashboardAiReader(undefined);
     stopSettingsReaction();
-    ipcMain.removeHandler(DASHBOARD_VIEWS_PIN);
-    ipcMain.removeHandler(DASHBOARD_SITE_ICONS);
-    ipcMain.removeHandler(syncChannel);
-    ipcMain.removeHandler(clearChannel);
-    ipcMain.removeHandler(reloadChannel);
+    powerIpc.removeHandler(DASHBOARD_VIEWS_PIN);
+    powerIpc.removeHandler(DASHBOARD_SITE_ICONS);
+    powerIpc.removeHandler(syncChannel);
+    powerIpc.removeHandler(clearChannel);
+    powerIpc.removeHandler(reloadChannel);
     for (const sender of owners.keys()) clear(sender);
   };
 }

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { HelmAppVersionCell } from "./helm-app-version";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: { Component: { Icon: () => <span>Retry</span>, Tooltip: ({ children }: any) => <span>{children}</span> } },
 }));

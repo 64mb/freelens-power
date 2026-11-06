@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { app, BrowserWindow, ipcMain, net } from "electron";
+import { Main } from "@freelensapp/extensions";
+import { app, BrowserWindow } from "electron";
 import { reaction } from "mobx";
 import { version as VERSION } from "../../package.json";
 import { EXTENSION_UPDATES_CHANNEL, type ExtensionUpdatesStatus, isValidVersion } from "../common/extension-updates";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
+import { powerIpc } from "./power-ipc";
 
 const PACKAGE = "@64mb/freelens-power";
 const MAX_BODY = 64 * 1024;
@@ -21,7 +23,7 @@ function trustedUrl(value: string): boolean {
 }
 
 async function readLatest(signal: AbortSignal): Promise<string | undefined> {
-  const response = await net.fetch("https://registry.npmjs.org/@64mb%2Ffreelens-power/latest", {
+  const response = await Main.Util.fetch("https://registry.npmjs.org/@64mb%2Ffreelens-power/latest", {
     signal,
     redirect: "error",
   });
@@ -75,7 +77,7 @@ export function startExtensionUpdates(extension: { manifestPath: string }): () =
     } catch {}
     return { runtimeVersion: VERSION, installedVersion, ...(allowed() && latestVersion ? { latestVersion } : {}) };
   };
-  ipcMain.handle(EXTENSION_UPDATES_CHANNEL, async (event, request: unknown) => {
+  powerIpc.handle(EXTENSION_UPDATES_CHANNEL, async (event, request: unknown) => {
     const restart =
       !!request && typeof request === "object" && "operation" in request && request.operation === "restart";
     const sender = event.sender;
@@ -171,6 +173,6 @@ export function startExtensionUpdates(extension: { manifestPath: string }): () =
     if (restartTimer !== undefined) clearTimeout(restartTimer);
     resolveRestart?.(false);
     resolveRestart = undefined;
-    ipcMain.removeHandler(EXTENSION_UPDATES_CHANNEL);
+    powerIpc.removeHandler(EXTENSION_UPDATES_CHANNEL);
   };
 }

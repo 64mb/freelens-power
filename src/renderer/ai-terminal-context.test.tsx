@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+vi.mock("./ipc", () => ({ clipboard: { writeText: vi.fn() }, ipcRenderer: { invoke: vi.fn() } }));
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

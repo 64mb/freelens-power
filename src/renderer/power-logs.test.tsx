@@ -41,7 +41,7 @@ const mocks = vi.hoisted(() => ({
   export: vi.fn(),
   objects: [] as any[],
 }));
-vi.mock("electron", () => ({ clipboard: { writeText: mocks.copy } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: mocks.copy } }));
 vi.mock("../common/store/logs-preferences-store", () => ({
   LogsPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
 }));
@@ -318,6 +318,7 @@ it.each([false, true])("copies complete structured JSON and reports clipboard fa
   expect(severity?.getAttribute("data-level")).toBe("info");
   const copy = screen.getByRole("button", { name: "Copy structured JSON" });
   fireEvent.click(copy);
+  await act(async () => {});
   expect(mocks.copy).toHaveBeenCalledWith(JSON.stringify(json, null, 2));
   expect(tooltipText(copy)).toBe(fails ? "Unable to copy JSON" : "Copied");
   expect(copy.querySelector(`[data-icon="${fails ? "content_copy" : "check"}"]`)).toBeTruthy();
@@ -1115,8 +1116,8 @@ it("locks snapshot controls immediately while capture creation is pending", asyn
 
 it("navigates compact header tabs with arrow, Home and End keys", async () => {
   await mount();
-  const live = screen.getByRole("tab", { name: "Live view", exact: true });
-  const sql = screen.getByRole("tab", { name: "SQL", exact: true });
+  const live = screen.getByRole("tab", { name: "Live view" });
+  const sql = screen.getByRole("tab", { name: "SQL" });
   const tabs = screen.getByRole("tablist", { name: "Log workspace" });
   expect(tabs.closest("header")).toBeTruthy();
   expect(sql.textContent?.trim()).toBe("SQL");
@@ -1386,6 +1387,7 @@ it.each([
   const json = detail.querySelector(".power-log-json")!.textContent;
   const copy = within(detail).getByRole("button", { name: "Copy pod name" });
   fireEvent.click(copy);
+  await act(async () => {});
   expect(mocks.copy).toHaveBeenCalledTimes(1);
   expect(mocks.copy).toHaveBeenCalledWith(source.pod);
   expect(tooltipText(copy)).toBe(fails ? "Unable to copy pod name" : "Copied");
@@ -1447,6 +1449,7 @@ it("copies namespace and displayed level independently with success feedback", a
     const copy = within(detail).getByRole("button", { name });
     expect(tooltipText(copy)).toBe(name);
     fireEvent.click(copy);
+    await act(async () => {});
     expect(mocks.copy).toHaveBeenLastCalledWith(value);
     expect(tooltipText(copy)).toBe("Copied");
     expect(copy.querySelector('[data-icon="check"]')).toBeTruthy();
@@ -1470,6 +1473,7 @@ it.each([
   const detail = screen.getByLabelText("Log line details");
   const copy = within(detail).getByRole("button", { name });
   fireEvent.click(copy);
+  await act(async () => {});
   expect(tooltipText(copy)).toBe(`Unable to copy ${field}`);
   expect(copy.querySelector('[data-icon="check"]')).toBeNull();
   expect(detail.textContent).not.toContain("private clipboard diagnostic");

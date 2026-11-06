@@ -99,16 +99,24 @@ it("changes only visible selection with the header after scrolling", () => {
 
 it("uses native checkbox markup with focusable inputs and cleans up mixed styling", () => {
   mount();
+  const nativeStyles = document.createElement("style");
+  nativeStyles.textContent = `.Checkbox > .check-icon { display:flex; position:relative; width:14px; height:14px; border:2px solid currentColor; } .Checkbox input:checked ~ .check-icon { background:rgb(30, 100, 200); }`;
+  document.head.append(nativeStyles);
   controller = startNodeBulkSelection({ getNodes: () => nodes, onChange: vi.fn() });
   const input = inputs()[1];
   const label = input.parentElement!;
-  expect(label.matches("label.Checkbox.flex.align-center")).toBe(true);
-  expect(label.querySelector("i.box.flex.align-center")?.getAttribute("aria-hidden")).toBe("true");
+  expect(label.matches("label.Checkbox.flex.items-center")).toBe(true);
+  expect(label.querySelector("i.check-icon.flex.items-center")?.getAttribute("aria-hidden")).toBe("true");
+  const glyph = label.querySelector(".check-icon")!;
+  expect(getComputedStyle(glyph).width).toBe("14px");
+  expect(getComputedStyle(glyph).height).toBe("14px");
   expect(input.style.display).toBe("block");
   input.focus();
   expect(document.activeElement).toBe(input);
   input.click();
+  expect(getComputedStyle(glyph).backgroundColor).toBe("rgb(30, 100, 200)");
   expect(inputs()[0].parentElement?.classList.contains("mixed")).toBe(true);
+  nativeStyles.remove();
   const style = document.head.querySelector("style[data-power-node-selection]");
   expect(style?.textContent).toContain(":focus-visible");
   expect(style?.textContent).toContain(".Checkbox.mixed");

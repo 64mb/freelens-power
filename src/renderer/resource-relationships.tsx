@@ -199,7 +199,7 @@ export function RelationshipGraph({
   const visibleRoles = roles.filter((role) => !hideUpstreams || role.id !== "upstream");
   const element = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<{ from: string; to: string; label: string; path: string }[]>([]);
-  const [highlight, setHighlight] = useState<string>();
+  const [highlight, setHighlight] = useState<string | undefined>(undefined);
   useLayoutEffect(() => {
     const container = element.current;
     if (!container) return;

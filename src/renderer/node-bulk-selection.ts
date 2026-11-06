@@ -22,8 +22,8 @@ export function startNodeBulkSelection(options: NodeBulkSelectionOptions): {
   const style = document.createElement("style");
   style.dataset.powerNodeSelection = "";
   style.textContent = `
-    [${marker}] input:focus-visible ~ .box { outline: 2px solid var(--blue); outline-offset: 3px; }
-    [${marker}] .Checkbox.mixed > .box:after {
+    [${marker}] input:focus-visible ~ .check-icon { outline: 2px solid var(--blue); outline-offset: 3px; }
+    [${marker}] .Checkbox.mixed > .check-icon:after {
       opacity: 1; top: 50%; left: 20%; width: 60%; height: 0;
       border: 0; border-top: 2px solid currentColor; transform: translateY(-50%);
     }
@@ -76,10 +76,10 @@ export function startNodeBulkSelection(options: NodeBulkSelectionOptions): {
       input.style.cssText =
         "display:block;position:absolute;opacity:0;width:100%;height:100%;z-index:1;margin:0;cursor:pointer";
       const checkbox = document.createElement("label");
-      checkbox.className = "Checkbox flex align-center";
+      checkbox.className = "Checkbox flex items-center";
       checkbox.style.position = "relative";
       const box = document.createElement("i");
-      box.className = "box flex align-center";
+      box.className = "check-icon flex items-center";
       box.setAttribute("aria-hidden", "true");
       checkbox.append(input, box);
       cell.append(checkbox);

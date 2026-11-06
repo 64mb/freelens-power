@@ -193,3 +193,16 @@ it("keeps custom objects searchable without copying unknown fields or accepting 
   expect(() => projectSearchDocuments([{ ...object, path: "/api/v1/pods/example" }])).toThrow("path");
   expect(() => projectSearchDocuments(Array(501).fill(object))).toThrow("batch");
 });
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
+});

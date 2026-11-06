@@ -1,19 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { POWER_LOGS_CHANNEL, POWER_LOGS_LIMITS } from "../common/power-logs";
+import { ipcRenderer } from "./ipc";
 import { searchContextId } from "./resource-search-client";
 
-import type { PowerLogsTransport } from "./power-logs-collector";
+import type { LogQuery, PowerLogsTransport } from "./power-logs-collector";
 export function createPowerLogsTransport(clusterId: string): PowerLogsTransport {
-  const host = window.location.host;
   if (
     window.location.protocol !== "https:" ||
     window.location.hostname !== `${clusterId}.renderer.freelens.app` ||
     Renderer.Catalog.activeCluster.get()?.metadata.uid !== clusterId
   )
     throw new Error("Log requests require the active cluster frame");
-  const api = Renderer.K8sApi.KubeJsonApi.forCluster.call(undefined, clusterId);
+  const api = Renderer.K8sApi.KubeJsonApi.forCluster(clusterId);
   const contextId = searchContextId();
   const invoke = (fields: object) => ipcRenderer.invoke(POWER_LOGS_CHANNEL, { ...fields, clusterId, contextId });
   const controlled = async (fields: object, signal: AbortSignal) => {
@@ -32,12 +30,12 @@ export function createPowerLogsTransport(clusterId: string): PowerLogsTransport 
   const stream: PowerLogsTransport["stream"] = async function* (path, query, signal, onOpen) {
     if (signal?.aborted) throw new Error("Log request canceled");
     const controller = new AbortController();
-    const streamId = path.endsWith("/log") ? randomUUID() : undefined;
+    const streamId = path.endsWith("/log") ? globalThis.crypto.randomUUID() : undefined;
     let renewal: ReturnType<typeof setInterval> | undefined;
-    let body: { destroy(): void } | null | undefined;
+    let body: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const abort = () => {
       controller.abort();
-      body?.destroy();
+      void body?.cancel().catch(() => {});
     };
     signal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(abort, query.follow ? 60 * 60 * 1000 : 30000);
@@ -55,12 +53,8 @@ export function createPowerLogsTransport(clusterId: string): PowerLogsTransport 
         Renderer.Catalog.activeCluster.get()?.metadata.uid !== clusterId
       )
         throw new Error("Log context changed");
-      const response = await api.getResponse(
-        path,
-        { query },
-        { signal: controller.signal, headers: { Host: host }, size: 8 * 1048576 },
-      );
-      body = response.body;
+      const response = await api.getResponse(path, { query }, { signal: controller.signal });
+      body = response.body?.getReader();
       if (signal?.aborted) {
         abort();
         throw new Error("Log request canceled");
@@ -71,8 +65,11 @@ export function createPowerLogsTransport(clusterId: string): PowerLogsTransport 
           retryAfter: response.headers.get("retry-after"),
         });
       onOpen?.();
-      if (response.body)
-        for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+      if (body)
+        for (;;) {
+          const next = await body.read();
+          if (next.done) break;
+          const chunk = next.value;
           if (signal?.aborted) throw new Error("Log request canceled");
           for (let offset = 0; offset < chunk.byteLength; offset += POWER_LOGS_LIMITS.batchBytes) {
             const part = chunk.subarray(offset, offset + POWER_LOGS_LIMITS.batchBytes);
@@ -90,23 +87,24 @@ export function createPowerLogsTransport(clusterId: string): PowerLogsTransport 
       clearTimeout(timeout);
       clearInterval(renewal);
       if (streamId) void invoke({ operation: "stream-close", streamId }).catch(() => {});
-      body?.destroy();
+      void body?.cancel().catch(() => {});
+      body?.releaseLock();
       signal?.removeEventListener("abort", abort);
     }
   };
   return {
     stream,
-    async get<T>(path, query, signal): Promise<T> {
-      const chunks: Buffer[] = [];
+    async get<T>(path: string, query?: LogQuery, signal?: AbortSignal): Promise<T> {
+      const decoder = new TextDecoder();
+      let text = "";
       let size = 0;
       for await (const chunk of stream(path, query ?? {}, signal)) {
-        const buffer = Buffer.from(chunk);
-        size += buffer.length;
+        size += typeof chunk === "string" ? new TextEncoder().encode(chunk).byteLength : chunk.byteLength;
         if (size > 8 * 1048576) throw new Error("Resource page exceeded the response budget");
-        chunks.push(buffer);
+        text += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
       }
       try {
-        return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
+        return JSON.parse(text + decoder.decode()) as T;
       } catch {
         throw new Error("Resource response could not be parsed");
       }

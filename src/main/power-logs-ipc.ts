@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Main } from "@freelensapp/extensions";
-import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain } from "electron";
+import { BrowserWindow, dialog, type IpcMainInvokeEvent } from "electron";
 import { reaction } from "mobx";
 import {
   POWER_LOGS_LIMITS as L,
@@ -14,6 +14,7 @@ import {
 } from "../common/power-logs";
 import { applyPowerLogsLimits, normalizePowerLogsLimits } from "../common/power-logs-limits";
 import { LogsPreferencesStore } from "../common/store/logs-preferences-store";
+import { powerIpc } from "./power-ipc";
 import {
   acquirePowerLogStream,
   cancelPowerLogPermits,
@@ -195,7 +196,7 @@ export function startPowerLogs(): () => void {
       .update(readFileSync(cluster.kubeConfigPath))
       .digest("hex");
   };
-  ipcMain.handle(POWER_LOGS_STORAGE_CHANNEL, async (event, input: unknown) => {
+  powerIpc.handle(POWER_LOGS_STORAGE_CHANNEL, async (event, input: unknown) => {
     const allowed = () => active && preferences.enabled && trustedLogStorageSender(event);
     try {
       if (!allowed() || !storageAvailable || !input || typeof input !== "object") throw new Error();
@@ -213,7 +214,7 @@ export function startPowerLogs(): () => void {
       throw new Error("Log storage operation failed or is unavailable");
     }
   });
-  ipcMain.handle(POWER_LOGS_CHANNEL, async (event, input: unknown) => {
+  powerIpc.handle(POWER_LOGS_CHANNEL, async (event, input: unknown) => {
     try {
       const request = validateLogRequest(input);
       const allowed = () => active && preferences.enabled && trustedSearchSender(event, request.clusterId);
@@ -300,8 +301,8 @@ export function startPowerLogs(): () => void {
     cancelPowerLogPermits(true);
     streamOwners.clear();
     stop();
-    ipcMain.removeHandler(POWER_LOGS_CHANNEL);
-    ipcMain.removeHandler(POWER_LOGS_STORAGE_CHANNEL);
+    powerIpc.removeHandler(POWER_LOGS_CHANNEL);
+    powerIpc.removeHandler(POWER_LOGS_STORAGE_CHANNEL);
     worker?.close();
     worker = undefined;
   };

@@ -217,3 +217,18 @@ it("compares SemVer numeric components and prerelease precedence without precisi
   expect(isNewerVersion("999999999999999999999.0.1", "999999999999999999998.9.9")).toBe(true);
   expect(isNewerVersion("2.0.0-01", "1.0.0")).toBe(false);
 });
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
+});
+
+vi.mock("@freelensapp/extensions", () => ({ Main: { Util: { fetch: mocks.fetch } } }));

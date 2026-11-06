@@ -37,3 +37,5 @@ describe("Codex output stream", () => {
     expect(result.text).toBe("確認 🔋");
   });
 });
+
+vi.mock("electron", () => ({}));

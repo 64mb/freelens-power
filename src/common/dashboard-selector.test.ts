@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+
 import { afterEach, expect, it, vi } from "vitest";
+import { dashboardSelectorAdapter } from "../browser/dashboard-selector";
 import { sanitizeDashboardCards } from "./dashboard";
-import { dashboardSelectorAdapter, dashboardSelectorScript, normalizeDashboardSelector } from "./dashboard-selector";
+import { dashboardSelectorScript, normalizeDashboardSelector } from "./dashboard-selector";
 
 const hidden = "data-power-selector-hidden";
 afterEach(() => {

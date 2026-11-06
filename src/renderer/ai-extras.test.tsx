@@ -14,7 +14,7 @@ const state = vi.hoisted(() => ({
   showDetails: vi.fn(),
   getApi: vi.fn(),
 }));
-vi.mock("electron", () => ({ clipboard: { writeText: vi.fn() } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: vi.fn() } }));
 
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {

@@ -1,4 +1,4 @@
-import { isIP } from "node:net";
+import { isIP } from "../common/ip-address";
 
 export interface LogMessageToken {
   start: number;

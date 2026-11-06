@@ -1,5 +1,4 @@
 import { Renderer } from "@freelensapp/extensions";
-import { clipboard, ipcRenderer } from "electron";
 import { observer } from "mobx-react";
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -25,6 +24,7 @@ import { HelmOperationsPanel, helmOperations } from "./helm-operations";
 import { HelmReleaseActions } from "./helm-release-actions";
 import { HelmRevisionDelete } from "./helm-revision-delete";
 import { useHelmVersionIndex } from "./helm-version-index";
+import { clipboard, ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 
 function HelmSearchField({
@@ -268,7 +268,7 @@ export function useHelmRequest(request: Omit<HelmRequest, "requestId">, cacheKey
     stale: true,
   });
   const [attempt, setAttempt] = useState(0);
-  const cancelRef = useRef<() => void>();
+  const cancelRef = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
     let current = true;
     const payload: HelmRequest = {
@@ -685,8 +685,10 @@ function Section({
                             </>
                           }
                           onClick={() => {
-                            clipboard.writeText(detail.content);
-                            setCopySequence((value) => value + 1);
+                            void clipboard
+                              .writeText(detail.content)
+                              .then(() => setCopySequence((value) => value + 1))
+                              .catch(() => {});
                           }}
                         />
                       </NativeTooltip>
@@ -812,7 +814,7 @@ const ValuesEditor = observer(
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState("");
     const live = useRef(true);
-    const operation = useRef<HelmRequest>();
+    const operation = useRef<HelmRequest | undefined>(undefined);
     const choices = state.result?.ok ? (state.result.chartChoices ?? []) : [];
     const sourceStatusRef = useRef<HTMLDivElement>(null);
     const [sourceStatusHeight, setSourceStatusHeight] = useState(0);
@@ -855,14 +857,14 @@ const ValuesEditor = observer(
       !busy;
     const latest = useRef({ ready, draft, selectedChart });
     latest.current = { ready, draft, selectedChart };
-    useEffect(
-      () => () => {
+    useEffect(() => {
+      live.current = true;
+      return () => {
         live.current = false;
         if (operation.current)
           void ipcRenderer.invoke(HELM_CHANNEL, { ...operation.current, operation: "cancel" }).catch(() => undefined);
-      },
-      [],
-    );
+      };
+    }, []);
     const save = () => {
       if (!ready) return;
       const values = draft;
@@ -1218,7 +1220,9 @@ const History = observer(
     }, [state.result, removedRevisions, historyIdentity]);
     const [page, setPage] = useState(0);
     const historyFrame = useRef<HTMLDivElement>(null);
-    const [revealRevision, setRevealRevision] = useState<{ revision: number; result: HelmResponse }>();
+    const [revealRevision, setRevealRevision] = useState<{ revision: number; result: HelmResponse } | undefined>(
+      undefined,
+    );
     useEffect(() => {
       if (historyFrame.current) historyFrame.current.scrollTop = 0;
     }, [page, revisionFilter, state.result]);
@@ -1307,13 +1311,13 @@ const History = observer(
     const busy = requestBusy || helmOperations.isRunning(clusterId, contextId, release.namespace, release.name);
     const [error, setError] = useState("");
     const live = useRef(true);
-    const operation = useRef<HelmRequest>();
-    useEffect(
-      () => () => {
+    const operation = useRef<HelmRequest | undefined>(undefined);
+    useEffect(() => {
+      live.current = true;
+      return () => {
         live.current = false;
-      },
-      [],
-    );
+      };
+    }, []);
     const readOnly = ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>().enabled;
     const allowed =
       state.result?.ok &&
@@ -1773,9 +1777,9 @@ function ReleasePanel({
   const overlayClicks = useRef(new WeakSet<Event>());
   const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
   const panel = useRef<HTMLElement>(null);
-  const currentEvent = useRef<Event>();
+  const currentEvent = useRef<Event | undefined>(undefined);
   const latestClose = useRef(close);
-  const previousScreen = useRef<() => void>();
+  const previousScreen = useRef<(() => void) | undefined>(undefined);
   latestClose.current = close;
   useEffect(() => {
     panel.current?.focus({ preventScroll: true });
@@ -2065,11 +2069,14 @@ function Releases({
   useEffect(() => {
     if (releaseFrame.current) releaseFrame.current.scrollTop = 0;
   }, [page, search, status, state.result]);
-  const [selection, setSelection] = useState<{
-    release: HelmReleaseMetadata;
-    result: Extract<HelmResponse, { ok: true }>;
-    historyRequest?: number;
-  }>();
+  const [selection, setSelection] = useState<
+    | {
+        release: HelmReleaseMetadata;
+        result: Extract<HelmResponse, { ok: true }>;
+        historyRequest?: number;
+      }
+    | undefined
+  >(undefined);
   const result = state.result?.ok ? state.result : undefined;
   useEffect(() => {
     if (!pendingHistory || !result || state.loading || state.stale || result.contextId !== pendingHistory.contextId)
@@ -2376,7 +2383,7 @@ const ClusterHelm = observer(({ clusterId, partition }: { clusterId: string; par
   const [namespace, setNamespace] = useState("");
   const [pendingHistory, setPendingHistory] = useState<HelmOperation>();
   const namespaces =
-    process.isMainFrame === false
+    window.top !== window
       ? Renderer.K8sApi.namespaceStore.items.map((item) => item.getName())
       : (Renderer.Catalog.activeCluster.get()?.spec?.accessibleNamespaces ?? []);
   return (
@@ -2634,7 +2641,7 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-history-table input[type=radio]:disabled { opacity: .45; cursor: default; }
         .power-helm .helm-consent { position: relative; }
         .power-helm .helm-consent input[type=checkbox] { display: block; position: absolute; left: 0; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); opacity: 0; margin: 0; z-index: 1; }
-        .power-helm .helm-consent input:focus-visible ~ .box { outline: 2px solid var(--primary); outline-offset: 3px; }
+        .power-helm .helm-consent input:focus-visible ~ .check-icon { outline: 2px solid var(--primary); outline-offset: 3px; }
         .power-helm .helm-consent-target { display: inline; line-height: 1.8; overflow-wrap: anywhere; }
         .power-helm .helm-consent-target strong { font-weight: 500; }
         .power-helm .helm-consent-revision { margin: 0 4px; }
@@ -2659,9 +2666,9 @@ export const PowerHelmPage = observer(() => {
         .power-helm .helm-rollback p { color: var(--textColorSecondary); margin-top: 8px; font-size: 12px; line-height: 1.5; }
         .power-helm .helm-consent { display: flex; margin: 16px 0; font-size: 12px; }
         .power-helm .helm-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 42px 20px; color: var(--textColorSecondary); }
-        .ConfirmDialog:has(.power-helm-confirmation) > .box { min-width: min(360px,calc(100vw - 32px)); max-width: min(640px,calc(100vw - 32px)); }
+        .ConfirmDialog:has(.power-helm-confirmation) > .dialog-content { min-width: min(360px,calc(100vw - 32px)); max-width: min(640px,calc(100vw - 32px)); }
         .ConfirmDialog:has(.power-helm-confirmation) .confirm-content { gap: 12px; }
-        .ConfirmDialog:has(.power-helm-confirmation .helm-revision-diff) > .box { width: min(1100px, calc(100vw - 64px)); max-width: min(1100px, calc(100vw - 64px)); }
+        .ConfirmDialog:has(.power-helm-confirmation .helm-revision-diff) > .dialog-content { width: min(1100px, calc(100vw - 64px)); max-width: min(1100px, calc(100vw - 64px)); }
         .ConfirmDialog:has(.power-helm-confirmation .helm-revision-diff) .confirm-content { align-items: flex-start; }
         .ConfirmDialog:has(.power-helm-confirmation .helm-revision-diff) .confirm-content > .Icon { align-self: flex-start; margin-top: 4px; }
         .ConfirmDialog .helm-rollback-confirmation p { margin: 8px 0 12px; }

@@ -1,6 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
-import ReactDOM from "react-dom";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 
 const cellMarker = "data-power-pod-name";
 const hoverMarker = "data-power-pod-name-hover";
@@ -24,7 +24,7 @@ function podPath(link: HTMLAnchorElement): string | undefined {
 }
 
 export function startPodDetailsEnhancements(): () => void {
-  if (process.isMainFrame !== false) return () => {};
+  if (window.top === window) return () => {};
   const mounted = new Map<HTMLAnchorElement, Mounted>();
   const style = document.createElement("style");
   style.dataset.freelensPower = "pod-details-enhancements";
@@ -37,7 +37,7 @@ export function startPodDetailsEnhancements(): () => void {
   let stopped = false;
   let scheduled = false;
   const remove = (link: HTMLAnchorElement, item: Mounted) => {
-    ReactDOM.unmountComponentAtNode(item.host);
+    unmountContainer(item.host);
     item.host.remove();
     item.cell.removeAttribute(cellMarker);
     for (const badge of item.badges) badge.removeAttribute(hoverMarker);
@@ -74,7 +74,10 @@ export function startPodDetailsEnhancements(): () => void {
       const signature = JSON.stringify([path, status, message]);
       if (signature === item.signature) continue;
       item.signature = signature;
-      ReactDOM.render(<Renderer.Component.StatusBrick className={status.toLowerCase()} tooltip={message} />, item.host);
+      renderIntoContainer(
+        <Renderer.Component.StatusBrick className={status.toLowerCase()} tooltip={message} />,
+        item.host,
+      );
     }
   };
   const schedule = () => {

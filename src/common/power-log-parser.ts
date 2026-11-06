@@ -23,7 +23,7 @@ export function parseLogLine(line: string, source: LogSource): LogRecord {
       level = extracted.level;
       if (extracted.message !== undefined) message = extracted.message.replace(ansi, "").replace(/\x00/g, "");
       const serialized = JSON.stringify(fields);
-      if (Buffer.byteLength(serialized) <= POWER_LOGS_LIMITS.recordBytes / 2) fieldsJson = serialized;
+      if (new TextEncoder().encode(serialized).byteLength <= POWER_LOGS_LIMITS.recordBytes / 2) fieldsJson = serialized;
     }
   } catch {
     /* malformed structured lines remain plain text */
@@ -39,7 +39,7 @@ export function parseLogLine(line: string, source: LogSource): LogRecord {
     fieldsJson,
     previous: source.previous === true,
   };
-  const serializedBytes = () => Buffer.byteLength(JSON.stringify(record));
+  const serializedBytes = () => new TextEncoder().encode(JSON.stringify(record)).byteLength;
   if (serializedBytes() > POWER_LOGS_LIMITS.recordBytes && record.fieldsJson !== null) {
     record.fieldsJson = null;
     record.message += " [structured fields omitted]";
@@ -70,7 +70,7 @@ export class LogLineDecoder {
     for (const part of text.split(/(?<=\n)/)) {
       const ended = part.endsWith("\n");
       if (!this.dropping) this.pending += part;
-      if (Buffer.byteLength(this.pending) > POWER_LOGS_LIMITS.recordBytes) {
+      if (new TextEncoder().encode(this.pending).byteLength > POWER_LOGS_LIMITS.recordBytes) {
         this.pending = "";
         this.dropping = true;
         this.truncated = true;

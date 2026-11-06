@@ -1,5 +1,5 @@
 import { getCACertificates } from "node:tls";
-import { net } from "electron";
+import { Main } from "@freelensapp/extensions";
 import WebSocket from "ws";
 import { CODEX_API_MODELS, CODEX_API_REASONING_EFFORTS } from "../common/ai-models";
 import { readAiApiKey } from "./ai-api-key";
@@ -604,7 +604,7 @@ export function createCodexApiSession(
               input: previousId ? input.slice(sentItems) : input,
               ...(previousId ? { previous_response_id: previousId } : {}),
             })
-          : await net.fetch("https://api.openai.com/v1/responses", {
+          : await Main.Util.fetch("https://api.openai.com/v1/responses", {
               method: "POST",
               redirect: "error",
               credentials: "omit",

@@ -1,5 +1,4 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { runInAction } from "mobx";
 import { observer } from "mobx-react";
 import { useEffect, useRef, useState } from "react";
@@ -8,6 +7,7 @@ import { AI_MODELS_CHANNEL, type AiModel, CODEX_API_MODELS, piModelLabel } from 
 import { AiPreferencesStore } from "../../common/store/ai-preferences-store";
 import { AiIcon } from "../ai-icon";
 import { AiProviderIcon } from "../ai-provider-icon";
+import { ipcRenderer } from "../ipc";
 import { AiShortcutsPreferences } from "./ai-shortcuts-preferences";
 
 const { Button, Input, Select, Switch } = Renderer.Component;

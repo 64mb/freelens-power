@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dashboardPickerAdapter, dashboardPickerScript } from "./dashboard-picker";
+import { dashboardPickerAdapter } from "../browser/dashboard-picker";
+import { dashboardPickerScript } from "./dashboard-picker";
 
 afterEach(() => {
   document.body.innerHTML = "";

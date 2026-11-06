@@ -1,8 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ipcRenderer } from "electron";
 import { reaction } from "mobx";
 import { useEffect, useRef, useState } from "react";
-import { createPortal, render, unmountComponentAtNode } from "react-dom";
+import { createPortal } from "react-dom";
 import {
   NODE_BULK_CHANNEL,
   NODE_BULK_LIMIT,
@@ -14,8 +13,10 @@ import {
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { AiIcon } from "./ai-icon";
+import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 import { startNodeBulkSelection } from "./node-bulk-selection";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 
 const labels: Record<NodeBulkAction, string> = { cordon: "Cordon", uncordon: "Uncordon", drain: "Drain" };
 const icons: Record<NodeBulkAction, string> = {
@@ -228,7 +229,7 @@ export function NodeBulkToolbar({
   const alive = useRef(true);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
-  const jobRef = useRef<NodeBulkJob>();
+  const jobRef = useRef<NodeBulkJob | undefined>(undefined);
   jobRef.current = job;
   const preparation = useRef(false);
   const running = job?.status === "running";
@@ -484,7 +485,7 @@ export function startNodeBulkActions(): () => void {
   const clear = () => selection?.clear();
   const remove = () => {
     if (mount) {
-      unmountComponentAtNode(mount);
+      unmountContainer(mount);
       mount.remove();
       mount = undefined;
     }
@@ -504,7 +505,7 @@ export function startNodeBulkActions(): () => void {
       if (stopped || readOnly.enabled || power.nodeBulkActions === false || !scope) return;
       const show = () => {
         if (mount)
-          render(
+          renderIntoContainer(
             <NodeBulkToolbar clusterId={scope.clusterId} scope={scope.key} selected={selected} onClear={clear} />,
             mount,
           );

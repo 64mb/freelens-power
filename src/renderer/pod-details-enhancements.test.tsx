@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+import { stubMainFrame } from "./frame.test-utils";
+
+vi.mock("./react-roots", async () => import("./react-roots.test-utils"));
+
 import { act, waitFor } from "@testing-library/react";
 import { observable } from "mobx";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -28,7 +32,7 @@ import { startPodDetailsEnhancements } from "./pod-details-enhancements";
 
 let stop: (() => void) | undefined;
 beforeEach(() => {
-  vi.stubGlobal("process", Object.assign(Object.create(process), { isMainFrame: false }));
+  stubMainFrame(false);
   state.readStore.mockReset();
 });
 afterEach(() => {
@@ -102,7 +106,7 @@ it("leaves node drawers and unrelated pod links unchanged", async () => {
 });
 
 it("never accesses the cluster pod store in the root frame, even with an active cluster", async () => {
-  vi.stubGlobal("process", Object.assign(Object.create(process), { isMainFrame: true }));
+  stubMainFrame(true);
   state.readStore.mockImplementation(() => {
     throw new Error("podStore is only available in certain environments");
   });

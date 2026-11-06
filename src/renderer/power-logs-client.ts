@@ -1,4 +1,3 @@
-import { ipcRenderer } from "electron";
 import {
   type LogCapture,
   type LogPartition,
@@ -7,6 +6,7 @@ import {
   type LogTarget,
   POWER_LOGS_CHANNEL,
 } from "../common/power-logs";
+import { ipcRenderer } from "./ipc";
 
 export function createPowerLogsClient(partition: LogPartition) {
   const invoke = <T>(operation: string, fields: object = {}): Promise<T> =>

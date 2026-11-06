@@ -14,7 +14,7 @@ export class MonitoringHistoryWorker {
       let engine;
       parentPort.on('message', ({id, operation, value}) => {
         try {
-          engine ??= new Engine(workerData);
+          engine ??= new Engine(workerData, undefined, require);
           const result = operation === 'append' ? engine.append(value) : operation === 'query' ? engine.query(value) : operation === 'clear' ? engine.clear() : engine.status();
           parentPort.postMessage({ id, result });
         } catch { parentPort.postMessage({ id, error: true }); }

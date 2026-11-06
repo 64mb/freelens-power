@@ -1,7 +1,7 @@
-import { clipboard } from "electron";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { formatDateTime } from "../common/date-time";
 import { sqlCellLevel } from "../common/power-log-sql-level";
+import { clipboard } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 import { LogJson } from "./power-log-json";
 import { compactJsonLiteral, formatJsonLiteral } from "./power-log-json-fields";
@@ -78,10 +78,10 @@ export function LogJsonCell({
           aria-label="Copy JSON"
           onKeyDown={(event) => event.stopPropagation()}
           onKeyUp={(event) => event.stopPropagation()}
-          onClick={(event) => {
+          onClick={async (event) => {
             event.stopPropagation();
             try {
-              clipboard.writeText(formatJsonLiteral(value!));
+              await clipboard.writeText(formatJsonLiteral(value!));
               setFeedback("Copied");
             } catch {
               setFeedback("Unable to copy JSON");

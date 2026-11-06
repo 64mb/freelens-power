@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -10,8 +10,13 @@ import {
   openHelmDocumentFind,
 } from "./helm-code-view";
 
-const mocks = vi.hoisted(() => ({ models: [] as any[], props: [] as any[], copy: vi.fn(), lateMeasurements: false }));
-vi.mock("electron", () => ({ clipboard: { writeText: mocks.copy } }));
+const mocks = vi.hoisted(() => ({
+  models: [] as any[],
+  props: [] as any[],
+  copy: vi.fn().mockResolvedValue(undefined),
+  lateMeasurements: false,
+}));
+vi.mock("./ipc", () => ({ clipboard: { writeText: mocks.copy } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
@@ -23,9 +28,9 @@ vi.mock("@freelensapp/extensions", () => ({
       ),
       MonacoEditor: (props: any) => {
         mocks.props.push(props);
-        const previous = useRef<any>();
+        const previous = useRef<any>(undefined);
         const field = useRef<HTMLTextAreaElement>(null);
-        const dimensions = useRef<{ value: string; width: number }>();
+        const dimensions = useRef<{ value: string; width: number } | undefined>(undefined);
         useEffect(() => {
           const width =
             typeof props.style.width === "number" ? props.style.width : props.style.width === "100%" ? 400 : 399;
@@ -47,6 +52,7 @@ vi.mock("@freelensapp/extensions", () => ({
               scroller.scrollLeft = 999;
             }
             props.onModelChange(model, previous.current);
+            field.current?.setAttribute("data-model-ready", "true");
           }
           previous.current = model;
         }, [props.id]);
@@ -68,7 +74,7 @@ afterEach(() => {
   cleanup();
   mocks.models.length = 0;
   mocks.props.length = 0;
-  mocks.copy.mockReset();
+  mocks.copy.mockReset().mockResolvedValue(undefined);
   mocks.lateMeasurements = false;
 });
 
@@ -86,7 +92,9 @@ it("updates native editor content and enforces read-only changes", async () => {
   view.unmount();
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(mocks.models.length).toBe(2);
-  for (const model of mocks.models) expect(model.dispose).toHaveBeenCalledOnce();
+  await waitFor(() => {
+    for (const model of mocks.models) expect(model.dispose).toHaveBeenCalledOnce();
+  });
 });
 
 it("compares selected and current documents and refreshes highlights", () => {
@@ -186,7 +194,7 @@ it("opens full documents from compact context and returns to the hidden unchange
   fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
   await screen.findByText("Full comparison · 1 added · 1 removed");
   expect(screen.queryByText(/unchanged lines hidden/)).toBeNull();
-  expect(mocks.props.some((props) => props.value.includes("key0:"))).toBe(true);
+  await waitFor(() => expect(mocks.props.some((props) => props.value.includes("key0:"))).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
   expect(screen.getByText("7 unchanged lines hidden")).toBeTruthy();
 });
@@ -211,7 +219,9 @@ it("forwards find through the accessible editor input and prevents recursive for
     event.preventDefault();
   });
   input.addEventListener("keydown", keys);
-  expect(openHelmDocumentFind(view.container)).toBe(true);
+  act(() => {
+    expect(openHelmDocumentFind(view.container)).toBe(true);
+  });
   expect(keys).toHaveBeenCalledOnce();
   expect(document.activeElement).toBe(input);
   input.removeEventListener("keydown", keys);
@@ -226,12 +236,29 @@ it("disposes models from compact and full views when toggled and unmounted", asy
   const view = render(
     <HelmRevisionDiff before={source.join("\n")} after={target.join("\n")} beforeLabel="Before" afterLabel="After" />,
   );
+  await waitFor(() =>
+    expect(screen.getAllByRole("textbox").every((field) => field.getAttribute("data-model-ready") === "true")).toBe(
+      true,
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
   await screen.findByText("Full comparison · 1 added · 1 removed");
+  await waitFor(() =>
+    expect(screen.getAllByRole("textbox").every((field) => field.getAttribute("data-model-ready") === "true")).toBe(
+      true,
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
+  await waitFor(() =>
+    expect(screen.getAllByRole("textbox").every((field) => field.getAttribute("data-model-ready") === "true")).toBe(
+      true,
+    ),
+  );
   view.unmount();
   await new Promise((resolve) => setTimeout(resolve, 10));
-  for (const model of mocks.models) expect(model.dispose).toHaveBeenCalledOnce();
+  await waitFor(() => {
+    for (const model of mocks.models) expect(model.dispose).toHaveBeenCalledOnce();
+  });
 });
 
 it("searches the entire comparison from outside editors and reveals hidden original context", () => {
@@ -242,7 +269,9 @@ it("searches the entire comparison from outside editors and reveals hidden origi
   const view = render(
     <HelmRevisionDiff before={before.join("\n")} after={after.join("\n")} beforeLabel="Source" afterLabel="Target" />,
   );
-  expect(openHelmDocumentFind(view.container)).toBe(true);
+  act(() => {
+    expect(openHelmDocumentFind(view.container)).toBe(true);
+  });
   const find = screen.getByLabelText("Find in both documents");
   fireEvent.change(find, { target: { value: "changed" } });
   expect(screen.getByText("2 matches · Target line 11, column 8")).toBeTruthy();
@@ -278,7 +307,9 @@ it("bounds native editor mounts for fragmented comparisons and reports the full-
 
 it("closes comparison find from outside the pane and yields to visible menus", () => {
   const view = render(<HelmRevisionDiff before="old" after="new" beforeLabel="Source" afterLabel="Target" />);
-  openHelmDocumentFind(view.container);
+  act(() => {
+    openHelmDocumentFind(view.container);
+  });
   const menu = document.createElement("div");
   menu.className = "Select__menu";
   document.body.append(menu);
@@ -363,7 +394,7 @@ it("uses the common vertical viewport for bounded-display and size-limit fallbac
   expect(mocks.props.every((props) => props.options.scrollbar?.vertical === "hidden")).toBe(true);
 });
 
-it("bounds huge fallback rendering and copies the full original with retry after failure", () => {
+it("bounds huge fallback rendering and copies the full original with retry after failure", async () => {
   const before = Array.from({ length: 25000 }, (_, index) => `key${index}: value`).join("\n");
   const view = render(<HelmRevisionDiff before={before} after="target" beforeLabel="Source" afterLabel="Target" />);
   expect(screen.getByText(/Only the first 1000 lines and 262144 characters/)).toBeTruthy();
@@ -383,12 +414,18 @@ it("bounds huge fallback rendering and copies the full original with retry after
   mocks.copy.mockImplementationOnce(() => {
     throw Error("clipboard unavailable");
   });
-  fireEvent.click(screen.getByRole("button", { name: "Copy full source document" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy full source document" }));
+  });
   expect(screen.getByText("Could not copy the document. Try copying again.")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Copy full source document" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy full source document" }));
+  });
   expect(mocks.copy).toHaveBeenLastCalledWith(before);
   expect(screen.getByText("Full document copied")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Copy full target document" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy full target document" }));
+  });
   expect(mocks.copy).toHaveBeenLastCalledWith("target");
 });
 
@@ -593,8 +630,8 @@ it("measures newly mounted full-context editors when a shared width is already k
   fireEvent.click(screen.getByRole("button", { name: "Compare full documents" }));
   await screen.findByText("Full comparison · 1 added · 1 removed");
   expect(mocks.props.some((props) => props.value === "" && props.style.width === compactWidth - 1)).toBe(true);
+  await waitFor(() => expect(mocks.props[mocks.props.length - 1].style.width).toBeGreaterThan(compactWidth));
   const fullWidth = mocks.props[mocks.props.length - 1].style.width;
-  expect(fullWidth).toBeGreaterThan(compactWidth);
   expect(
     mocks.props.slice(-screen.getAllByRole("textbox").length).every((props) => props.style.width === fullWidth),
   ).toBe(true);
@@ -690,7 +727,9 @@ it("compares all original lines on demand and navigates to changes beyond the pr
   expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value).toContain("key23000: changed");
   expect((screen.getByLabelText("Target") as HTMLTextAreaElement).value.split("\n").length).toBeLessThan(300);
   expect(view.container.querySelectorAll(".helm-code-view")).toHaveLength(2);
-  fireEvent.click(screen.getByRole("button", { name: "Copy full target document" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy full target document" }));
+  });
   expect(mocks.copy).toHaveBeenLastCalledWith(after);
   fireEvent.click(screen.getByRole("button", { name: "Back to compact comparison" }));
   expect(screen.getByRole("button", { name: "Compare full documents" })).toBeTruthy();

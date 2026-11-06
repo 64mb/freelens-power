@@ -156,3 +156,16 @@ it("never reveals website content when installing the isolated shield fails", as
   expect(mocks.windows[0].destroyed).toBe(true);
   stop();
 });
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
+});

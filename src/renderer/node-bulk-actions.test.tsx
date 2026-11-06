@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+
+vi.mock("./react-roots", async () => import("./react-roots.test-utils"));
+
 // @vitest-environment-options {"url":"https://cluster.renderer.freelens.app"}
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -14,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   power: { enabled: true, nodeBulkActions: true },
   readOnly: { enabled: false },
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", async () => {
   const { MockTooltip } = await import("./native-tooltip.test-utils");
   return {

@@ -88,7 +88,7 @@ vi.mock("../common/store/monitoring-preferences-store", () => ({
 vi.mock("../common/store/ai-preferences-store", () => ({
   AiPreferencesStore: { getInstanceOrCreate: () => ({ enabled: true }) },
 }));
-vi.mock("electron", () => ({ clipboard: { writeText: vi.fn() } }));
+vi.mock("./ipc", () => ({ clipboard: { writeText: vi.fn() } }));
 vi.mock("./ai-diagnostic-handoff", () => ({ explainDiagnosticFinding: vi.fn() }));
 vi.mock("./monitoring-collector", () => ({
   getMonitoringSnapshot: state.get,
@@ -656,12 +656,13 @@ it("applies namespace focus to a mounted page and retains it after leaving", asy
 });
 
 it("copies only the selected pending pod finding and its evidence", async () => {
-  const { clipboard } = await import("electron");
+  const { clipboard } = await import("./ipc");
   const view = render(<DiagnosticsPage />);
   await waitFor(() => expect(view.getByRole("button", { name: /^Pending/ })).toBeTruthy());
   fireEvent.click(view.getByRole("button", { name: /^Pending/ }));
   fireEvent.change(view.getByLabelText("Pending pod"), { target: { value: "pod-a" } });
   fireEvent.click(view.getByLabelText("Copy incident summary"));
+  await act(async () => {});
   const text = vi.mocked(clipboard.writeText).mock.calls.at(-1)![0];
   expect(text).toContain("Problem: Pending pod");
   expect(text).toContain("Insufficient cpu");
@@ -707,7 +708,8 @@ it("places Timeline resource, copy and AI actions together beside the heading", 
   expect(view.getByLabelText("Explain with AI").parentElement).toBe(actions);
   expect(view.getAllByLabelText("Copy incident summary")).toHaveLength(1);
   fireEvent.click(view.getByLabelText("Copy incident summary"));
-  const { clipboard } = await import("electron");
+  await act(async () => {});
+  const { clipboard } = await import("./ipc");
   expect(vi.mocked(clipboard.writeText).mock.calls.at(-1)![0]).toContain("Insufficient cpu");
 });
 

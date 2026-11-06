@@ -20,27 +20,27 @@ export function startHostLayoutStyles(): () => void {
       --dialogHeaderBackground: var(--mainBackground);
       --dialogFooterBackground: var(--mainBackground);
     }
-    :root .Dialog.modal > .box {
+    :root .Dialog.modal > .dialog-content {
       background: var(--contentColor);
       color: var(--textColorPrimary);
       border: 1px solid var(--borderColor);
       border-radius: 8px;
     }
-    :root .Dialog.modal > .box > .Wizard > .header {
+    :root .Dialog.modal > .dialog-content > .Wizard > .header {
       color: var(--textColorPrimary);
       border-top-left-radius: 7px;
       border-top-right-radius: 7px;
     }
-    :root .Dialog.modal > .box > .Wizard > .header h5 {
+    :root .Dialog.modal > .dialog-content > .Wizard > .header h5 {
       color: inherit;
     }
-    :root .Dialog.modal > .box > .Wizard .WizardStep,
-    :root .Dialog.modal > .box > .Wizard .WizardStep > .buttons {
+    :root .Dialog.modal > .dialog-content > .Wizard .WizardStep,
+    :root .Dialog.modal > .dialog-content > .Wizard .WizardStep > .buttons {
       border-bottom-left-radius: 7px;
       border-bottom-right-radius: 7px;
     }
     :root .ConfirmDialog.modal .confirm-buttons,
-    :root .Dialog.modal[class*="view-module__dialog--"] > .box > [class*="view-module__dialogButtons--"] {
+    :root .Dialog.modal[class*="view-module__dialog--"] > .dialog-content > [class*="view-module__dialogButtons--"] {
       background: var(--dialogFooterBackground);
       color: var(--textColorPrimary);
       border-bottom-left-radius: 7px;

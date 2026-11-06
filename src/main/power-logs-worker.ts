@@ -70,7 +70,7 @@ export class PowerLogsWorker {
     mkdirSync(this.directory, { mode: 0o700 });
     try {
       this.child = utilityProcess.fork(
-        join(__dirname, "power-logs-child.js"),
+        join(import.meta.dirname, "power-logs-child.js"),
         [this.directory, this.persistentDirectory],
         {
           serviceName: "Power Logs",
@@ -210,7 +210,7 @@ export class PowerLogsWorker {
             return;
           }
           try {
-            const child = utilityProcess.fork(join(__dirname, "power-logs-query-child.js"), [], {
+            const child = utilityProcess.fork(join(import.meta.dirname, "power-logs-query-child.js"), [], {
               serviceName: "Power Logs SQL",
               stdio: "ignore",
             });

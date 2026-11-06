@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Main } from "@freelensapp/extensions";
-import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain } from "electron";
+import { app, BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import {
   HISTORY_RETENTION,
   type HistoryRequest,
@@ -12,6 +12,7 @@ import {
 } from "../common/monitoring-history";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
 import { MonitoringHistoryWorker } from "./monitoring-history-worker";
+import { powerIpc } from "./power-ipc";
 
 function trusted(event: IpcMainInvokeEvent): boolean {
   const window = BrowserWindow.fromWebContents(event.sender);
@@ -60,7 +61,7 @@ export function startMonitoringHistory(_extension: Main.LensExtension): () => vo
     }
     return database;
   };
-  ipcMain.handle(MONITORING_HISTORY_CHANNEL, async (event, request: HistoryRequest) => {
+  powerIpc.handle(MONITORING_HISTORY_CHANNEL, async (event, request: HistoryRequest) => {
     if (!active || !trusted(event)) throw new Error("History unavailable");
     if (!request || !["status", "clear", "query", "append"].includes(request.operation))
       throw new Error("Invalid history operation");
@@ -113,7 +114,7 @@ export function startMonitoringHistory(_extension: Main.LensExtension): () => vo
   });
   return () => {
     active = false;
-    ipcMain.removeHandler(MONITORING_HISTORY_CHANNEL);
+    powerIpc.removeHandler(MONITORING_HISTORY_CHANNEL);
     database?.close();
     database = undefined;
   };

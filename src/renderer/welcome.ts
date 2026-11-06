@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Renderer } from "@freelensapp/extensions";
 import { createElement } from "react";
-import ReactDOM from "react-dom";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 
 let nextWelcomeFeatureId = 0;
 
@@ -112,7 +112,7 @@ export function startWelcomeOverride(): () => void {
     if (!entry) return;
 
     const tooltipRoot = entry.content.querySelector("[data-power-welcome-tooltips]");
-    if (tooltipRoot) ReactDOM.unmountComponentAtNode(tooltipRoot);
+    if (tooltipRoot) unmountContainer(tooltipRoot);
     entry.content.remove();
     if (entry.previousAttribute === null) {
       host.removeAttribute(HOST_ATTRIBUTE);
@@ -133,7 +133,7 @@ export function startWelcomeOverride(): () => void {
     tooltipRoot.setAttribute("data-power-welcome-tooltips", "");
     tooltipRoot.style.display = "none";
     content.append(tooltipRoot);
-    ReactDOM.render(
+    renderIntoContainer(
       createElement(
         "div",
         null,

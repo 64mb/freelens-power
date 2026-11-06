@@ -1,5 +1,4 @@
 import { Renderer } from "@freelensapp/extensions";
-import { clipboard } from "electron";
 import {
   type ComponentProps,
   type CSSProperties,
@@ -20,6 +19,7 @@ import {
   MAX_HELM_PREVIEW_LINES,
 } from "../common/helm-diff";
 import { HelmFullComparison } from "./helm-full-comparison";
+import { clipboard } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 
 const { MonacoEditor, Button, Icon } = Renderer.Component;
@@ -222,14 +222,17 @@ export function HelmCodeView({
   const [identity] = useState(() => `power-helm-${editorSession}-${++editorSequence}`);
   const [ready, setReady] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const focusHandoff = useRef<{
-    active: Element | null;
-    scroll: { element: Element; top: number; left: number }[];
-  }>();
-  const modelRef = useRef<Model>();
+  const focusHandoff = useRef<
+    | {
+        active: Element | null;
+        scroll: { element: Element; top: number; left: number }[];
+      }
+    | undefined
+  >(undefined);
+  const modelRef = useRef<Model | undefined>(undefined);
   const decorations = useRef<string[]>([]);
-  const layoutChrome = useRef<number>();
-  const contentWidth = useRef<number>();
+  const layoutChrome = useRef<number | undefined>(undefined);
+  const contentWidth = useRef<number | undefined>(undefined);
   const reportWidth = () => {
     if (layoutChrome.current !== undefined && contentWidth.current !== undefined)
       horizontal?.onWidth(Math.ceil(layoutChrome.current + contentWidth.current));
@@ -517,9 +520,9 @@ export function HelmRevisionDiff({
     [before, after, fallback],
   );
   const [copyStatus, setCopyStatus] = useState("");
-  const copyDocument = (source: boolean) => {
+  const copyDocument = async (source: boolean) => {
     try {
-      clipboard.writeText(source ? before : after);
+      await clipboard.writeText(source ? before : after);
       setCopyStatus("Full document copied");
     } catch {
       setCopyStatus("Could not copy the document. Try copying again.");

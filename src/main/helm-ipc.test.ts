@@ -18,7 +18,17 @@ const mocks = vi.hoisted(() => ({
   helm: { enabled: true },
 }));
 vi.mock("@freelensapp/extensions", () => ({
+  Common: { Clusters: { ClusterConnectionStatus: { CONNECTED: "connected" } } },
   Main: {
+    Shell: {
+      getEnvironment: vi.fn(async () => ({
+        PATH: "/usr/bin",
+        KUBECONFIG: "/host-generated/config",
+        HTTPS_PROXY: "http://127.0.0.1:12345",
+      })),
+      getHelmPath: async () => "/usr/bin/helm",
+      getKubectlPath: async () => "/usr/bin/kubectl",
+    },
     Catalog: { getClusterById: mocks.cluster },
     K8sApi: { KubeJsonApi: { forCluster: () => ({ getResponse: mocks.response }) } },
   },
@@ -51,7 +61,7 @@ beforeEach(() => {
   mocks.power.enabled = true;
   mocks.helm = observable({ enabled: true });
   mocks.config = "neutral-config";
-  mocks.cluster.mockReturnValue({ contextName: "neutral", kubeConfigPath: "/neutral/config" });
+  mocks.cluster.mockReturnValue({ status: "connected", contextName: "neutral", kubeConfigPath: "/neutral/config" });
 });
 describe("Helm IPC", () => {
   it("rejects untrusted senders before accessing the cluster", async () => {
@@ -742,7 +752,15 @@ describe("Helm IPC", () => {
       const items = [revisionMetadata(1, status), revisionMetadata(2, "deployed")];
       mocks.response.mockImplementation(async (_path, _query, init) =>
         init.method === "DELETE"
-          ? { ok: true, status: 200, body: Readable.from(["ignored response"]) }
+          ? {
+              ok: true,
+              status: 200,
+              body: new ReadableStream({
+                start(controller) {
+                  controller.close();
+                },
+              }),
+            }
           : response(items),
       );
       try {
@@ -1007,13 +1025,13 @@ describe("Helm IPC", () => {
         "example",
         "--namespace",
         "default",
-        "--kubeconfig",
-        "/neutral/config",
-        "--kube-context",
-        "neutral",
         "--timeout",
         "60s",
       ]);
+      expect(mocks.exec.mock.calls[0][2].env).toMatchObject({
+        KUBECONFIG: "/host-generated/config",
+        HTTPS_PROXY: "http://127.0.0.1:12345",
+      });
       let complete!: (error: Error) => void;
       const kill = vi.fn(() => queueMicrotask(() => complete(new Error("aborted"))));
       mocks.exec.mockImplementation((_binary, _args, _options, callback) => {
@@ -1301,10 +1319,6 @@ describe("Helm IPC", () => {
         "0",
         "--namespace",
         "default",
-        "--kubeconfig",
-        "/neutral/config",
-        "--kube-context",
-        "neutral",
         "--timeout",
         "60s",
       ]);
@@ -1618,4 +1632,41 @@ describe("Helm IPC", () => {
     await expect(pending).rejects.toMatchObject({ code: "rollback-unknown" });
     expect(kill).toHaveBeenCalledWith("SIGKILL");
   });
+});
+
+vi.mock("./power-ipc", async () => {
+  const electron = await import("electron");
+  return {
+    powerIpc: {
+      ...electron.ipcMain,
+      sendToFrame: (frame: import("electron").WebFrameMain, channel: string, ...args: unknown[]) =>
+        frame.send(channel, ...args),
+      sendToContents: (sender: import("electron").WebContents, channel: string, ...args: unknown[]) =>
+        sender.send(channel, ...args),
+    },
+  };
+});
+
+it("rejects writes while the selected cluster is disconnected before preparing a host environment", async () => {
+  mocks.cluster.mockReturnValue({ status: "disconnected", contextName: "neutral", kubeConfigPath: "/neutral/config" });
+  const stop = startPowerHelm();
+  try {
+    const invoke = mocks.handle.mock.calls[0][1];
+    expect(
+      await invoke(event(), {
+        ...request,
+        operation: "uninstall",
+        name: "example",
+        revision: 1,
+        uid: "uid-1",
+        confirmed: true,
+        confirmationName: "example",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(mocks.exec).not.toHaveBeenCalled();
+    const { Main } = await import("@freelensapp/extensions");
+    expect(Main.Shell.getEnvironment).not.toHaveBeenCalled();
+  } finally {
+    stop();
+  }
 });

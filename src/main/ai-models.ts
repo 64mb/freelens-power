@@ -1,7 +1,7 @@
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow } from "electron";
 import {
   AI_MODELS_CHANNEL,
   type AiModel,
@@ -11,6 +11,7 @@ import {
   CODEX_REASONING_EFFORTS,
 } from "../common/ai-models";
 import { readPiAiModels } from "./ai-pi-models";
+import { powerIpc } from "./power-ipc";
 
 const MAX_CACHE_BYTES = 2 * 1024 * 1024;
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/;
@@ -76,7 +77,7 @@ export async function readAiModels(
 
 export function startAiModels(): () => void {
   let piModels: Promise<AiModel[]> | undefined;
-  ipcMain.handle(AI_MODELS_CHANNEL, async (event, provider: unknown = "codex") => {
+  powerIpc.handle(AI_MODELS_CHANNEL, async (event, provider: unknown = "codex") => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window || window.isDestroyed()) return [];
     try {
@@ -117,5 +118,5 @@ export function startAiModels(): () => void {
       return [];
     }
   });
-  return () => ipcMain.removeHandler(AI_MODELS_CHANNEL);
+  return () => powerIpc.removeHandler(AI_MODELS_CHANNEL);
 }

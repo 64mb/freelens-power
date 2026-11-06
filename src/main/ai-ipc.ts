@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Common, Main } from "@freelensapp/extensions";
-import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from "electron";
+import { BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { reaction } from "mobx";
 import {
   AI_API_KEY_SET_CHANNEL,
@@ -20,6 +20,7 @@ import { discoverAiResources } from "./ai-discovery";
 import { PiAiResponseError } from "./ai-pi";
 import { aiReadPath } from "./ai-resources";
 import { getDashboardAiAccess } from "./dashboard-ai";
+import { powerIpc } from "./power-ipc";
 import {
   acquirePowerLogStream,
   releasePowerLogStream,
@@ -53,7 +54,7 @@ export function startAiIpc(): () => void {
       if (!enabled) abortAll();
     },
   );
-  ipcMain.handle(AI_CHAT_CHANNEL, async (event, request: AiChatRequest) => {
+  powerIpc.handle(AI_CHAT_CHANNEL, async (event, request: AiChatRequest) => {
     const preferences = AiPreferencesStore.getInstanceOrCreate<AiPreferencesStore>();
     if (!trusted(event) || !preferences.enabled) throw new Error("AI assistant is disabled or unavailable");
     if (request?.requestId !== undefined && !validAiRequestId(request.requestId))
@@ -131,9 +132,24 @@ export function startAiIpc(): () => void {
                 // the host exposes [forCluster] through a non-callable legacy proxy whose methods remain callable
                 const response = await Main.K8sApi.KubeJsonApi.forCluster
                   .call(undefined, id)
-                  .getResponse(query.path, { query: query.query }, { signal: controller.signal, size: 65536 });
+                  .getResponse(query.path, { query: query.query }, { signal: controller.signal });
                 if (!response.ok) throw new Error("Log summary is unavailable");
-                const text = await response.text();
+                if (!response.body) throw new Error("Log summary is unavailable");
+                const reader = response.body.getReader();
+                const chunks: Uint8Array[] = [];
+                let bytes = 0;
+                try {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    bytes += value.byteLength;
+                    if (bytes > 65536) throw new Error("Log summary exceeds the safety limit");
+                    chunks.push(value);
+                  }
+                } finally {
+                  await reader.cancel().catch(() => {});
+                }
+                const text = Buffer.concat(chunks).toString("utf8");
                 if (text.length) await requestPowerLogPermit(id, Buffer.byteLength(text), controller.signal);
                 return text;
               } finally {
@@ -169,9 +185,9 @@ export function startAiIpc(): () => void {
           )
             return;
           try {
-            frame.send(AI_READ_ACTIVITY_CHANNEL, { requestId: request.requestId, ...activity });
+            powerIpc.sendToFrame(frame, AI_READ_ACTIVITY_CHANNEL, { requestId: request.requestId, ...activity });
           } catch {
-            /* the originating frame may have closed */
+            controller.abort();
           }
         },
         (progress) => {
@@ -187,9 +203,9 @@ export function startAiIpc(): () => void {
           )
             return;
           try {
-            frame.send(AI_PROGRESS_CHANNEL, { ...progress, requestId: request.requestId });
+            powerIpc.sendToFrame(frame, AI_PROGRESS_CHANNEL, { ...progress, requestId: request.requestId });
           } catch {
-            /* the originating frame may have closed */
+            controller.abort();
           }
         },
         request.context?.clusterId ? undefined : getDashboardAiAccess(event.sender),
@@ -209,12 +225,12 @@ export function startAiIpc(): () => void {
       origins.delete(event.sender.id);
     }
   });
-  ipcMain.handle(AI_API_KEY_STATUS_CHANNEL, async (event) => {
+  powerIpc.handle(AI_API_KEY_STATUS_CHANNEL, async (event) => {
     if (!trusted(event) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame)
       throw new Error("AI API key settings are unavailable");
     return aiApiKeyStatus();
   });
-  ipcMain.handle(AI_API_KEY_SET_CHANNEL, async (event, key: unknown) => {
+  powerIpc.handle(AI_API_KEY_SET_CHANNEL, async (event, key: unknown) => {
     if (!trusted(event) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame)
       throw new Error("AI API key settings are unavailable");
     try {
@@ -223,7 +239,7 @@ export function startAiIpc(): () => void {
       throw new Error("Could not update the API key securely");
     }
   });
-  ipcMain.handle(AI_CANCEL_CHANNEL, (event, requestId: unknown) => {
+  powerIpc.handle(AI_CANCEL_CHANNEL, (event, requestId: unknown) => {
     if (!trusted(event) || !validAiRequestId(requestId)) return false;
     const origin = origins.get(event.sender.id);
     if (
@@ -241,9 +257,9 @@ export function startAiIpc(): () => void {
   return () => {
     stop();
     abortAll();
-    ipcMain.removeHandler(AI_API_KEY_STATUS_CHANNEL);
-    ipcMain.removeHandler(AI_API_KEY_SET_CHANNEL);
-    ipcMain.removeHandler(AI_CHAT_CHANNEL);
-    ipcMain.removeHandler(AI_CANCEL_CHANNEL);
+    powerIpc.removeHandler(AI_API_KEY_STATUS_CHANNEL);
+    powerIpc.removeHandler(AI_API_KEY_SET_CHANNEL);
+    powerIpc.removeHandler(AI_CHAT_CHANNEL);
+    powerIpc.removeHandler(AI_CANCEL_CHANNEL);
   };
 }

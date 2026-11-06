@@ -27,7 +27,7 @@ vi.mock("@freelensapp/extensions", () => ({
       }: {
         checked: boolean;
         onChange(value: boolean): void;
-        children: unknown;
+        children: import("react").ReactNode;
       }) => (
         <label>
           <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />

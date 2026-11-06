@@ -553,3 +553,5 @@ it("preserves an explicitly selected API reasoning effort", async () => {
   await session("medium").next(false);
   expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).reasoning).toEqual({ effort: "medium" });
 });
+
+vi.mock("@freelensapp/extensions", () => ({ Main: { Util: { fetch: mocks.fetch } } }));

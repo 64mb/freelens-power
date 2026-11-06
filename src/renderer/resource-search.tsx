@@ -2,7 +2,6 @@ import { Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
 import { observer } from "mobx-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactDOM from "react-dom";
 import Select from "react-select";
 import { resourceKindPriority } from "../common/resource-search-kind-priority";
 import { MonitoringPreferencesStore } from "../common/store/monitoring-preferences-store";
@@ -10,6 +9,7 @@ import { explainDiagnosticFinding } from "./ai-diagnostic-handoff";
 import { AiIcon } from "./ai-icon";
 import { DiagnosticExplainButton } from "./diagnostic-explain-button";
 import { NativeTooltip } from "./native-tooltip";
+import { renderIntoContainer, unmountContainer } from "./react-roots";
 import { createResourceSearchClient, createResourceSearchTransport, searchContextId } from "./resource-search-client";
 import { projectSearchFields } from "./resource-search-fields";
 import {
@@ -550,7 +550,7 @@ function startEnabledResourceSearch(): () => void {
   const close = () => {
     if (visible) {
       visible = false;
-      ReactDOM.unmountComponentAtNode(container);
+      unmountContainer(container);
     }
   };
   const show = () => {
@@ -563,7 +563,7 @@ function startEnabledResourceSearch(): () => void {
     )
       return;
     visible = true;
-    ReactDOM.render(<SearchDialog close={close} clusterId={clusterId} />, container);
+    renderIntoContainer(<SearchDialog close={close} clusterId={clusterId} />, container);
   };
   let shift = createDoubleShift();
   const resetShift = () => {

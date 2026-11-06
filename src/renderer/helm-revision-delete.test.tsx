@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   power: { enabled: true },
   running: false,
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("./native-tooltip", () => ({ NativeTooltip: ({ children }: any) => children }));
 vi.mock("./helm-operations", () => ({ helmOperations: { isRunning: () => mocks.running } }));
 vi.mock("../common/store/read-only-preferences-store", () => ({

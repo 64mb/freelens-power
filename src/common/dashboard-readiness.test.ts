@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { dashboardReadinessAdapter, dashboardReadinessScript } from "./dashboard-readiness";
-import { dashboardSelectorAdapter } from "./dashboard-selector";
+import { dashboardReadinessAdapter } from "../browser/dashboard-readiness";
+import { dashboardSelectorAdapter } from "../browser/dashboard-selector";
+import { dashboardReadinessScript } from "./dashboard-readiness";
 
 beforeEach(() => {
   vi.useFakeTimers();

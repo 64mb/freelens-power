@@ -27,7 +27,7 @@ export function HelmAppVersionCell({
 }) {
   const target = useRef<HTMLSpanElement>(null);
   const [visibility, setVisibility] = useState({ key: "", visible: false });
-  const [manual, setManual] = useState<string>();
+  const [manual, setManual] = useState<string | undefined>(undefined);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{ key: string; result: HelmVersionResult }>();
   const key = helmVersionIdentity(clusterId, contextId, release);

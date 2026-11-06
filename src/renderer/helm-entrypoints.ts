@@ -3,7 +3,7 @@ import { HelmPreferencesStore } from "../common/store/helm-preferences-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 
 export function startPowerHelmEntrypoints(): () => void {
-  if (process.isMainFrame !== false) return () => {};
+  if (window.top === window) return () => {};
   const helm = HelmPreferencesStore.getInstanceOrCreate<HelmPreferencesStore>();
   const power = PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>();
   const style = document.createElement("style");

@@ -22,16 +22,17 @@ const nativeCreationIcons: Record<(typeof nativeCreationDialogClasses)[number], 
 };
 
 export const secretDialogStyles = `
-${nativeCreationScope} > .box { max-width: calc(100vw - 32px); width: min(640px,calc(100vw - 32px)); }
-${nativeCreationScope} > .box > .Wizard { width: 100%; max-width: 100%; }
+${nativeCreationScope} > .dialog-content { max-width: calc(100vw - 32px); width: min(640px,calc(100vw - 32px)); }
+${nativeCreationScope} > .dialog-content > .Wizard { width: 100%; max-width: 100%; }
 ${nativeCreationScope} .Wizard > .header { padding:16px 24px; border-bottom:1px solid var(--borderColor); text-align:left; }
 ${nativeCreationScope} .Wizard > .header h5 { display:flex; align-items:center; gap:10px; margin:0; font-size:16px; font-weight:600; }
 ${nativeCreationScope} .power-create-resource-icon { --size:20px; color:var(--primary); pointer-events:none; }
 ${nativeCreationScope} .WizardStep .step-content { padding: 20px 24px; max-height: calc(100dvh - 210px); overflow-y: auto; min-width: 0; }
-${nativeCreationScope} .WizardStep .step-content.flex.column { gap: 0; }
-${nativeCreationScope} .WizardStep .step-content.flex.gaps.column > :not(:last-child) { margin-bottom: 0; }
-${nativeCreationScope} .WizardStep .step-content.flex.column > :not(:first-child) { margin-top:14px; }
-${nativeCreationScope} .WizardStep .step-content.flex.column > .SubTitle + * { margin-top:6px; }
+${nativeCreationScope} .WizardStep .step-content.flex.flex-col { gap: 0; }
+${nativeCreationScope} .WizardStep .step-content.flex.flex-col > :not(:last-child) { margin-bottom: 0; }
+${nativeCreationScope} .WizardStep .step-content.flex.flex-col > :not(:first-child) { margin-top:14px; }
+${nativeCreationScope} .WizardStep .step-content.flex.flex-col > .SubTitle { margin-bottom:0; }
+${nativeCreationScope} .WizardStep .step-content.flex.flex-col > .SubTitle + * { margin-top:6px; }
 ${nativeCreationScope} .Input { min-width:0; }
 ${nativeCreationScope} .Input > .input-area { box-sizing:border-box; min-height:36px; padding:6px 10px; border:1px solid var(--borderColor); border-radius:4px; background:var(--contentColor); }
 ${nativeCreationScope} .Input > .input-area::after { display:none; }
@@ -52,13 +53,13 @@ ${nativeCreationScope} :is(input,textarea,button,[tabindex]):focus-visible { out
 @media(max-width:520px) {
   ${nativeCreationScope} .WizardStep .step-content { padding: 16px; }
   .AddQuotaDialog .step-content > .flex { flex-wrap: wrap; gap: 10px; }
-  .AddQuotaDialog .step-content > .flex.gaps > :not(:last-child) { margin-right: 0; }
   .AddQuotaDialog .quota-select { flex-basis: 100%; }
   ${nativeCreationScope} .Input,${nativeCreationScope} .Select { min-width: 0; max-width: 100%; }
 }
 
-.AddSecretDialog > .box { width: min(720px,calc(100vw - 32px)); max-width: calc(100vw - 32px); }
-.AddSecretDialog .WizardStep .step-content { gap: 16px; padding: 20px 24px; max-height: calc(100dvh - 210px); overflow-y: auto; }
+.AddSecretDialog > .dialog-content { width: min(720px,calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.AddSecretDialog .WizardStep .step-content { display:flex; flex-direction:column; gap: 16px; padding: 20px 24px; max-height: calc(100dvh - 210px); overflow-y: auto; }
+.AddSecretDialog .WizardStep .step-content.space-y-3 > * { margin-block:0; }
 .AddSecretDialog .secret-name,.AddSecretDialog .secret-namespace,.AddSecretDialog .secret-type { min-width: 0; }
 .AddSecretDialog .secret-namespace,.AddSecretDialog .secret-type { flex: 1 1 0; }
 .AddSecretDialog .SubTitle { margin-bottom: 6px; }
@@ -69,7 +70,6 @@ ${nativeCreationScope} :is(input,textarea,button,[tabindex]):focus-visible { out
 .AddSecretDialog .Select__control--is-focused { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .AddSecretDialog .secret-fields { display: flex; flex-direction: column; gap: 10px; }
 .AddSecretDialog .secret-field { display: grid; grid-template-columns: minmax(120px,2fr) minmax(160px,3fr) 24px; align-items: start; gap: 10px; }
-.AddSecretDialog .secret-field.flex.gaps > :not(:last-child) { margin-right: 0; margin-bottom: 0; }
 .AddSecretDialog .secret-field .Input { min-width: 0; width: 100%; }
 .AddSecretDialog .secret-field .value textarea { min-height: 36px; line-height: 1.5; resize: vertical; }
 .AddSecretDialog .secret-field .remove-icon { margin-top: 8px; width: 24px; }

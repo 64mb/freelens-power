@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
+
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { observable, runInAction } from "mobx";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { stubMainFrame } from "./frame.test-utils";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -10,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   preferences: undefined as any,
 }));
-vi.mock("electron", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
+vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
     Component: {
@@ -182,7 +185,7 @@ it("cleans up timers, listeners and notices and ignores results after disposal",
   expect(mocks.info).toHaveBeenCalledOnce();
 });
 it("does not run in cluster frames", async () => {
-  vi.stubGlobal("process", { ...process, isMainFrame: false });
+  stubMainFrame(false);
   await begin();
   await advance(20 * 60 * 1000);
   expect(mocks.invoke).not.toHaveBeenCalled();
@@ -215,10 +218,13 @@ it("restarts only after an explicit click with the installed version and disable
   expect(button.disabled).toBe(true);
   expect(mocks.error).not.toHaveBeenCalled();
 });
-it.each(["rejected", "declined"])("reports a %s restart request and permits retry", async (failure) => {
+it.each([
+  "rejected",
+  "declined",
+])("reports a %s restart request and permits retry after StrictMode replay", async (failure) => {
   mocks.invoke.mockResolvedValue(status("2.9.0"));
   await begin();
-  render(mocks.info.mock.calls[0][0]);
+  render(<StrictMode>{mocks.info.mock.calls[0][0]}</StrictMode>);
   const button = screen.getByRole("button", { name: "Restart Freelens" }) as HTMLButtonElement;
   if (failure === "rejected") mocks.invoke.mockRejectedValueOnce(new Error("restart unavailable"));
   else mocks.invoke.mockResolvedValueOnce(false);

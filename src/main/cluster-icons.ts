@@ -1,12 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { Main } from "@freelensapp/extensions";
-import { app, type IpcMainInvokeEvent, ipcMain } from "electron";
+import { Common, Main } from "@freelensapp/extensions";
 import { runInAction } from "mobx";
 import { CLUSTER_ICONS_CHANNEL, type ClusterIconEntry } from "../common/cluster-icon-ipc";
 import { clusterIconDataUrl, normalizeClusterIconDesign } from "../common/cluster-icons";
 import { ClusterIconsStore } from "../common/store/cluster-icons-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
+import { powerIpc } from "./power-ipc";
+
+import type { IpcMainInvokeEvent } from "electron";
 
 export interface NativeIconCluster {
   id: string;
@@ -16,7 +16,6 @@ export interface NativeIconCluster {
 
 export interface ClusterIconsHost {
   clusters(): NativeIconCluster[];
-  setIcon(id: string, icon: string): void;
 }
 
 export function trustedClusterIconsSender(event: IpcMainInvokeEvent): boolean {
@@ -42,11 +41,11 @@ export function createClusterIconsService(host: ClusterIconsHost, store: Cluster
   const list = (): ClusterIconEntry[] =>
     host.clusters().map((cluster) => {
       const saved = Object.hasOwn(store.icons, cluster.id) ? store.icons[cluster.id] : undefined;
-      const customized = !!saved && cluster.preferences.icon === clusterIconDataUrl(saved.design);
+      const customized = !!saved;
       return {
         id: cluster.id,
         name: cluster.name,
-        icon: cluster.preferences.icon ?? undefined,
+        icon: saved ? clusterIconDataUrl(saved.design) : (cluster.preferences.icon ?? undefined),
         design: saved ? { ...saved.design } : undefined,
         customized,
       };
@@ -62,7 +61,6 @@ export function createClusterIconsService(host: ClusterIconsHost, store: Cluster
     if (!cluster) throw new Error("Cluster is no longer available");
     const id = cluster.id;
     const design = normalizeClusterIconDesign(input.design);
-    host.setIcon(id, clusterIconDataUrl(design));
     runInAction(() => {
       store.icons = { ...store.icons, [id]: { design } };
     });
@@ -74,7 +72,7 @@ export function createClusterIconsService(host: ClusterIconsHost, store: Cluster
 export function startClusterIcons(host: ClusterIconsHost = createNativeClusterIconsHost()): () => void {
   const service = createClusterIconsService(host, ClusterIconsStore.getInstanceOrCreate<ClusterIconsStore>());
   let active = true;
-  ipcMain.handle(CLUSTER_ICONS_CHANNEL, (event, payload: unknown) => {
+  powerIpc.handle(CLUSTER_ICONS_CHANNEL, (event, payload: unknown) => {
     if (
       !active ||
       !PowerPreferencesStore.getInstanceOrCreate<PowerPreferencesStore>().enabled ||
@@ -85,82 +83,25 @@ export function startClusterIcons(host: ClusterIconsHost = createNativeClusterIc
   });
   return () => {
     active = false;
-    ipcMain.removeHandler(CLUSTER_ICONS_CHANNEL);
+    powerIpc.removeHandler(CLUSTER_ICONS_CHANNEL);
   };
 }
 
-interface NativeClusterModel extends Record<string, unknown> {
-  id: string;
-  contextName?: string;
-  preferences: Record<string, unknown> & { icon?: string | null; clusterName?: string };
-}
-
-interface NativeClustersModel extends Record<string, unknown> {
-  clusters: NativeClusterModel[];
-}
-
-// the native storage listener updates live preferences, persists them and broadcasts catalog changes
 export function createNativeClusterIconsHost(): ClusterIconsHost {
-  const path = join(app.getPath("userData"), "lens-cluster-store.json");
-  const channel = `store-sync-main:${path}`;
-  const read = (): NativeClustersModel => {
-    let model: unknown;
-    try {
-      model = JSON.parse(readFileSync(path, "utf8"));
-    } catch {
-      throw new Error("Native cluster preferences are unavailable");
-    }
-    if (!model || typeof model !== "object" || Array.isArray(model))
-      throw new Error("Invalid native cluster preferences");
-    const normalized = model as NativeClustersModel;
-    if (!Object.hasOwn(normalized, "clusters")) normalized.clusters = [];
-    const clusters = normalized.clusters;
-    const ids = new Set<string>();
-    if (!Array.isArray(clusters)) throw new Error("Invalid native cluster preferences");
-    for (const cluster of clusters) {
-      if (cluster && typeof cluster === "object" && !Object.hasOwn(cluster, "preferences")) {
-        cluster.preferences = {};
-      }
-      if (
-        !cluster ||
-        typeof cluster !== "object" ||
-        typeof cluster.id !== "string" ||
-        !cluster.id ||
-        ids.has(cluster.id) ||
-        !cluster.preferences ||
-        typeof cluster.preferences !== "object" ||
-        Array.isArray(cluster.preferences) ||
-        (cluster.preferences.icon !== undefined &&
-          cluster.preferences.icon !== null &&
-          typeof cluster.preferences.icon !== "string")
-      )
-        throw new Error("Invalid native cluster preferences");
-      ids.add(cluster.id);
-    }
-    return model as NativeClustersModel;
-  };
-  const send = (model: NativeClustersModel) => {
-    if (!ipcMain.listenerCount(channel)) throw new Error("Native cluster preference synchronization is unavailable");
-    ipcMain.emit(channel, { frameId: -1, processId: process.pid }, model);
-  };
   return {
     clusters: () => {
-      const names = new Map(Main.Catalog.getAllClusters().map((cluster) => [cluster.id, cluster.name]));
-      return read().clusters.map((cluster) => ({
+      const entities = Main.Catalog.catalogEntities.getItemsForApiKind(
+        Common.Catalog.KubernetesCluster.apiVersion,
+        Common.Catalog.KubernetesCluster.kind,
+      ) as import("@freelensapp/extensions").Common.Catalog.KubernetesCluster[];
+      const icons = new Map(
+        entities.map((entity) => [entity.metadata.uid, entity.spec.icon?.src ?? entity.spec.icon?.background]),
+      );
+      return Main.Catalog.getAllClusters().map((cluster) => ({
         id: cluster.id,
-        name: names.get(cluster.id) ?? cluster.preferences.clusterName ?? cluster.contextName ?? "Kubernetes cluster",
-        preferences: { icon: cluster.preferences.icon },
+        name: cluster.name,
+        preferences: { icon: icons.get(cluster.id) },
       }));
-    },
-    setIcon: (id, icon) => {
-      // read immediately before dispatch so no asynchronous work can overwrite newer native settings
-      const model = read();
-      const cluster = model.clusters.find((entry) => entry.id === id);
-      if (!cluster) throw new Error("Cluster is no longer available");
-      cluster.preferences.icon = icon;
-      send(model);
-      const applied = read().clusters.find((entry) => entry.id === id)?.preferences.icon;
-      if (applied !== icon) throw new Error("Native cluster icon was not saved");
     },
   };
 }

@@ -7,6 +7,7 @@ afterEach(() => {
   stop?.();
   stop = undefined;
   document.body.innerHTML = "";
+  vi.useRealTimers();
 });
 
 function mount(
@@ -21,7 +22,7 @@ function mount(
     const dialog = document.createElement("div");
     dialog.className = "ConfirmDialog modal";
     dialog.dataset.testid = "confirmation-dialog";
-    dialog.innerHTML = `<div class="box"><div class="confirm-content"><i class="Icon">warning</i><p>${message}</p></div><div class="confirm-buttons"><button class="Button cancel">Cancel</button><button class="Button ok primary" data-testid="confirm">Remove</button></div></div>`;
+    dialog.innerHTML = `<div class="dialog-content"><div class="confirm-content"><i class="Icon">warning</i><p>${message}</p></div><div class="confirm-buttons"><button class="Button cancel">Cancel</button><button class="Button ok primary" data-testid="confirm">Remove</button></div></div>`;
     dialog.querySelector(".ok")!.addEventListener("click", confirm);
     dialog.querySelector(".cancel")!.addEventListener("click", cancel);
     document.body.append(dialog);
@@ -144,12 +145,13 @@ it("waits through capture-listener microtasks before the native handler opens th
 });
 
 it("expires an unhandled removal click before an unrelated later confirmation", async () => {
+  vi.useFakeTimers();
   const fixture = mount();
   const open = fixture.remove.onclick!;
   fixture.remove.onclick = null;
   stop = startPodRemovalConfirmation();
   fixture.remove.click();
-  await new Promise((resolve) => window.setTimeout(resolve, 0));
+  await vi.advanceTimersByTimeAsync(1000);
   open.call(fixture.remove, new PointerEvent("click"));
   await flush();
   expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
@@ -205,7 +207,9 @@ it("expands the captured selection in the same dialog and collapses it without i
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
   expect(toggle.textContent).toBe("Show fewer");
   expect([...dialog.querySelectorAll("li")].map((item) => item.textContent)).toEqual(expected);
-  expect(getComputedStyle(dialog.querySelector("ul")!).maxHeight).toBe("40vh");
+  expect(Number.parseFloat(getComputedStyle(dialog.querySelector("ul")!).maxHeight)).toBeCloseTo(
+    window.innerHeight * 0.4,
+  );
   expect(fixture.confirm).not.toHaveBeenCalled();
   expect(fixture.cancel).not.toHaveBeenCalled();
   toggle.click();
@@ -356,4 +360,48 @@ it("keeps colon-separated RBAC names readable and preserves native namespace war
   expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
   expect(document.querySelector(".confirm-content input[required]")).toBeTruthy();
   expect(document.querySelector('.confirm-content input[type="checkbox"]')).toBeTruthy();
+});
+
+it("lists the selected pods when React 19 commits the native dialog after the click task", async () => {
+  vi.useFakeTimers();
+  const names = [
+    "pod-a",
+    "pod-b",
+    "pod-c",
+    "pod-d",
+    "pod-e",
+    ...Array.from({ length: 19 }, (_, index) => `pod-${index + 6}`),
+  ];
+  const fixture = mount();
+  const open = fixture.remove.onclick!;
+  fixture.remove.onclick = () => {
+    window.setTimeout(() => open.call(fixture.remove, new PointerEvent("click")), 16);
+  };
+  stop = startPodRemovalConfirmation({ getSelectedNames: () => names });
+  fixture.remove.click();
+  await vi.advanceTimersByTimeAsync(16);
+  const dialog = document.querySelector<HTMLElement>('[data-testid="confirmation-dialog"]')!;
+  expect(dialog.querySelector(".power-pod-removal-summary > p")?.textContent).toBe("Remove 24 pods?");
+  expect([...dialog.querySelectorAll(".power-pod-removal-summary li")].map((item) => item.textContent)).toEqual(
+    names.slice(0, 5),
+  );
+  (dialog.querySelector(".power-pod-removal-toggle") as HTMLButtonElement).click();
+  expect([...dialog.querySelectorAll(".power-pod-removal-summary li")].map((item) => item.textContent)).toEqual(names);
+  expect(fixture.confirm).not.toHaveBeenCalled();
+  expect(fixture.cancel).not.toHaveBeenCalled();
+});
+
+it("does not decorate a delayed dialog after a different user action", async () => {
+  vi.useFakeTimers();
+  const fixture = mount();
+  const open = fixture.remove.onclick!;
+  fixture.remove.onclick = () => {
+    window.setTimeout(() => open.call(fixture.remove, new PointerEvent("click")), 16);
+  };
+  stop = startPodRemovalConfirmation();
+  fixture.remove.click();
+  document.body.click();
+  await vi.advanceTimersByTimeAsync(16);
+  expect(document.querySelector(".power-pod-removal-summary")).toBeNull();
+  expect(fixture.confirm).not.toHaveBeenCalled();
 });

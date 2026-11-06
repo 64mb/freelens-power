@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron, type ElectronApplication, expect, type Frame, type Page, type TestInfo } from "@playwright/test";
@@ -10,6 +11,8 @@ export class FreelensSession {
   window!: Page;
   profile = "";
   private tracing = false;
+  private archiveVersion = "";
+  private archiveDigest = "";
   private diagnostics = "";
 
   async start(info: TestInfo) {
@@ -25,7 +28,6 @@ export class FreelensSession {
       const appData = join(this.profile, "Freelens");
       const home = join(appData, "home");
       await mkdir(join(home, ".kube"), { recursive: true });
-      await mkdir(join(home, ".freelens", "extensions"), { recursive: true });
       await copyFile(kubeconfig, join(home, ".kube", "config"));
       const archive = resolve(process.env.EXTENSION_ARCHIVE!);
       const entries = execFileSync("tar", ["-tzf", archive], { encoding: "utf8" }).trim().split("\n");
@@ -35,40 +37,12 @@ export class FreelensSession {
       const manifest = JSON.parse(execFileSync("tar", ["-xOf", archive, "package/package.json"], { encoding: "utf8" }));
       if (manifest.name !== "@64mb/freelens-power")
         throw new Error("Expected the freshly packed Freelens Power extension");
-      const discoveryDirectory = join(home, ".freelens", "extensions", "64mb--freelens-power");
-      await mkdir(discoveryDirectory, { recursive: true });
-      execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", discoveryDirectory]);
-      await writeFile(join(appData, "package.json"), JSON.stringify({ name: "freelens-ui-profile", private: true }));
-      execFileSync(
-        "pnpm",
-        [
-          "--dir",
-          appData,
-          "add",
-          "--prod",
-          "--ignore-scripts",
-          "--store-dir",
-          join(tmpdir(), "freelens-power-ui-pnpm-store"),
-          `link:${discoveryDirectory}`,
-        ],
-        {
-          env: { PATH: process.env.PATH, HOME: home },
-          stdio: "pipe",
-          timeout: 120_000,
-        },
-      );
-      const installedScope = join(appData, "node_modules", "@64mb");
-      if ((await realpath(join(installedScope, "freelens-power"))) !== (await realpath(discoveryDirectory))) {
-        throw new Error("Expected the native host extension link to the extracted archive");
-      }
-      await writeFile(
-        join(appData, "lens-extensions.json"),
-        JSON.stringify({
-          extensions: {
-            [join(installedScope, "freelens-power", "package.json")]: { enabled: true, name: manifest.name },
-          },
-        }),
-      );
+      if (manifest.type !== "module" || manifest.engines?.freelens !== "^2.0.0")
+        throw new Error("Expected the freshly packed Freelens 2 extension");
+      this.archiveVersion = manifest.version;
+      this.archiveDigest = createHash("sha256")
+        .update(await readFile(archive))
+        .digest("hex");
       await writeFile(
         join(appData, "lens-user-store.json"),
         JSON.stringify({
@@ -132,8 +106,30 @@ export class FreelensSession {
   }
 
   async install(info: TestInfo) {
+    const runtime = JSON.parse(await readFile(new URL("./runtime-lock.json", import.meta.url), "utf8"));
+    expect(await this.app.evaluate(({ app }) => app.getVersion())).toBe(runtime.freelens.version);
     const userData = await this.app.evaluate(({ app }) => app.getPath("userData"));
     expect(await realpath(userData)).toBe(await realpath(join(this.profile, "Freelens")));
+    await this.window.evaluate("globalThis.FreelensExtensionApi.Renderer.Navigation.navigate('/extensions')");
+    const page = this.window.getByTestId("extensions-page");
+    await expect(page).toBeVisible();
+    await page
+      .getByPlaceholder("Name, URL, or path to a package or directory")
+      .fill(resolve(process.env.EXTENSION_ARCHIVE!));
+    await page.getByRole("button", { name: "Install", exact: true }).click();
+    const installed = page.getByTestId("extensions-table");
+    await expect(installed.getByText("@64mb/freelens-power", { exact: true })).toBeVisible();
+    await expect(installed.getByText(this.archiveVersion, { exact: true })).toBeVisible();
+    await expect(installed.getByText("Enabled", { exact: true })).toBeVisible();
+    const managedBuild = join(
+      userData,
+      "extensions",
+      "64mb--freelens-power",
+      `${this.archiveVersion}-${this.archiveDigest.slice(0, 8)}`,
+    );
+    const installedManifest = JSON.parse(await readFile(join(managedBuild, "package.json"), "utf8"));
+    expect(installedManifest.name).toBe("@64mb/freelens-power");
+    expect(installedManifest.version).toBe(this.archiveVersion);
     await expect(this.window.locator(".freelens-power-settings-icon")).toBeVisible();
     await expect
       .poll(() =>
@@ -142,11 +138,12 @@ export class FreelensSession {
         ),
       )
       .toBe(info.project.name.startsWith("light") ? "#f1f1f1" : "#1e2124");
+    await this.window.evaluate("globalThis.FreelensExtensionApi.Renderer.Navigation.navigate('/catalog')");
   }
 
   async cluster(info: TestInfo): Promise<Frame> {
     const welcome = this.window.getByText("Browse Clusters in Catalog", { exact: true });
-    const catalog = this.window.locator("div.TableCell").getByText("kind-power-e2e", { exact: true }).first();
+    const catalog = this.window.getByText("kind-power-e2e", { exact: true }).first();
     const existingFrame = this.window.locator('[id^="cluster-frame-"]').first();
     await expect
       .poll(async () => (await welcome.isVisible()) || (await catalog.isVisible()) || (await existingFrame.isVisible()))

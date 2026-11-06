@@ -1,7 +1,8 @@
-import { BrowserWindow, type IpcMainInvokeEvent, ipcMain, session } from "electron";
+import { BrowserWindow, type IpcMainInvokeEvent, session } from "electron";
 import { normalizeDashboardUrl } from "../common/dashboard";
 import { DASHBOARD_PICK_ELEMENT, type DashboardPickerResult, dashboardPickerScript } from "../common/dashboard-picker";
 import { normalizeDashboardSelector } from "../common/dashboard-selector";
+import { powerIpc } from "./power-ipc";
 
 export function trustedPickerSender(event: IpcMainInvokeEvent): boolean {
   const trusted = (value: string) => {
@@ -27,7 +28,7 @@ export function startDashboardPicker(): () => void {
   const active = new Map<BrowserWindow, () => void>();
   const pending = new WeakSet<object>();
   let running = true;
-  ipcMain.handle(DASHBOARD_PICK_ELEMENT, async (event, payload: unknown): Promise<DashboardPickerResult> => {
+  powerIpc.handle(DASHBOARD_PICK_ELEMENT, async (event, payload: unknown): Promise<DashboardPickerResult> => {
     if (!running || !trustedPickerSender(event) || pending.has(event.sender) || !payload || typeof payload !== "object")
       return { status: "error" };
     const rawUrl = (payload as { url?: unknown }).url;
@@ -141,7 +142,7 @@ export function startDashboardPicker(): () => void {
   });
   return () => {
     running = false;
-    ipcMain.removeHandler(DASHBOARD_PICK_ELEMENT);
+    powerIpc.removeHandler(DASHBOARD_PICK_ELEMENT);
     for (const cancel of active.values()) cancel();
   };
 }

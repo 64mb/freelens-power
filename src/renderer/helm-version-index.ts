@@ -1,6 +1,6 @@
-import { ipcRenderer } from "electron";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HELM_CHANNEL, type HelmReleaseMetadata, type HelmRequest, type HelmResponse } from "../common/helm";
+import { ipcRenderer } from "./ipc";
 
 export type HelmVersion = { appVersion?: string; chartVersion?: string };
 export type HelmVersionResult = { value: HelmVersion } | { error: string };
@@ -195,7 +195,7 @@ export function useHelmVersionIndex({
     [clusterId, contextId, releases],
   );
   const dataset = JSON.stringify(entries.map(([key]) => key));
-  const generation = useRef<IndexGeneration>();
+  const generation = useRef<IndexGeneration | undefined>(undefined);
   const previous = useRef({ clusterId, contextId, refreshToken });
   const [snapshot, setSnapshot] = useState<{
     identity: string;

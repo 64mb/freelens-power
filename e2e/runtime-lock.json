@@ -1,8 +1,8 @@
 {
   "freelens": {
-    "version": "1.10.3",
-    "url": "https://github.com/freelensapp/freelens/releases/download/v1.10.3/Freelens-1.10.3-linux-amd64.AppImage",
-    "sha256": "5be46890eb13e167559b862b9a6f246eeec0a72761c0b3e91a646329323581e9"
+    "version": "2.0.0",
+    "url": "https://github.com/freelensapp/freelens/releases/download/v2.0.0/Freelens-2.0.0-linux-amd64.AppImage",
+    "sha256": "372a019765170ad420b0224d653d488ebebc41faa972052fa3df1337c2cb11d1"
   },
   "kind": {
     "version": "0.33.0",

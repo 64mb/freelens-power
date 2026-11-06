@@ -1,20 +1,23 @@
-import { Renderer } from "@freelensapp/extensions";
 // SPDX-License-Identifier: Apache-2.0
-import { ipcRenderer, shell } from "electron";
+
+import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDashboardUrl } from "../common/dashboard";
 import {
+  DASHBOARD_SITE_ICONS,
   DASHBOARD_VIEWS_CLEAR,
   DASHBOARD_VIEWS_LOADING,
   DASHBOARD_VIEWS_PIN,
   DASHBOARD_VIEWS_PINNED,
   DASHBOARD_VIEWS_RELOAD,
   DASHBOARD_VIEWS_SYNC,
+  type DashboardSiteIcon,
   type DashboardViewLoading,
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 import { AiPinIcon } from "./ai-icon";
+import { ipcRenderer, shell } from "./ipc";
 
 const styles = `
   .freelens-power-dashboard .power-dashboard-card-pinned .power-dashboard-embed { opacity: .65; }
@@ -102,7 +105,7 @@ const styles = `
 `;
 
 function DashboardActionIcon({ material, tooltip, pinned }: { material: string; tooltip: string; pinned?: boolean }) {
-  const [anchor] = useState(() => `--power-dashboard-action-${crypto.randomUUID()}`);
+  const [anchor] = useState(() => `--power-dashboard-action-${globalThis.crypto.randomUUID()}`);
   if (pinned !== undefined)
     return (
       <>
@@ -155,6 +158,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
     return url ? [{ ...card, url }] : [];
   });
   const root = useRef<HTMLElement>(null);
+  const [browserError, setBrowserError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const expanded = cards.some((card) => card.id === expandedId) ? expandedId : null;
   const expandedRef = useRef<string | null>(null);
@@ -217,7 +221,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
   const [reloading, setReloading] = useState(false);
   const [reloadBlocked, setReloadBlocked] = useState(false);
   const reloadRequest = useRef(0);
-  const reloadCooldown = useRef<ReturnType<typeof setTimeout>>();
+  const reloadCooldown = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(
     () => () => {
       ++reloadRequest.current;
@@ -271,6 +275,7 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
     }
   };
   const [siteIcons, setSiteIcons] = useState<Record<string, string>>({});
+  const iconIdentity = JSON.stringify(cards.map(({ id, url }) => ({ id, url })));
   useEffect(() => {
     const update = (_event: unknown, icon: { id?: unknown; url?: unknown }) => {
       if (typeof icon?.id !== "string" || typeof icon.url !== "string") return;
@@ -284,15 +289,31 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
       const id = icon.id;
       setSiteIcons((previous) => (previous[id] === url ? previous : { ...previous, [id]: url }));
     };
-    ipcRenderer.on("freelens-power:dashboard-site-icon", update);
-    return () => {
-      ipcRenderer.removeListener("freelens-power:dashboard-site-icon", update);
+    let active = true;
+    const refreshIcons = () => {
+      void ipcRenderer
+        .invoke(DASHBOARD_SITE_ICONS)
+        .then((icons: DashboardSiteIcon[]) => {
+          if (!active || !Array.isArray(icons)) return;
+          for (const icon of icons) {
+            const card = DashboardPreferencesStore.getInstanceOrCreate<DashboardPreferencesStore>().cards.find(
+              (item) => item.id === icon.id,
+            );
+            if (card && normalizeDashboardUrl(card.url) === normalizeDashboardUrl(icon.pageUrl))
+              update(undefined, { id: icon.id, url: icon.dataUrl });
+          }
+        })
+        .catch(() => {});
     };
-  }, []);
-  const cardIdentity = JSON.stringify(cards.map(({ id, url, size }) => ({ id, url, size })));
-  useEffect(() => {
+    ipcRenderer.on(DASHBOARD_SITE_ICONS, refreshIcons);
     setSiteIcons({});
-  }, [cardIdentity]);
+    refreshIcons();
+    return () => {
+      active = false;
+      ipcRenderer.removeListener(DASHBOARD_SITE_ICONS, refreshIcons);
+    };
+  }, [iconIdentity]);
+  const cardIdentity = JSON.stringify(cards.map(({ id, url, size }) => ({ id, url, size })));
   useEffect(() => {
     const container = root.current;
     if (!container) return;
@@ -449,6 +470,11 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
   return (
     <main ref={root} className={`freelens-power-dashboard${expanded ? " power-dashboard-expanded" : ""}`}>
       <style>{styles}</style>
+      {browserError && (
+        <p role="alert" className="power-dashboard-hint">
+          {browserError}
+        </p>
+      )}
       <header className="power-dashboard-header">
         <div>
           <h1>
@@ -553,9 +579,14 @@ export const DashboardPage = observer(({ onOpenPreferences }: { onOpenPreference
                     </button>
                     <a
                       href={card.url}
-                      onClick={(event) => {
+                      onClick={async (event) => {
                         event.preventDefault();
-                        void shell.openExternal(card.url);
+                        setBrowserError("");
+                        try {
+                          await shell.openExternal(card.url);
+                        } catch {
+                          setBrowserError("Unable to open this page in your browser. Try again.");
+                        }
                       }}
                       target="_blank"
                       rel="noopener noreferrer"

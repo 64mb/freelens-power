@@ -1,5 +1,5 @@
-import { clipboard } from "electron";
 import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { clipboard } from "./ipc";
 import { type JsonField, jsonFieldLiteral, jsonFields, maxJsonTokens } from "./power-log-json-fields";
 
 import type { JsonFieldFilter, JsonPath } from "../common/power-log-field-filters";
@@ -39,8 +39,8 @@ export function LogJson({
   onToggleColumn,
   columnPaths = [],
 }: LogJsonProps) {
-  const leaveTimer = useRef<ReturnType<typeof setTimeout>>();
-  const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const keepOpen = () => {
     clearTimeout(leaveTimer.current);
     clearTimeout(hoverTimer.current);
@@ -247,10 +247,12 @@ export function LogJson({
             type="button"
             style={fieldButtonStyle}
             aria-label="Copy value"
-            onClick={() => {
+            onClick={async () => {
               try {
                 const value = selected.field.value;
-                clipboard.writeText(typeof value === "string" ? value : jsonFieldLiteral(identity, selected.field));
+                await clipboard.writeText(
+                  typeof value === "string" ? value : jsonFieldLiteral(identity, selected.field),
+                );
                 setFeedback("Copied");
               } catch {
                 setFeedback("Copy failed");
