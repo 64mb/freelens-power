@@ -185,7 +185,7 @@ describe("AI chat", () => {
     mocks.terminalOutput = "fresh reopened output";
     fireEvent.click(screen.getByLabelText("Open AI assistant"));
     expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("fresh reopened output")).toBeTruthy();
+    expect(await screen.findByText("fresh reopened output")).toBeTruthy();
     const terminalSummary = screen.getByText(/^Terminal · \d+ rows/);
     expect(terminalSummary.closest(".power-ai-attachment-card")).toBeTruthy();
     expect(screen.queryByText(/^Preview ·/)).toBeNull();
@@ -201,19 +201,23 @@ describe("AI chat", () => {
   it("preserves attachment through search overlay clicks and refreshes the preview when it disappears", async () => {
     document.body.innerHTML = '<div data-testid="dock-tab-content-for-terminal-a"></div>';
     stop = startAiChat(() => true);
-    fireEvent.click(screen.getByLabelText("Open AI assistant"));
-    fireEvent.click(screen.getByLabelText("Attach terminal output"));
+    await act(async () => fireEvent.click(screen.getByLabelText("Open AI assistant")));
+    await act(async () => fireEvent.click(screen.getByLabelText("Attach terminal output")));
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
     dialog.setAttribute("data-freelens-power-ai-overlay", "");
-    document.body.append(dialog);
+    await act(async () => {
+      document.body.append(dialog);
+    });
     await waitFor(() => expect(screen.queryByLabelText("AI assistant")).toBeNull());
-    fireEvent.click(dialog);
+    await act(async () => fireEvent.click(dialog));
     mocks.terminalOutput = "fresh post-overlay output";
-    dialog.remove();
+    await act(async () => {
+      dialog.remove();
+    });
     await waitFor(() => expect(screen.getByLabelText("AI assistant")).toBeTruthy());
     expect(screen.getByLabelText("Attach terminal output").getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("fresh post-overlay output")).toBeTruthy();
+    expect(await screen.findByText("fresh post-overlay output")).toBeTruthy();
     expect(JSON.stringify(mocks.preferences.conversations)).not.toContain("fresh post-overlay output");
   });
   it("clears a hidden panel attachment when its terminal changes", async () => {
@@ -305,11 +309,17 @@ describe("AI chat", () => {
       expect(() => serialize(request)).not.toThrow();
       return { text: "Next reply", reads: [{ method: "pods", status: "ok" }] };
     });
-    stop = startAiChat(() => true);
-    fireEvent.click(screen.getByLabelText("Open AI assistant"));
+    await act(async () => {
+      stop = startAiChat(() => true);
+    });
+    await act(async () => fireEvent.click(screen.getByLabelText("Open AI assistant")));
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Continue" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(mocks.preferences.conversations["cluster-a"]).toHaveLength(2));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Send" })));
+    expect(mocks.preferences.conversations["cluster-a"].map(({ role, text }: AiMessage) => ({ role, text }))).toEqual([
+      { role: "assistant", text: "Previous reply" },
+      { role: "user", text: "Continue" },
+      { role: "assistant", text: "Next reply" },
+    ]);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.querySelector('.power-ai-read-activity [data-method="pods"]')?.getAttribute("data-status")).toBe(
       "ok",
