@@ -868,9 +868,10 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
     await expect(dialog).toBeVisible();
     const message = dialog.locator(".power-logs-confirmation");
     const layout = await message.evaluate((element) => {
-      const box = element.closest(".box")!;
+      const box = element.closest(".dialog-content");
+      if (!box) throw new Error("Missing native confirmation dialog content");
       const probe = document.createElement("span");
-      probe.style.backgroundColor = "var(--contentColor)";
+      probe.style.backgroundColor = "var(--dialogBackground)";
       document.body.append(probe);
       const result = {
         width: element.getBoundingClientRect().width,
@@ -1221,9 +1222,12 @@ extensionTest(
         await frame.getByRole("menuitem", { name: action, exact: true }).click();
         await expect(confirmation).toBeVisible();
         await confirmation.getByRole("button", { name: `${action} 2 nodes`, exact: true }).click();
-        await expect(toolbar.getByRole("status")).toContainText(new RegExp(`${action}.*succeeded.*2 / 2 completed`), {
-          timeout: 60_000,
-        });
+        await expect(toolbar.locator(".power-node-bulk-progress").getByRole("status")).toContainText(
+          new RegExp(`${action}.*succeeded.*2 / 2 completed`),
+          {
+            timeout: 60_000,
+          },
+        );
         expect(fixtures.nodes.map((node) => fixtures.read(node).spec.unschedulable === true)).toEqual([
           unschedulable,
           unschedulable,
