@@ -3,7 +3,7 @@ export function startHostLayoutStyles(): () => void {
   style.dataset.freelensPower = "host-layout";
   style.textContent = `
     :root .HotbarMenu .HotbarItems.flex.flex-col > .HotbarCell:not(:last-child) {
-      margin-bottom: var(--padding, 8px);
+      margin-bottom: 4px;
     }
     :root .Notifications .notification {
       width: min(520px, calc(100vw - 32px));
