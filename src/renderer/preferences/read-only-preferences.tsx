@@ -17,8 +17,7 @@ export const ReadOnlyPreferences = observer(() => {
         Read-only mode
       </Switch>
       <div className="power-settings-hint">
-        Hide common create, edit and delete actions for resources, nodes and clusters. This only changes the interface;
-        permissions remain unchanged.
+        Hide common create, edit and delete actions for resources, nodes and clusters without changing permissions.
       </div>
     </div>
   );
