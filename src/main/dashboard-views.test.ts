@@ -1404,7 +1404,10 @@ it.each([-2, -3])("ends preparation after cached self-navigation fails with code
   }
 });
 
-it("releases cached page drawing at dom-ready while the original navigation remains unfinished", async () => {
+it.each([
+  false,
+  true,
+])("awaits scrollbar styles before revealing unfinished navigation, expanded [%s]", async (expanded) => {
   let fail!: (error: Error) => void;
   mocks.nextLoad = new Promise<void>((_resolve, reject) => {
     fail = reject;
@@ -1412,9 +1415,28 @@ it("releases cached page drawing at dom-ready while the original navigation rema
   const dispose = startDashboardViews();
   try {
     const owner = event();
-    const loading = mocks.handlers.get(sync)(owner, payload);
+    const loading = mocks.handlers.get(sync)(owner, {
+      cards: [{ ...payload.cards[0], scrollbars: expanded }],
+    });
     const contents = mocks.views[0].webContents;
+    await vi.waitFor(() => expect(contents.insertCSS).toHaveBeenCalled());
+    let finishStyles!: (key: string) => void;
+    contents.insertCSS.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          finishStyles = resolve;
+        }),
+    );
     contents.emit("dom-ready");
+    await vi.waitFor(() => expect(finishStyles).toBeTypeOf("function"));
+    expect(contents.insertCSS).toHaveBeenLastCalledWith(
+      expect.stringContaining(expanded ? "scrollbar-width: auto" : "scrollbar-width: none"),
+      { cssOrigin: "user" },
+    );
+    expect(contents.executeJavaScript).not.toHaveBeenCalledWith(
+      'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',
+    );
+    finishStyles("ready-styles");
     await loading;
     expect(contents.executeJavaScript).toHaveBeenCalledWith(
       'document.dispatchEvent(new Event("freelens-power:dashboard:prepared"))',

@@ -1426,12 +1426,14 @@ it("selects the exact namespace before opening operation history from another na
   );
   await waitFor(() => expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true"));
   expect(document.querySelector(".Drawer")?.textContent).toContain("other-release");
-  expect(
-    mocks.invoke.mock.calls.some(
-      ([, request]) =>
-        request.operation === "history" && request.name === "other-release" && request.namespace === "other",
-    ),
-  ).toBe(true);
+  await waitFor(() =>
+    expect(
+      mocks.invoke.mock.calls.some(
+        ([, request]) =>
+          request.operation === "history" && request.name === "other-release" && request.namespace === "other",
+      ),
+    ).toBe(true),
+  );
 });
 
 it("opens operation history when a same-namespace list refresh finishes over an existing drawer", async () => {

@@ -108,6 +108,7 @@ type WebsiteStyleState = {
   scrollbars?: boolean;
   websiteStylesKey?: string;
   websiteStylesGeneration?: number;
+  websiteStylesPending?: Promise<void>;
 };
 
 type CardView = {
@@ -124,6 +125,7 @@ type CardView = {
   scrollbars?: boolean;
   websiteStylesKey?: string;
   websiteStylesGeneration?: number;
+  websiteStylesPending?: Promise<void>;
   pending?: Promise<void>;
   requestedNavigation?: boolean;
   nativeNavigation?: { finish: () => void; fail: () => void };
@@ -145,6 +147,17 @@ type CardView = {
 type Owner = { window: BrowserWindow; cards: Map<string, CardView>; cleanup: () => void };
 
 async function applyWebsiteStyles(card: WebsiteStyleState): Promise<void> {
+  let pending = updateWebsiteStyles(card);
+  card.websiteStylesPending = pending;
+  do {
+    await pending;
+    const latest = card.websiteStylesPending;
+    if (!latest || latest === pending) return;
+    pending = latest;
+  } while (true);
+}
+
+async function updateWebsiteStyles(card: WebsiteStyleState): Promise<void> {
   const contents = card.view.webContents;
   const generation = (card.websiteStylesGeneration ?? 0) + 1;
   card.websiteStylesGeneration = generation;
@@ -456,6 +469,7 @@ export function startDashboardViews(): () => void {
           [...owners.values()].some((owner) => [...owner.cards.values()].includes(card));
         try {
           await waitForReadiness(contents, network, () => card.selector, current);
+          if (current()) await applyWebsiteStyles(card);
           if (current()) await releaseDashboardPage(contents);
         } finally {
           preparing = false;
@@ -1005,6 +1019,8 @@ export function startDashboardViews(): () => void {
         const finish = () => {
           finishing ??= (async () => {
             await waitForReadiness(contents, network, () => card.selector, current);
+            if (!current()) return false;
+            await applyWebsiteStyles(floatingStyles);
             if (!current()) return false;
             await releaseDashboardPage(contents);
             if (!current()) return false;
