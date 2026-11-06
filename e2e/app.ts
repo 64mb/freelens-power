@@ -147,16 +147,19 @@ export class FreelensSession {
   }
 
   async cluster(info: TestInfo): Promise<Frame> {
-    const welcome = this.window.getByText("Browse Clusters in Catalog", { exact: true });
-    const catalog = this.window.getByText("kind-power-e2e", { exact: true }).first();
     const existingFrame = this.window.locator('[id^="cluster-frame-"]').first();
-    await expect
-      .poll(async () => (await welcome.isVisible()) || (await catalog.isVisible()) || (await existingFrame.isVisible()))
-      .toBe(true);
-    if (await welcome.isVisible()) await welcome.click();
     if (!(await existingFrame.isVisible())) {
-      await expect(this.window.locator('[data-testid^="icon-for-menu-actions-for-catalog-for-"]')).toHaveCount(1);
-      await catalog.click();
+      await this.window.evaluate("globalThis.FreelensExtensionApi.Renderer.Navigation.navigate('/catalog')");
+      await this.window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
+      const catalog = this.window.getByTestId("catalog-list-for-Clusters");
+      await expect(catalog).toBeVisible();
+      await expect(catalog.locator('[data-testid^="icon-for-menu-actions-for-catalog-for-"]')).toHaveCount(1);
+      const row = catalog
+        .locator(".TableRow")
+        .filter({ has: this.window.getByText("kind-power-e2e", { exact: true }) });
+      await expect(row).toHaveCount(1);
+      await expect(row.locator('[data-testid^="icon-for-menu-actions-for-catalog-for-"]')).toHaveCount(1);
+      await row.getByText("kind-power-e2e", { exact: true }).click();
     }
     const iframe = this.window.locator('[id^="cluster-frame-"]').first();
     await expect(iframe).toBeVisible();

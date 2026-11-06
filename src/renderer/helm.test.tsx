@@ -886,7 +886,10 @@ it("names an empty namespace without implying all namespaces are one namespace",
   await screen.findByText("No Helm releases in sample");
 });
 
-it("returns to the selected later page after clearing an all-matching version filter", async () => {
+it.each([
+  false,
+  true,
+])("returns to the selected later page after clearing an all-matching version filter (delayed backend: %s)", async (delayed) => {
   const revisions = Array.from({ length: 101 }, (_, index) => ({
     ...release,
     revision: 101 - index,
@@ -894,10 +897,14 @@ it("returns to the selected later page after clearing an all-matching version fi
   }));
   mocks.appVersions[release.name] = "2.7";
   mocks.indexState = { completed: 101, total: 101, errors: 0, truncated: false };
+  const history = deferred();
+  const historyResult = { ...listing, releases: revisions, rollbackAllowed: true };
   mocks.invoke.mockImplementation((_channel, request) =>
     Promise.resolve(
       request.operation === "history"
-        ? { ...listing, releases: revisions, rollbackAllowed: true }
+        ? delayed
+          ? history.promise
+          : historyResult
         : request.operation === "details"
           ? { ok: true, detail: { content: "Overview" } }
           : { ...listing, releases: [revisions[0]] },
@@ -909,17 +916,34 @@ it("returns to the selected later page after clearing an all-matching version fi
     render(<PowerHelmPage />);
     fireEvent.click(await screen.findByRole("button", { name: release.name }));
     fireEvent.click(screen.getByRole("tab", { name: "History" }));
-    await screen.findByLabelText("Revision 101");
-    fireEvent.click(screen.getByLabelText("Next revisions"));
-    fireEvent.click(screen.getByLabelText("Next revisions"));
-    fireEvent.click(await screen.findByLabelText("Revision 1"));
-    fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2.7" } });
+    if (delayed) {
+      await waitFor(() =>
+        expect(mocks.invoke.mock.calls.some(([, request]) => request.operation === "history")).toBe(true),
+      );
+      await act(async () => history.resolve(historyResult));
+    }
+    await screen.findByRole("radio", { name: "Revision 101" });
+    await act(async () => {});
+    const nextPage = async (page: number, firstRevision: number) => {
+      const next = screen.getByRole("button", { name: "Next revisions" }) as HTMLButtonElement;
+      await waitFor(() => expect(next.disabled).toBe(false));
+      await act(async () => fireEvent.click(next));
+      await screen.findByText(`Page ${page} / 3`);
+      await screen.findByRole("radio", { name: `Revision ${firstRevision}` });
+    };
+    await nextPage(2, 51);
+    await nextPage(3, 1);
+    await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Revision 1" })));
+    await act(async () =>
+      fireEvent.change(screen.getByLabelText("Search revision history"), { target: { value: "2.7" } }),
+    );
     await screen.findByText("Page 1 / 3");
-    fireEvent.click(screen.getByLabelText("Next revisions"));
-    fireEvent.click(screen.getByLabelText("Next revisions"));
-    fireEvent.click(screen.getByLabelText("Show selected revision"));
+    await screen.findByRole("radio", { name: "Revision 101" });
+    await nextPage(2, 51);
+    await nextPage(3, 1);
+    await act(async () => fireEvent.click(screen.getByLabelText("Show selected revision")));
     await screen.findByText("Page 3 / 3");
-    const selected = (await screen.findByLabelText("Revision 1")) as HTMLInputElement;
+    const selected = (await screen.findByRole("radio", { name: "Revision 1" })) as HTMLInputElement;
     expect(selected.checked).toBe(true);
     expect(document.activeElement).toBe(selected);
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
