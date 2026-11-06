@@ -60,8 +60,8 @@ export function startAppearanceOverride(): () => void {
         :root [role="treeitem"][class*="catalog-tree-module__selected--"] { --blue: var(--primary); }
         :root [class*="main-layout-module__sidebar--"] > .ResizingAnchor { --blue: var(--primary); }
         :root .Dock > .ResizingAnchor { --blue: var(--primary); }
-        :root .CatalogAddButton .MuiFab-primary:not(.Mui-disabled) { background-color: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
-        :root .CatalogAddButton .MuiFab-primary:not(.Mui-disabled):hover { background-color: color-mix(in srgb, var(--primary) 88%, black) !important; }
+        :root .CatalogAddButton .MuiSpeedDial-fab:not(.Mui-disabled) { background-color: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
+        :root .CatalogAddButton .MuiSpeedDial-fab:not(.Mui-disabled):hover { background-color: color-mix(in srgb, var(--primary) 88%, black) !important; }
         :root .MenuItem { --bgc-active: var(--primary); --color-active: var(--freelens-power-accent-foreground); }
         :root [data-testid="no-metrics-message"] { --blue: var(--primary); }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }

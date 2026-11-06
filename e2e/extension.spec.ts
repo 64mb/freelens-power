@@ -83,7 +83,8 @@ test("catalog floating action follows the accent and restores native colors", as
     await session.install(info);
     const welcome = session.window.getByText("Browse Clusters in Catalog", { exact: true });
     if (await welcome.isVisible()) await welcome.click();
-    const button = session.window.locator(".CatalogAddButton .MuiFab-primary");
+    await session.window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
+    const button = session.window.locator(".CatalogAddButton .MuiSpeedDial-fab:not(.Mui-disabled)");
     await expect(button).toBeVisible();
     await expect(button).toHaveCSS("background-color", "rgb(112, 96, 232)");
     await expect(button.locator(".Icon")).toHaveCSS("color", "rgb(255, 255, 255)");

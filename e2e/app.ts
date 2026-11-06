@@ -100,6 +100,11 @@ export class FreelensSession {
     );
     await this.app.context().tracing.start({ screenshots: true, snapshots: false, sources: false });
     this.tracing = true;
+    await this.window.waitForFunction(
+      "typeof globalThis.FreelensExtensionApi?.Renderer?.Navigation?.navigate === 'function'",
+      undefined,
+      { timeout: 120_000 },
+    );
     const welcome = this.window.locator("[data-testid=welcome-menu-container] li a").first();
     if (await welcome.isVisible()) await welcome.click();
     return this;
