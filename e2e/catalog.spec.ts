@@ -150,7 +150,10 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await focusFixture.focus();
     await window.keyboard.press("1");
     await expect(window.locator('[id^="cluster-frame-"]').first()).not.toBeVisible();
-    const search = window.locator('[data-testid^="catalog-list-for-"] > .header .SearchInput input').first();
+    await window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
+    await expect(catalog).toBeVisible();
+    const search = catalog.locator(":scope > .header .SearchInput input");
+    await expect(search).toBeVisible();
     await expect(search).not.toBeFocused();
     await window.keyboard.press("ControlOrMeta+2");
     await expect(hotbarSelector).toHaveText("2");
