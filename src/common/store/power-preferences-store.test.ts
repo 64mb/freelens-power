@@ -17,6 +17,7 @@ it("defaults update checks on for existing preferences and preserves explicit op
     enabled: false,
     checkUpdates: false,
     nodeBulkActions: true,
+    hotbarShortcuts: true,
   });
   restored.enabled = true;
   expect(restored.checkUpdates).toBe(false);
@@ -36,4 +37,14 @@ it("defaults bulk actions on for old settings and persists the unified opt-out",
   const next = new PowerPreferencesStore();
   next.fromStore(restored.toJSON());
   expect(next.nodeBulkActions).toBe(true);
+});
+
+it("enables hotbar shortcuts for legacy settings and preserves their explicit opt-out", () => {
+  const store = new PowerPreferencesStore();
+  store.fromStore({ enabled: true });
+  expect(store.hotbarShortcuts).toBe(true);
+  store.hotbarShortcuts = false;
+  const restored = new PowerPreferencesStore();
+  restored.fromStore(store.toJSON());
+  expect(restored.hotbarShortcuts).toBe(false);
 });

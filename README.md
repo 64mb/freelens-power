@@ -45,7 +45,9 @@ Real extension components with synthetic websites, prompts, conversations, and d
 - 📜 **Secret certificates:** PEM chain identities, issuers, serial numbers, validity dates, and expiration details
 - 🎨 **Accent themes:** eight colors for controls, links, and the welcome logo
 - 🏷️ **Cluster icons:** searchable grid, SVG icons, editable labels and colors, and live previews
-- 🧩 **Power Dashboard:** reorderable website cards, focused page elements, shared sessions, pinned windows, and optional automatic refresh
+- 🧭 **Catalog:** pinnable Clusters shortcut, compact Web Link favicons, action icons, hotbar labels, keyboard selection and confirmed disconnect-all
+- 📝 **Kubeconfig:** built-in YAML editing from cluster settings and menus with explicit saves and external-change checks
+- 🧩 **Power Dashboard:** reorderable website cards, focused page elements, shared sessions, pinned windows, automatic Web Links, and optional automatic refresh
 - 📈 **Monitoring:** CPU and memory trends, allocation rings, pinned tooltips, and node/pod charts
 - 🩺 **Resource diagnostics:** resource consumers, warning timelines, Pending/readiness triage, Service/HPA checks, and incident summaries
 - ⚓ **Helm:** fast release lists, revision history, YAML comparisons, background rollback, and confirmed values editing and deletion
@@ -58,6 +60,8 @@ Real extension components with synthetic websites, prompts, conversations, and d
 - 🛡️ **Read-only UI:** hides common mutation actions without changing Kubernetes permissions
 - 🪟 **Interface:** reclaims the bottom status bar space; the master switch restores the native interface and preserves settings
 - ⚙️ **Settings:** native switches, compact dashboard editors, and JSON backup/restore of cards and prompt shortcuts
+
+Select hotbars with Cmd+1-9 on macOS or Ctrl+1-9 on Windows and Linux. Disable these shortcuts under Other.
 - 🍎 **macOS Dock icon:** follows your accent, with a separate restore toggle
 
 ---

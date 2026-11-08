@@ -1,5 +1,5 @@
 import { Main } from "@freelensapp/extensions";
-import { reaction } from "mobx";
+import { observable, reaction, runInAction } from "mobx";
 import { EXTENSION_DISPLAY_NAME, EXTENSION_ID } from "../common/extension-info";
 import { AiPreferencesStore } from "../common/store/ai-preferences-store";
 import { AiShortcutsStore } from "../common/store/ai-shortcuts-store";
@@ -16,12 +16,15 @@ import { startAiIpc } from "./ai-ipc";
 import { startAiModels } from "./ai-models";
 import { startClusterIcons } from "./cluster-icons";
 import { registerClusterIconsCatalog } from "./cluster-icons-catalog";
+import { registerClustersCatalog } from "./clusters-catalog";
 import { registerDashboardCatalog } from "./dashboard-catalog";
+import { registerDashboardLinksCatalog } from "./dashboard-links-catalog";
 import { startDashboardPicker } from "./dashboard-picker";
 import { startDashboardViews } from "./dashboard-views";
 import { startDockIconOverride } from "./dock-icon";
 import { startExtensionUpdates } from "./extension-updates";
 import { startPowerHelm } from "./helm-ipc";
+import { startKubeconfigEditor } from "./kubeconfig-editor";
 import { startMonitoringHistory } from "./monitoring-history";
 import { startNodeBulk } from "./node-bulk";
 import { disposePowerIpc, initializePowerIpc } from "./power-ipc";
@@ -30,6 +33,8 @@ import { startRendererServices } from "./renderer-services";
 import { startResourceSearchIndex } from "./resource-search";
 import { startSettingsExport } from "./settings-export";
 import { startSplashAccentOverride } from "./splash-accent";
+
+import type { DashboardSiteIcon } from "../common/dashboard-views";
 
 export default class FreelensPowerMain extends Main.LensExtension {
   private stopFeatures?: () => void;
@@ -65,6 +70,7 @@ export default class FreelensPowerMain extends Main.LensExtension {
     const stop = reaction(
       () => power.enabled,
       (enabled) => {
+        const dashboardIcons = observable.array<DashboardSiteIcon>([]);
         for (const dispose of disposers) dispose();
         disposers = enabled
           ? [
@@ -78,11 +84,14 @@ export default class FreelensPowerMain extends Main.LensExtension {
               startAiModels(),
               startDockIconOverride(),
               startSplashAccentOverride(),
-              startDashboardViews(),
+              startDashboardViews((icons) => runInAction(() => dashboardIcons.replace(icons))),
               startDashboardPicker(),
               registerDashboardCatalog(this),
+              registerDashboardLinksCatalog(this, dashboardIcons),
               registerClusterIconsCatalog(this),
+              registerClustersCatalog(this),
               startClusterIcons(),
+              startKubeconfigEditor(),
             ]
           : [];
       },

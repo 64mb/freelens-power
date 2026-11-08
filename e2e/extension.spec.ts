@@ -75,7 +75,7 @@ function extensionTest(title: string, run: (session: FreelensSession, frame: Fra
   });
 }
 
-test("catalog floating action follows the accent and restores native colors", async ({}, info) => {
+test("catalog floating action shares resource styling and follows accent on hover", async ({}, info) => {
   const session = new FreelensSession();
   let failed = false;
   try {
@@ -86,13 +86,24 @@ test("catalog floating action follows the accent and restores native colors", as
     await session.window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
     const button = session.window.locator(".CatalogAddButton .MuiSpeedDial-fab:not(.Mui-disabled)");
     await expect(button).toBeVisible();
-    await expect(button).toHaveCSS("background-color", "rgb(112, 96, 232)");
-    await expect(button.locator(".Icon")).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(button).toHaveCSS("width", "38px");
+    await expect(button).toHaveCSS("height", "38px");
+    await expect(button).toHaveCSS("border-radius", "6px");
+    const themeColor = async (value: string) =>
+      button.evaluate((element, value) => {
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = value;
+        element.append(probe);
+        const color = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return color;
+      }, value);
+    await expect(button).toHaveCSS("background-color", await themeColor("var(--contentColor)"));
     await session.screenshot(info, "catalog-floating-accent");
     await button.hover();
     const hoverColor = await button.evaluate((element) => {
       const probe = document.createElement("span");
-      probe.style.backgroundColor = "color-mix(in srgb, var(--primary) 88%, black)";
+      probe.style.backgroundColor = "color-mix(in srgb, var(--contentColor) 92%, var(--primary) 8%)";
       element.append(probe);
       const color = getComputedStyle(probe).backgroundColor;
       probe.remove();
@@ -120,15 +131,19 @@ test("catalog floating action follows the accent and restores native colors", as
       await closeSettings();
     };
     await choose("Yellow");
-    await expect(button).toHaveCSS("background-color", "rgb(237, 201, 39)");
-    await expect(button.locator(".Icon")).toHaveCSS("color", "rgb(0, 0, 0)");
+    await expect(button).toHaveCSS("background-color", await themeColor("var(--contentColor)"));
+    await button.hover();
+    await expect(button).toHaveCSS(
+      "background-color",
+      await themeColor("color-mix(in srgb, var(--contentColor) 92%, var(--primary) 8%)"),
+    );
     await choose("Default");
-    await expect(button).toHaveCSS("background-color", "rgb(0, 167, 160)");
+    await expect(button).toHaveCSS("background-color", await themeColor("var(--contentColor)"));
     await choose("Purple");
     await openAppearance();
     await settings.getByText("Override accent color", { exact: true }).click();
     await closeSettings();
-    await expect(button).toHaveCSS("background-color", "rgb(0, 167, 160)");
+    await expect(button).toHaveCSS("background-color", await themeColor("var(--contentColor)"));
   } catch (error) {
     failed = true;
     throw error;

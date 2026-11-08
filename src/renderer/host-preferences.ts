@@ -26,10 +26,31 @@ const tab = `.Preferences.SettingLayout > .sidebarRegion [data-preference-tab-li
   .map((id) => `[data-preference-tab-link-test="${id}"]`)
   .join(", ")})`;
 
+const entityTabs = {
+  general: "settings",
+  proxy: "swap_horiz",
+  terminal: "terminal",
+  namespace: "folder",
+  metrics: "show_chart",
+  "node-shell": "vpn_key",
+};
+const entityTab = `[data-testid="entity-settings"] > .sidebarRegion .Tab:is(${Object.keys(entityTabs)
+  .map((id) => `[data-testid="${id}-tab"]`)
+  .join(",")})`;
+
 export function startHostPreferencesStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-preferences";
   style.textContent = `
+    ${entityTab} { display: flex; align-items: center; gap: 10px; }
+    ${entityTab}::before { flex: 0 0 18px; width: 18px; font-family: "Material Icons"; font-size: 18px; font-weight: 400; font-style: normal; line-height: 1; letter-spacing: normal; text-transform: none; white-space: nowrap; direction: ltr; font-feature-settings: "liga"; -webkit-font-smoothing: antialiased; }
+    ${Object.entries(entityTabs)
+      .map(
+        ([id, icon]) =>
+          `[data-testid="entity-settings"] > .sidebarRegion .Tab[data-testid="${id}-tab"]::before { content: "${icon}" / ""; }`,
+      )
+      .join("\n")}
+
     .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header { gap: 8px; }
     .Preferences.SettingLayout > .sidebarRegion [data-preference-tab-group-test="extensions-tab-group"] > .header > .Icon { margin: 0; flex: 0 0 18px; --size: 18px; }
     .Preferences.SettingLayout > .sidebarRegion :is([data-preference-tab-group-test="general-tab-group"], [data-preference-tab-group-test="extensions-tab-group"]) > [data-preference-tab-link-test] { margin-left: 12px; width: calc(100% - 12px); box-sizing: border-box; }

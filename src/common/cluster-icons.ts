@@ -142,3 +142,35 @@ export function clusterIconDataUrl(input: ClusterIconDesign): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="15" fill="#292d38" stroke="${design.outlineColor}" stroke-width="3"/><g fill="none" stroke="${design.iconColor}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">${glyph.body}</g><rect x="15" y="46" width="34" height="12" rx="6" fill="${design.labelColor}"/><text x="32" y="55.2" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="9.5" font-weight="800" fill="#292d38">${escapeXml(design.label)}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
+
+export function clusterIconDesignFromDataUrl(value: unknown): ClusterIconDesign | undefined {
+  if (typeof value !== "string" || value.length > 32_768) return undefined;
+  const match = /^data:image\/svg\+xml(?:;charset=utf-8)?(;base64)?,(.*)$/is.exec(value);
+  if (!match) return undefined;
+  try {
+    const svg = match[1]
+      ? new TextDecoder().decode(Uint8Array.from(atob(match[2]), (char) => char.charCodeAt(0)))
+      : decodeURIComponent(match[2]);
+    const outlineColor = /<rect x="2"[^>]* stroke="(#[a-f\d]{6})"/i.exec(svg)?.[1];
+    const iconColor = /<g\b[^>]*\bstroke="(#[a-f\d]{6})"/i.exec(svg)?.[1];
+    const labelColor = /<rect x="15"[^>]* fill="(#[a-f\d]{6})"/i.exec(svg)?.[1];
+    const text = /<text\b[^>]*>([^<]*)<\/text>/.exec(svg)?.[1];
+    if (text === undefined || /\bon[a-z]+\s*=|(?:href|style)\s*=/i.test(svg)) return undefined;
+    const label = text.replace(
+      /&(amp|lt|gt|quot|apos);/g,
+      (entity) => ({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" })[entity]!,
+    );
+    const signature = (value: string) => {
+      const transforms = [...value.matchAll(/<g\b[^>]*\btransform="([^"]+)"/g)].map((match) => match[1]);
+      return JSON.stringify(transforms) + value.replace(/<\/?g\b[^>]*>/g, "");
+    };
+    const original = signature(svg);
+    for (const glyph of GLYPHS) {
+      const design = normalizeClusterIconDesign({ outlineColor, iconColor, labelColor, label, glyph: glyph.id });
+      if (signature(decodeURIComponent(clusterIconDataUrl(design).split(",")[1])) === original) return design;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
