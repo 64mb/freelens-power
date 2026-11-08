@@ -222,7 +222,7 @@ function releaseDashboardPage(contents: WebContents): Promise<unknown> {
     .catch(() => {});
 }
 
-export function startDashboardViews(): () => void {
+export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[]) => void = () => {}): () => void {
   const websiteSession = session.fromPartition("persist:freelens-power-websites");
   websiteSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   websiteSession.setPermissionCheckHandler(() => false);
@@ -371,6 +371,7 @@ export function startDashboardViews(): () => void {
         );
         icons.clear();
         for (const icon of bounded) icons.set(icon.id, icon);
+        onIconsChanged(bounded);
         await saveDashboardIcons(cachePath, bounded);
       })
       .catch(() => {});

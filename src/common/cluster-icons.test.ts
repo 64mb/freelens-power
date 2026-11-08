@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { clusterIconDataUrl, defaultClusterIconDesign, GLYPHS, normalizeClusterIconDesign } from "./cluster-icons";
+import {
+  clusterIconDataUrl,
+  clusterIconDesignFromDataUrl,
+  defaultClusterIconDesign,
+  GLYPHS,
+  normalizeClusterIconDesign,
+} from "./cluster-icons";
 
 const design = defaultClusterIconDesign("demo cluster");
 
@@ -62,4 +68,35 @@ describe("cluster icon design", () => {
       expect(svg).not.toMatch(/<script|onload|href=/);
     }
   });
+});
+
+it("recovers all legacy editor glyphs and distinct saved colors from URI and base64 SVGs", () => {
+  for (const glyph of GLYPHS) {
+    const previous = {
+      ...design,
+      glyph: glyph.id,
+      outlineColor: "#fa1234",
+      iconColor: "#12ab34",
+      labelColor: "#3456ef",
+    };
+    const url = clusterIconDataUrl(previous);
+    expect(clusterIconDesignFromDataUrl(url)).toEqual(previous);
+    const svg = decodeURIComponent(url.split(",")[1]);
+    const merged = svg
+      .replace(
+        /<g fill="none" stroke="([^"]+)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><g transform="([^"]+)" stroke-width="([^"]+)">/,
+        '<g transform="$2" fill="none" stroke="$1" stroke-width="$3" stroke-linecap="round" stroke-linejoin="round">',
+      )
+      .replace("</g></g>", "</g>")
+      .replace('stroke-width="2.972602739"', 'stroke-width="2.972602740"');
+    expect(clusterIconDesignFromDataUrl(`data:image/svg+xml;base64,${Buffer.from(merged).toString("base64")}`)).toEqual(
+      previous,
+    );
+    expect(clusterIconDesignFromDataUrl(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`)).toEqual(
+      previous,
+    );
+    expect(clusterIconDesignFromDataUrl(url.replace("%3C%2Fsvg%3E", "%3Cscript%2F%3E%3C%2Fsvg%3E"))).toBeUndefined();
+  }
+  expect(clusterIconDesignFromDataUrl("data:image/png;base64,AQID")).toBeUndefined();
+  expect(clusterIconDesignFromDataUrl("#123456")).toBeUndefined();
 });

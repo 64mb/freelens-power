@@ -219,21 +219,12 @@ describe("application accent override", () => {
     }
   });
 
-  it("scopes catalog floating accents to the enabled v2 SpeedDial trigger and restores native styles", () => {
+  it("leaves catalog floating appearance to shared button styles and restores primary contrast", () => {
     document.body.innerHTML = `<div class="CatalogAddButton"><button id="catalog-add-trigger" class="MuiFab-root MuiSpeedDial-fab"></button><button class="MuiFab-root MuiSpeedDial-fab Mui-disabled"></button><button class="MuiFab-root MuiSpeedDialAction-fab"></button></div><button class="MuiFab-root MuiSpeedDial-fab"></button><div class="AddRemoveButtons"><button class="Button primary add-button"></button><button class="Button primary remove-button"></button></div>`;
     try {
       dispose = startAppearanceOverride();
       const floatingRules = () => rules().filter((rule) => rule.selectorText.includes(".CatalogAddButton"));
-      const [normal, hover] = floatingRules();
-      expect(document.querySelectorAll(normal.selectorText)).toHaveLength(1);
-      expect(document.querySelector(normal.selectorText)?.id).toBe("catalog-add-trigger");
-      expect(normal.style.getPropertyValue("background-color")).toBe("var(--primary)");
-      expect(document.querySelector('style[data-freelens-power="accent-color"]')?.textContent).toContain(
-        `${normal.selectorText} { background-color: var(--primary) !important;`,
-      );
-      expect(normal.style.getPropertyValue("color")).toBe("var(--freelens-power-accent-foreground)");
-      expect(hover.selectorText).toBe(`${normal.selectorText}:hover`);
-      expect(hover.style.getPropertyValue("background-color")).toBe("color-mix(in srgb, var(--primary) 88%, black)");
+      expect(floatingRules()).toHaveLength(0);
       const primaryRule = () => rules().find((rule) => rule.selectorText.startsWith(":root .Button.primary"));
       const primaryButtons = document.querySelectorAll(primaryRule()!.selectorText);
       expect(primaryButtons).toHaveLength(1);
@@ -252,7 +243,7 @@ describe("application accent override", () => {
       runInAction(() => {
         preferences.enabled = true;
       });
-      expect(floatingRules()).toHaveLength(2);
+      expect(floatingRules()).toHaveLength(0);
       dispose();
       expect(floatingRules()).toHaveLength(0);
     } finally {
@@ -489,10 +480,18 @@ describe("application accent override", () => {
     const switchRule = rules().find((rule) => rule.selectorText === 'input[role="switch"]');
     expect(switchRule?.style.getPropertyValue("--track-color-active")).toBe("var(--primary)");
     expect(switchRule?.style.getPropertyPriority("--track-color-active")).toBe("important");
-    const inputRule = rules().find(
-      (rule) => rule.selectorText === ":root .Input:not(.invalid):not(.validating) label:focus-within",
-    );
+    const inputRule = rules().find((rule) => rule.selectorText === ":root .Input:not(.validating) label:focus-within");
     expect(inputRule?.style.getPropertyValue("border-color")).toBe("var(--primary)");
+    const wrapper = document.createElement("div");
+    wrapper.className = "Input invalid";
+    const eligible = ".Input:not(.validating)";
+    expect(wrapper.matches(eligible)).toBe(true);
+    wrapper.classList.add("dirty");
+    expect(wrapper.matches(eligible)).toBe(true);
+    wrapper.classList.remove("invalid");
+    expect(wrapper.matches(eligible)).toBe(true);
+    wrapper.classList.add("validating");
+    expect(wrapper.matches(eligible)).toBe(false);
     expect(document.querySelector('style[data-freelens-power="accent-color"]')?.textContent).toContain(
       "label:focus-within { border-color: var(--primary) !important; }",
     );
@@ -603,5 +602,19 @@ describe("application accent override", () => {
       preferences.accentColor = "#123456; } body { display: none";
     });
     expect(accentRule()).toBeUndefined();
+  });
+
+  it("uses the accent for command palette caret and focus stripe with a softer option background", () => {
+    document.body.innerHTML = '<div class="command-container-module__CommandContainer--example"></div>';
+    dispose = startAppearanceOverride();
+    const palette = document.querySelector<HTMLElement>('[class*="command-container-module__CommandContainer--"]')!;
+    expect(getComputedStyle(palette).getPropertyValue("--blue")).toBe("var(--primary)");
+    expect(getComputedStyle(palette).getPropertyValue("--menuSelectedOptionBgc")).toBe(
+      "color-mix(in srgb,var(--primary) 24%,var(--contentColor))",
+    );
+    runInAction(() => {
+      preferences.enabled = false;
+    });
+    expect(getComputedStyle(palette).getPropertyValue("--blue")).toBe("");
   });
 });

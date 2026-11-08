@@ -60,8 +60,7 @@ export function startAppearanceOverride(): () => void {
         :root [role="treeitem"][class*="catalog-tree-module__selected--"] { --blue: var(--primary); }
         :root [class*="main-layout-module__sidebar--"] > .ResizingAnchor { --blue: var(--primary); }
         :root .Dock > .ResizingAnchor { --blue: var(--primary); }
-        :root .CatalogAddButton .MuiSpeedDial-fab:not(.Mui-disabled) { background-color: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
-        :root .CatalogAddButton .MuiSpeedDial-fab:not(.Mui-disabled):hover { background-color: color-mix(in srgb, var(--primary) 88%, black) !important; }
+        :root [class*="command-container-module__CommandContainer--"] { --blue: var(--primary); --menuSelectedOptionBgc: color-mix(in srgb, var(--primary) 24%, var(--contentColor)); }
         :root .MenuItem { --bgc-active: var(--primary); --color-active: var(--freelens-power-accent-foreground); }
         :root [data-testid="no-metrics-message"] { --blue: var(--primary); }
         :root .Select__option--is-selected { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
@@ -74,13 +73,14 @@ export function startAppearanceOverride(): () => void {
         :root .Select__option:not(.Select__option--is-disabled):active { background: var(--primary) !important; color: var(--freelens-power-accent-foreground) !important; }
         :root .NamespaceSelectMenu .Select__option--is-selected:active .Icon { color: inherit; }
         :root a.link { color: var(--primary); }
+        :root [data-testid="add-cluster-page"] a[href] { color: var(--primary); }
         :root [data-testid="download-logs-dropdown"] { --accent-color: var(--primary); }
         :root .Notifications .notification.info { background: var(--primary); color: var(--freelens-power-accent-foreground); }
         ${recolorAppIcon ? '.Welcome [data-testid="no-welcome-banners-icon"] svg path[fill="#23a49c"] { fill: var(--primary); }' : ""}
       `;
       style.textContent = `${accent}
         input[role="switch"] { --track-color-active: var(--primary) !important; }
-        :root .Input:not(.invalid):not(.validating) label:focus-within { border-color: var(--primary) !important; }
+        :root .Input:not(.validating) label:focus-within { border-color: var(--primary) !important; }
         :root .Select:not(.Select--is-disabled) .Select__control--is-focused:not(.Select__control--is-disabled) { border-color: var(--primary) !important; box-shadow: 0 0 0 1px var(--primary) !important; }
       `;
 

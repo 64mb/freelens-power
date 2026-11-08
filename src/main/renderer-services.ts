@@ -1,4 +1,6 @@
-import { BrowserWindow, type IpcMainInvokeEvent, shell } from "electron";
+import { join } from "node:path";
+import { app, BrowserWindow, type IpcMainInvokeEvent, shell } from "electron";
+import { readHotbarCount } from "./hotbar-count";
 import { powerIpc } from "./power-ipc";
 import { parseSecretCertificates, validateCertificateData } from "./secret-certificates";
 
@@ -30,6 +32,10 @@ function trustedRenderer(event: IpcMainInvokeEvent): boolean {
 }
 
 export function startRendererServices(): () => void {
+  powerIpc.handle("freelens-power:hotbar-count", (event) => {
+    if (!trustedRenderer(event)) throw new Error("Untrusted renderer");
+    return readHotbarCount(join(app.getPath("userData"), "lens-hotbar-store.json"));
+  });
   powerIpc.handle("freelens-power:secret-certificates", (event, input: unknown) => {
     if (!trustedRenderer(event)) throw new Error("Untrusted renderer");
     return parseSecretCertificates(validateCertificateData(input));
@@ -42,6 +48,7 @@ export function startRendererServices(): () => void {
     await shell.openExternal(url.href);
   });
   return () => {
+    powerIpc.removeHandler("freelens-power:hotbar-count");
     powerIpc.removeHandler("freelens-power:secret-certificates");
     powerIpc.removeHandler("freelens-power:open-external");
   };

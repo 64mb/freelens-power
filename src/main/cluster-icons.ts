@@ -1,7 +1,7 @@
 import { Common, Main } from "@freelensapp/extensions";
 import { runInAction } from "mobx";
 import { CLUSTER_ICONS_CHANNEL, type ClusterIconEntry } from "../common/cluster-icon-ipc";
-import { clusterIconDataUrl, normalizeClusterIconDesign } from "../common/cluster-icons";
+import { clusterIconDataUrl, clusterIconDesignFromDataUrl, normalizeClusterIconDesign } from "../common/cluster-icons";
 import { ClusterIconsStore } from "../common/store/cluster-icons-store";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { powerIpc } from "./power-ipc";
@@ -41,12 +41,13 @@ export function createClusterIconsService(host: ClusterIconsHost, store: Cluster
   const list = (): ClusterIconEntry[] =>
     host.clusters().map((cluster) => {
       const saved = Object.hasOwn(store.icons, cluster.id) ? store.icons[cluster.id] : undefined;
-      const customized = !!saved;
+      const design = saved?.design ?? clusterIconDesignFromDataUrl(cluster.preferences.icon);
+      const customized = !!design;
       return {
         id: cluster.id,
         name: cluster.name,
         icon: saved ? clusterIconDataUrl(saved.design) : (cluster.preferences.icon ?? undefined),
-        design: saved ? { ...saved.design } : undefined,
+        design: design ? { ...design } : undefined,
         customized,
       };
     });

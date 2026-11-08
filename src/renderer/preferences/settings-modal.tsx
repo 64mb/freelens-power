@@ -1,29 +1,64 @@
 import { Renderer } from "@freelensapp/extensions";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 export function SettingsModal({
   id,
   title,
   onClose,
   children,
+  width = 560,
+  guardClose = false,
 }: {
   id: string;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  width?: number;
+  guardClose?: boolean;
 }) {
+  const [dialogGeneration, setDialogGeneration] = useState(0);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (
+        guardClose &&
+        event.target instanceof Element &&
+        event.target
+          .closest(".monaco-editor")
+          ?.querySelector(".find-widget.visible, .suggest-widget.visible, .monaco-hover")
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    const closeOnBackdrop = (event: MouseEvent) => {
+      if (!guardClose || !(event.target instanceof HTMLElement) || event.target.dataset.testid !== `${id}-modal`)
+        return;
       event.preventDefault();
       event.stopPropagation();
       onClose();
     };
     document.addEventListener("keydown", closeOnEscape, true);
-    return () => document.removeEventListener("keydown", closeOnEscape, true);
-  }, [onClose]);
+    document.addEventListener("click", closeOnBackdrop, true);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape, true);
+      document.removeEventListener("click", closeOnBackdrop, true);
+    };
+  }, [onClose, guardClose, id]);
   return (
-    <Renderer.Component.Dialog isOpen close={onClose} modal className="power-dashboard-dialog power-settings-dialog">
+    <Renderer.Component.Dialog
+      key={guardClose ? dialogGeneration : undefined}
+      isOpen
+      pinned={guardClose}
+      data-testid={`${id}-modal`}
+      close={() => {
+        if (guardClose) setDialogGeneration((value) => value + 1);
+        onClose();
+      }}
+      modal
+      className="power-dashboard-dialog power-settings-dialog"
+    >
       <style>{`
         .Dialog.power-settings-dialog { background: rgb(0 0 0 / 55%); z-index: 12000; }
         .power-settings-dialog > .dialog-content { border-radius: 8px; background: var(--contentColor); border: 1px solid var(--borderColor); box-shadow: 0 20px 70px rgb(0 0 0 / 45%); overflow: visible; }
@@ -45,7 +80,7 @@ export function SettingsModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${id}-heading`}
-        style={{ display: "grid", gap: 16, padding: 24, width: 560, maxWidth: "calc(100vw - 48px)" }}
+        style={{ display: "grid", gap: 16, padding: 24, width, maxWidth: "calc(100vw - 48px)" }}
       >
         <h2 id={`${id}-heading`} style={{ margin: 0 }}>
           {title}

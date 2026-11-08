@@ -5,22 +5,25 @@ interface PowerPreferences {
   enabled: boolean;
   checkUpdates: boolean;
   nodeBulkActions: boolean;
+  hotbarShortcuts: boolean;
 }
 
 export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPreferences> {
   enabled = true;
   checkUpdates = true;
   nodeBulkActions = true;
+  hotbarShortcuts = true;
 
   constructor() {
     super({
       configName: "power-preferences",
-      defaults: { enabled: true, checkUpdates: true, nodeBulkActions: true },
+      defaults: { enabled: true, checkUpdates: true, nodeBulkActions: true, hotbarShortcuts: true },
     });
     makeObservable(this, {
       enabled: observable,
       checkUpdates: observable,
       nodeBulkActions: observable,
+      hotbarShortcuts: observable,
     });
   }
 
@@ -28,6 +31,7 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
     this.enabled = data.enabled !== false;
     this.checkUpdates = data.checkUpdates !== false;
     this.nodeBulkActions = data.nodeBulkActions !== false;
+    this.hotbarShortcuts = data.hotbarShortcuts !== false;
   }
 
   toJSON() {
@@ -35,6 +39,7 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
       enabled: this.enabled,
       checkUpdates: this.checkUpdates,
       nodeBulkActions: this.nodeBulkActions,
+      hotbarShortcuts: this.hotbarShortcuts,
     };
   }
 }

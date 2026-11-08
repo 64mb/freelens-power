@@ -2,6 +2,45 @@ export function startHostLayoutStyles(): () => void {
   const style = document.createElement("style");
   style.dataset.freelensPower = "host-layout";
   style.textContent = `
+    :root .SettingLayout [class*="close-button-module__closeButton--"] {
+      box-sizing: border-box;
+      border: 1px solid color-mix(in srgb, var(--borderColor) 75%, var(--textColorSecondary) 25%);
+      border-radius: 6px;
+      background: var(--contentColor);
+    }
+    :root .SettingLayout [class*="close-button-module__closeButton--"] > .Icon {
+      --size: 18px;
+      width: 18px;
+      height: 18px;
+      font-size: 18px;
+      color: var(--textColorSecondary);
+      opacity: 1;
+    }
+    :root .SettingLayout [class*="close-button-module__closeButton--"]:hover {
+      border-color: var(--textColorAccent);
+      background: color-mix(in srgb, var(--contentColor) 92%, var(--primary) 8%);
+    }
+    :root .SettingLayout [class*="close-button-module__closeButton--"]:hover > .Icon { color: var(--textColorAccent); }
+
+    :root [data-testid="add-cluster-page"] > .contentRegion > .content {
+      width: min(1320px, calc(100vw - 96px));
+      max-width: none;
+      min-width: 0;
+      padding: 40px 40px 0;
+      box-sizing: border-box;
+    }
+    :root [data-testid="add-cluster-page"] [class*="add-cluster-module__editor--"] {
+      --editor-height: clamp(240px, calc(100vh - 240px), 900px);
+    }
+
+    :root .CatalogAddButton { right: 40px; bottom: 30px; }
+    :root .catalogSpeedDialPopper .MuiTooltip-tooltip {
+      background-color: var(--contentColor);
+      color: var(--textColorPrimary);
+      border: 1px solid var(--borderColor);
+    }
+    :root .catalogSpeedDialPopper .MuiTooltip-arrow { color: var(--contentColor); }
+
     :root .HotbarMenu .HotbarItems.flex.flex-col > .HotbarCell:not(:last-child) {
       margin-bottom: 4px;
     }

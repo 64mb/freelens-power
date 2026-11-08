@@ -36,6 +36,17 @@ export const OtherPreferences = observer(() => {
       </div>
       <div>
         <Renderer.Component.Switch
+          checked={preferences.hotbarShortcuts}
+          onChange={(value) => {
+            preferences.hotbarShortcuts = value;
+          }}
+        >
+          Hotbar keyboard shortcuts
+        </Renderer.Component.Switch>
+        <div className="power-settings-hint">Switch panels with Cmd+1-9 on macOS or Ctrl+1-9 on Windows and Linux.</div>
+      </div>
+      <div>
+        <Renderer.Component.Switch
           checked={monitoring.resourceSearchEnabled}
           onChange={(value) => {
             monitoring.resourceSearchEnabled = value;

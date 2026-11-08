@@ -80,7 +80,7 @@ export class FreelensSession {
           ),
         ),
         FREELENS_INTEGRATION_TESTING_DIR: this.profile,
-        KUBECONFIG: resolve(kubeconfig),
+        KUBECONFIG: join(this.profile, "Freelens", "home", ".kube", "config"),
         HOME: join(this.profile, "Freelens", "home"),
         XDG_CONFIG_HOME: join(this.profile, "config"),
       },

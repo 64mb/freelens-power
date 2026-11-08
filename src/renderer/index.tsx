@@ -20,6 +20,8 @@ import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { startAiChat } from "./ai";
 import { startAppearanceOverride } from "./appearance";
+import { startCatalogDisconnect } from "./catalog-disconnect";
+import { startCatalogMenuIcons } from "./catalog-menu-icons";
 import { startClusterIconOverlay } from "./cluster-icon-overlay";
 import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
@@ -38,7 +40,9 @@ import { startPowerHelmEntrypoints } from "./helm-entrypoints";
 import { startHostExtensionsStyles } from "./host-extensions";
 import { startHostLayoutStyles } from "./host-layout";
 import { startHostPreferencesStyles } from "./host-preferences";
+import { startHotbarName } from "./hotbar-name";
 import { disposeIpc, initializeIpc } from "./ipc";
+import { startKubeconfigEditorEntrypoints } from "./kubeconfig-editor";
 import { SecureNodeShellMenu } from "./menus/secure-node-shell-menu";
 import { startMonitoring } from "./monitoring";
 import { startMonitoringCollector } from "./monitoring-collector";
@@ -121,12 +125,16 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startPodDetailsEnhancements,
             startPodBulkCustomization,
             startHostLayoutStyles,
+            startHotbarName,
+            startKubeconfigEditorEntrypoints,
             startHostPreferencesStyles,
             startHostExtensionsStyles,
             startExtensionUpdate,
             startExtensionUpdateNotifications,
             startAppearanceOverride,
             startClusterIconOverlay,
+            startCatalogMenuIcons,
+            startCatalogDisconnect,
             startWelcomeOverride,
             startAiChat,
             startResourceSearch,

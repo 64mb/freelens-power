@@ -140,3 +140,18 @@ it("reads native icons through public catalog snapshots without host store synch
   ]);
   expect(state.entities[0].spec.icon?.src).toBe("data:image/png;base64,original");
 });
+
+it("opens legacy generated icons with their saved design without rewriting native preferences", () => {
+  const previous = {
+    ...design,
+    outlineColor: "#ff1234",
+    iconColor: "#ab12cd",
+    labelColor: "#1234ef",
+    glyph: "database",
+  };
+  const icon = clusterIconDataUrl(previous);
+  const { service, host, store } = fixture(icon);
+  expect(service.list()[0]).toMatchObject({ icon, design: previous, customized: true });
+  expect(store.icons).toEqual({});
+  expect(host.clusters()[0].preferences.icon).toBe(icon);
+});
