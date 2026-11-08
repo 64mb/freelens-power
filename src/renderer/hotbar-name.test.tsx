@@ -251,3 +251,37 @@ it.each([
   expect(document.activeElement).toBe(input);
   stop();
 });
+
+it("opens the last item with zero and badges it beyond nine while preserving modified zero", async () => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+  document.body.innerHTML = `<div class="HotbarMenu">${Array.from({ length: 12 }, (_, index) => `<div id="hotbarIcon-${index + 1}"></div>`).join("")}</div><input>`;
+  const last = document.getElementById("hotbarIcon-12")!;
+  const click = vi.fn();
+  last.addEventListener("click", click);
+  const stop = startHotbarName();
+  await Promise.resolve();
+  expect(Array.from(document.querySelectorAll("[data-power-hotbar-number]"), (node) => node.textContent)).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+  ]);
+  expect(last.querySelector("[data-power-hotbar-number]")?.textContent).toBe("0");
+  const key = (target: Element | Document, extra = {}) => {
+    const event = new KeyboardEvent("keydown", { code: "Digit0", bubbles: true, cancelable: true, ...extra });
+    target.dispatchEvent(event);
+    return event;
+  };
+  expect(key(document).defaultPrevented).toBe(true);
+  expect(click).toHaveBeenCalledOnce();
+  expect(key(document.querySelector("input")!).defaultPrevented).toBe(false);
+  expect(key(document, { metaKey: true }).defaultPrevented).toBe(false);
+  expect(key(document, { ctrlKey: true }).defaultPrevented).toBe(false);
+  stop();
+});

@@ -67,7 +67,7 @@ it("rejects background and hidden frames including hidden ancestors", () => {
 
 it.each([
   null,
-  { ...data, code: "Digit0" },
+  { ...data, code: "Digit0", metaKey: true },
   { ...data, code: "KeyA" },
   { ...data, metaKey: "true" },
   { ...data, metaKey: true, ctrlKey: true },
@@ -142,4 +142,15 @@ it("forwards from a native cluster proxy port to the exact parent proxy origin",
   const { context, postMessage } = childContext(`${origin}:41237`, "https://renderer.freelens.app:41237/cluster");
   expect(forwardHotbarShortcut(new KeyboardEvent("keydown", { code: "Digit2" }), context)).toBe(true);
   expect(postMessage).toHaveBeenCalledExactlyOnceWith(data, "https://renderer.freelens.app:41237");
+});
+
+it("forwards plain zero for the last item while preserving modified zero", () => {
+  const { context, postMessage } = childContext();
+  expect(forwardHotbarShortcut(new KeyboardEvent("keydown", { code: "Digit0" }), context)).toBe(true);
+  expect(postMessage).toHaveBeenCalledWith({ ...data, code: "Digit0" }, "https://renderer.freelens.app");
+  expect(forwardHotbarShortcut(new KeyboardEvent("keydown", { code: "Digit0", ctrlKey: true }), context)).toBe(false);
+  expect(forwardHotbarShortcut(new KeyboardEvent("keydown", { code: "Digit0", metaKey: true }), context)).toBe(false);
+  const { callback, send } = setup();
+  send({ data: { ...data, code: "Digit0" } });
+  expect(callback).toHaveBeenCalledWith({ code: "Digit0", metaKey: false, ctrlKey: false });
 });

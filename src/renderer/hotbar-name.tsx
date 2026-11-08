@@ -38,9 +38,10 @@ export function startHotbarName(): () => void {
       )
         input.blur();
     }
+    const allIcons = Array.from(document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]'));
     const icons =
       preferences.hotbarItemShortcuts !== false
-        ? Array.from(document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]')).slice(0, 9)
+        ? [...allIcons.slice(0, 9), ...(allIcons.length > 9 ? [allIcons[allIcons.length - 1]] : [])]
         : [];
     for (const [icon, badge] of numbers) {
       if (icons.includes(icon)) continue;
@@ -57,7 +58,7 @@ export function startHotbarName(): () => void {
         badge.setAttribute("aria-hidden", "true");
         numbers.set(icon, badge);
       }
-      const label = String(index + 1);
+      const label = index === 9 ? "0" : String(index + 1);
       if (badge.textContent !== label) badge.textContent = label;
       const wrapper = icon.parentElement?.matches('[class*="HotbarIcon"]') ? icon.parentElement : icon;
       wrapper.setAttribute("data-power-hotbar-numbered", "");
@@ -146,8 +147,8 @@ export function startHotbarName(): () => void {
       (!itemShortcut && (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey))
     )
       return;
-    const digit = /^Digit([1-9])$/.exec(event.code);
-    if (!digit) return;
+    const digit = /^Digit([0-9])$/.exec(event.code);
+    if (!digit || (!itemShortcut && digit[1] === "0")) return;
     const editable =
       'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], .monaco-editor, .xterm, .cm-editor, .CodeMirror';
     if (event.composedPath().some((node) => node instanceof Element && node.closest(editable))) return;
@@ -165,7 +166,8 @@ export function startHotbarName(): () => void {
     }
     const target = Number(digit[1]);
     if (itemShortcut) {
-      const icon = document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]')[target - 1];
+      const icons = document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]');
+      const icon = icons[target === 0 ? icons.length - 1 : target - 1];
       if (!icon || icon.matches('[aria-disabled="true"], [disabled], [class*="disabled"]')) return;
       event.preventDefault();
       event.stopPropagation();

@@ -31,10 +31,11 @@ function isShortcut(value: unknown): value is HotbarFrameShortcut & { channel: s
     Object.keys(data).length === 4 &&
     data.channel === channel &&
     typeof data.code === "string" &&
-    /^Digit[1-9]$/.test(data.code) &&
+    /^Digit[0-9]$/.test(data.code) &&
     typeof data.metaKey === "boolean" &&
     typeof data.ctrlKey === "boolean" &&
-    !(data.metaKey && data.ctrlKey)
+    !(data.metaKey && data.ctrlKey) &&
+    !(data.code === "Digit0" && (data.metaKey || data.ctrlKey))
   );
 }
 

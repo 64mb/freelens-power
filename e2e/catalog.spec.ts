@@ -79,6 +79,9 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
       .click();
     const dialog = window.getByRole("dialog", { name: "Kubeconfig", exact: true });
     await expect(dialog).toBeVisible();
+    for (const title of ["Reload", "Close", "Save"]) {
+      await expect(dialog.getByRole("button", { name: title, exact: true }).locator(".Icon")).toHaveCount(1);
+    }
     const editor = dialog.locator(".monaco-editor");
     await expect(editor).toBeVisible();
     await expect(dialog.getByRole("textbox", { name: "Kubeconfig YAML", exact: true })).toBeVisible();
@@ -170,7 +173,7 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await focusFixture.focus();
     await window.keyboard.press("1");
     await expect(window.locator('[id^="cluster-frame-"]').first()).not.toBeVisible();
-    await window.locator("#hotbarIcon-catalog-entity").click();
+    await window.keyboard.press("0");
     await window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
     await expect(catalog).toBeVisible();
     const search = catalog.locator(":scope > .header .SearchInput input");
