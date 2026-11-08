@@ -6,6 +6,7 @@ interface PowerPreferences {
   checkUpdates: boolean;
   nodeBulkActions: boolean;
   hotbarShortcuts: boolean;
+  hotbarItemShortcuts: boolean;
 }
 
 export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPreferences> {
@@ -13,17 +14,25 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
   checkUpdates = true;
   nodeBulkActions = true;
   hotbarShortcuts = true;
+  hotbarItemShortcuts = true;
 
   constructor() {
     super({
       configName: "power-preferences",
-      defaults: { enabled: true, checkUpdates: true, nodeBulkActions: true, hotbarShortcuts: true },
+      defaults: {
+        enabled: true,
+        checkUpdates: true,
+        nodeBulkActions: true,
+        hotbarShortcuts: true,
+        hotbarItemShortcuts: true,
+      },
     });
     makeObservable(this, {
       enabled: observable,
       checkUpdates: observable,
       nodeBulkActions: observable,
       hotbarShortcuts: observable,
+      hotbarItemShortcuts: observable,
     });
   }
 
@@ -32,6 +41,7 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
     this.checkUpdates = data.checkUpdates !== false;
     this.nodeBulkActions = data.nodeBulkActions !== false;
     this.hotbarShortcuts = data.hotbarShortcuts !== false;
+    this.hotbarItemShortcuts = data.hotbarItemShortcuts !== false;
   }
 
   toJSON() {
@@ -40,6 +50,7 @@ export class PowerPreferencesStore extends Common.Store.ExtensionStore<PowerPref
       checkUpdates: this.checkUpdates,
       nodeBulkActions: this.nodeBulkActions,
       hotbarShortcuts: this.hotbarShortcuts,
+      hotbarItemShortcuts: this.hotbarItemShortcuts,
     };
   }
 }

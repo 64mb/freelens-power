@@ -18,6 +18,9 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await session.start(info);
     await session.install(info);
     const window = session.window;
+    const firstHotbarIcon = window.locator('.HotbarMenu [id^="hotbarIcon-"]').first();
+    await expect(firstHotbarIcon.locator("[data-power-hotbar-number]")).toHaveText("1");
+    await expect(firstHotbarIcon.locator("[data-power-hotbar-number]")).toBeVisible();
     const fixture = join(session.profile, "Freelens", "home", ".kube", "config");
     expect(await realpath(fixture)).not.toBe(await realpath(process.env.KUBECONFIG!));
 
