@@ -1,4 +1,5 @@
-import { Renderer } from "@freelensapp/extensions";
+import { Common, Renderer } from "@freelensapp/extensions";
+import { reaction } from "mobx";
 import { CLUSTER_ICONS_CHANNEL, type ClusterIconEntry } from "../common/cluster-icon-ipc";
 import { IconEditor } from "./cluster-icons";
 import { ipcRenderer } from "./ipc";
@@ -12,6 +13,7 @@ export function startClusterIconSettingsMenu(): () => void {
   let stopped = false;
   let request = 0;
   const open = async (id: string) => {
+    if (stopped) return;
     const current = ++request;
     try {
       const entries: ClusterIconEntry[] = await ipcRenderer.invoke(CLUSTER_ICONS_CHANNEL, { operation: "list" });
@@ -32,6 +34,20 @@ export function startClusterIconSettingsMenu(): () => void {
         Renderer.Component.Notifications.error("Unable to open the cluster icon editor. Try again.");
     }
   };
+  const addMenu = (entity: Common.Catalog.CatalogEntity, context: Common.Catalog.CatalogEntityContextMenuContext) => {
+    if (!Renderer.Catalog.getClusterById(entity.getId())) return;
+    context.menuItems.push({ title: "Edit icon", icon: "palette", onClick: () => void open(entity.getId()) });
+  };
+  let category: Common.Catalog.CatalogCategory | undefined;
+  const stopCategory = reaction(
+    () => Renderer.Catalog.catalogCategories.getForGroupKind("entity.k8slens.dev", "KubernetesCluster"),
+    (next) => {
+      category?.off("contextMenuOpen", addMenu);
+      category = next;
+      category?.on("contextMenuOpen", addMenu);
+    },
+    { fireImmediately: true },
+  );
   const remove = (menu: Element, button: HTMLLIElement) => {
     unmountContainer(button);
     button.remove();
@@ -91,6 +107,8 @@ export function startClusterIconSettingsMenu(): () => void {
     stopped = true;
     request++;
     observer.disconnect();
+    stopCategory();
+    category?.off("contextMenuOpen", addMenu);
     window.removeEventListener("keydown", onKeyDown, true);
     for (const [menu, button] of owned) remove(menu, button);
     unmountContainer(modal);

@@ -1,13 +1,23 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), render: vi.fn(), unmount: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  render: vi.fn(),
+  unmount: vi.fn(),
+  error: vi.fn(),
+  on: vi.fn(),
+  off: vi.fn(),
+}));
 vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("./react-roots", () => ({ renderIntoContainer: mocks.render, unmountContainer: mocks.unmount }));
 vi.mock("./cluster-icons", () => ({ IconEditor: () => null }));
 vi.mock("@freelensapp/extensions", () => ({
   Renderer: {
-    Catalog: { getClusterById: (id: string) => id === "sample" },
+    Catalog: {
+      getClusterById: (id: string) => id === "sample",
+      catalogCategories: { getForGroupKind: () => ({ on: mocks.on, off: mocks.off }) },
+    },
     Component: { Icon: () => null, Notifications: { error: mocks.error } },
   },
 }));
@@ -81,4 +91,26 @@ it("reaches the editor action with arrows, skips disabled Clear and activates wi
   await Promise.resolve();
   expect(mocks.invoke).toHaveBeenCalledTimes(1);
   stop();
+});
+
+it("adds Edit icon to the native cluster row menu and removes its subscription on stop", async () => {
+  const stop = startClusterIconSettingsMenu();
+  expect(mocks.on).toHaveBeenCalledWith("contextMenuOpen", expect.any(Function));
+  const addMenu = mocks.on.mock.calls[0][1];
+  const context = { menuItems: [] as { title: string; icon: string; onClick: () => void }[] };
+  addMenu({ getId: () => "web-link" }, context);
+  expect(context.menuItems).toHaveLength(0);
+  addMenu({ getId: () => "sample" }, context);
+  expect(context.menuItems).toHaveLength(1);
+  expect(context.menuItems[0]).toMatchObject({ title: "Edit icon", icon: "palette" });
+  const entry = { id: "sample", name: "Example" };
+  mocks.invoke.mockResolvedValue([entry]);
+  context.menuItems[0].onClick();
+  await Promise.resolve();
+  expect(mocks.render.mock.calls.at(-1)?.[0].props.entry).toBe(entry);
+  stop();
+  expect(mocks.off).toHaveBeenCalledWith("contextMenuOpen", addMenu);
+  const count = mocks.invoke.mock.calls.length;
+  context.menuItems[0].onClick();
+  expect(mocks.invoke).toHaveBeenCalledTimes(count);
 });
