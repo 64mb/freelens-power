@@ -35,7 +35,7 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await expect(row).toHaveCount(1);
     await row.locator('[data-testid^="icon-for-menu-actions-for-catalog-for-"]').click();
     const menu = window.locator('[data-testid^="menu-actions-for-catalog-for-"]:visible');
-    for (const title of ["View Details", "Settings", "Open kubeconfig"]) {
+    for (const title of ["View Details", "Settings", "Open kubeconfig", "Edit icon"]) {
       const item = menu.locator(".MenuItem").filter({ hasText: new RegExp(`^\\s*(?:[a-z_]+\\s*)?${title}\\s*$`) });
       await expect(item).toBeVisible();
       await expect(item.locator(".Icon")).toHaveCount(1);

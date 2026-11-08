@@ -47,3 +47,14 @@ it("decorates only the scoped cluster icon settings actions and preserves disabl
   stop();
   expect(document.body.innerHTML).toBe(before);
 });
+
+it("renders the palette for Edit icon in the native cluster table menu", () => {
+  document.body.innerHTML =
+    '<ul data-testid="menu-actions-for-catalog-for-example"><li class="MenuItem">Edit icon</li></ul>';
+  const before = document.body.innerHTML;
+  const stop = startCatalogMenuIcons();
+  expect(document.querySelectorAll("[data-power-catalog-menu-icon]")).toHaveLength(1);
+  expect(roots.render.mock.calls[0][0].props).toMatchObject({ material: "palette", size: 18 });
+  stop();
+  expect(document.body.innerHTML).toBe(before);
+});
