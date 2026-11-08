@@ -23,6 +23,7 @@ import { startAppearanceOverride } from "./appearance";
 import { startCatalogDisconnect } from "./catalog-disconnect";
 import { startCatalogMenuIcons } from "./catalog-menu-icons";
 import { startClusterIconOverlay } from "./cluster-icon-overlay";
+import { startClusterIconSettingsMenu } from "./cluster-icon-settings-menu";
 import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
 import { HpaDiagnosticsDetails } from "./details/hpa-diagnostics-details";
@@ -133,6 +134,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startExtensionUpdateNotifications,
             startAppearanceOverride,
             startClusterIconOverlay,
+            startClusterIconSettingsMenu,
             startCatalogMenuIcons,
             startCatalogDisconnect,
             startWelcomeOverride,

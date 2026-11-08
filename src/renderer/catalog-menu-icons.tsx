@@ -4,6 +4,8 @@ import { renderIntoContainer, unmountContainer } from "./react-roots";
 const icons: Record<string, { material: string } | { svg: string }> = {
   "View Details": { material: "info_outline" },
   Settings: { material: "settings" },
+  "Upload Icon": { material: "file_upload" },
+  Clear: { material: "clear" },
   "Open kubeconfig": { material: "edit" },
   Connect: { material: "link" },
   Disconnect: { material: "link_off" },
@@ -40,6 +42,7 @@ export function startCatalogMenuIcons(): () => void {
     });
     const items = new Set([
       ...document.querySelectorAll('[data-testid^="menu-actions-for-catalog-for-"] .MenuItem'),
+      ...document.querySelectorAll('[data-testid^="menu-actions-for-cluster-icon-settings-for-"] .MenuItem'),
       ...hotbarMenus.flatMap((menu) => [...menu.querySelectorAll(":scope > .MenuItem")]),
     ]);
     for (const item of items) {
