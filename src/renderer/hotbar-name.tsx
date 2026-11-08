@@ -15,7 +15,7 @@ export function startHotbarName(): () => void {
   const style = document.createElement("style");
   style.textContent = `[data-power-hotbar-name]{position:relative;z-index:1;flex-shrink:0;width:100%;min-width:0;padding:6px;box-sizing:border-box;text-align:center;color:var(--settingsColor);font-size:10px;line-height:16px}[data-power-hotbar-name] span{display:block;padding:1px 4px;border:1px solid var(--borderColor);border-radius:4px;background:var(--secondaryBackground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`;
   style.textContent +=
-    "[data-power-hotbar-numbered]{position:relative}[data-power-hotbar-number]{position:absolute;right:1px;top:1px;z-index:3;display:grid;place-items:center;min-width:12px;height:12px;padding:0 2px;box-sizing:border-box;border:1px solid var(--borderColor);border-radius:3px;background:var(--mainBackground);color:var(--textColorAccent);font:500 8px/10px system-ui;pointer-events:none}";
+    "[data-power-hotbar-numbered]{position:relative}[data-power-hotbar-number]{position:absolute;left:100%;top:0;transform:translate(-50%,-50%);z-index:3;display:grid;place-items:center;min-width:12px;height:12px;padding:0 2px;box-sizing:border-box;border:1px solid var(--borderColor);border-radius:3px;background:var(--mainBackground);color:var(--textColorAccent);font:500 8px/10px system-ui;pointer-events:none}";
   document.head.append(style);
   const remove = (selector: Element) => {
     const entry = owned.get(selector);
@@ -31,6 +31,7 @@ export function startHotbarName(): () => void {
         : [];
     for (const [icon, badge] of numbers) {
       if (icons.includes(icon)) continue;
+      badge.parentElement?.removeAttribute("data-power-hotbar-numbered");
       badge.remove();
       icon.removeAttribute("data-power-hotbar-numbered");
       numbers.delete(icon);
@@ -42,11 +43,18 @@ export function startHotbarName(): () => void {
         badge.setAttribute("data-power-hotbar-number", "");
         badge.setAttribute("aria-hidden", "true");
         numbers.set(icon, badge);
-        icon.setAttribute("data-power-hotbar-numbered", "");
       }
       const label = String(index + 1);
       if (badge.textContent !== label) badge.textContent = label;
-      if (badge.parentElement !== icon) icon.append(badge);
+      const wrapper = icon.parentElement?.matches('[class*="HotbarIcon"]') ? icon.parentElement : icon;
+      wrapper.setAttribute("data-power-hotbar-numbered", "");
+      if (badge.parentElement !== wrapper) wrapper.append(badge);
+      const marker = wrapper.querySelector<HTMLElement>(':scope > .Icon[class*="badge"]');
+      const markerBounds = marker?.getBoundingClientRect();
+      const left = markerBounds?.width
+        ? `${markerBounds.left + markerBounds.width / 2 - wrapper.getBoundingClientRect().left}px`
+        : "100%";
+      if (badge.style.left !== left) badge.style.left = left;
     });
     const targets = new Set<Element>();
     for (const badge of count > 1
@@ -109,7 +117,7 @@ export function startHotbarName(): () => void {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-testid"],
+    attributeFilter: ["data-testid", "id", "class"],
   });
   void refreshCount();
   const keydown = (event: KeyboardEvent) => {
@@ -178,6 +186,7 @@ export function startHotbarName(): () => void {
     clearInterval(timer);
     stopItemPreference();
     for (const [icon, badge] of numbers) {
+      badge.parentElement?.removeAttribute("data-power-hotbar-numbered");
       badge.remove();
       icon.removeAttribute("data-power-hotbar-numbered");
     }

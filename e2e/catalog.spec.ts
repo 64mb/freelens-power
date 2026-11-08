@@ -19,8 +19,18 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await session.install(info);
     const window = session.window;
     const firstHotbarIcon = window.locator('.HotbarMenu [id^="hotbarIcon-"]').first();
-    await expect(firstHotbarIcon.locator("[data-power-hotbar-number]")).toHaveText("1");
-    await expect(firstHotbarIcon.locator("[data-power-hotbar-number]")).toBeVisible();
+    await expect(firstHotbarIcon.locator("..").locator("[data-power-hotbar-number]")).toHaveText("1");
+    await expect(firstHotbarIcon.locator("..").locator("[data-power-hotbar-number]")).toBeVisible();
+    const numberBounds = (await firstHotbarIcon.locator("..").locator("[data-power-hotbar-number]").boundingBox())!;
+    const categoryBounds = (await firstHotbarIcon
+      .locator("..")
+      .locator(':scope > .Icon[class*="badge"]')
+      .boundingBox())!;
+    const avatarBounds = (await firstHotbarIcon.boundingBox())!;
+    expect(
+      Math.abs(numberBounds.x + numberBounds.width / 2 - categoryBounds.x - categoryBounds.width / 2),
+    ).toBeLessThan(1);
+    expect(Math.abs(numberBounds.y + numberBounds.height / 2 - avatarBounds.y)).toBeLessThan(1);
     const fixture = join(session.profile, "Freelens", "home", ".kube", "config");
     expect(await realpath(fixture)).not.toBe(await realpath(process.env.KUBECONFIG!));
 

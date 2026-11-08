@@ -190,3 +190,38 @@ it("numbers occupied items in DOM order and removes badges when item shortcuts a
   stop();
   document.body.innerHTML = before;
 });
+
+it("restarts numbering at one when the current hotbar is replaced", async () => {
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div class="HotbarItems"><div id="hotbarIcon-first"></div><div id="hotbarIcon-second"></div></div></div>';
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const items = document.querySelector(".HotbarItems")!;
+  items.innerHTML =
+    '<div id="hotbarIcon-third" data-power-cluster-icon></div><div id="hotbarIcon-fourth" data-power-cluster-icon></div>';
+  await Promise.resolve();
+  expect(Array.from(items.querySelectorAll("[data-power-hotbar-number]"), (node) => node.textContent)).toEqual([
+    "1",
+    "2",
+  ]);
+  expect(items.querySelector("#hotbarIcon-third [data-power-hotbar-number]")?.textContent).toBe("1");
+  stop();
+});
+
+it("aligns number badge centers with the native category marker outside the clipped avatar", async () => {
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div class="hotbar-icon-module__HotbarIcon--sample"><div id="hotbarIcon-sample" style="overflow:hidden"></div><i class="Icon hotbar-entity-icon-module__badge--sample"></i></div></div>';
+  const wrapper = document.querySelector<HTMLElement>('[class*="HotbarIcon"]')!;
+  const marker = wrapper.querySelector<HTMLElement>(".Icon")!;
+  vi.spyOn(wrapper, "getBoundingClientRect").mockReturnValue({ left: 10, top: 20, width: 40, height: 40 } as DOMRect);
+  vi.spyOn(marker, "getBoundingClientRect").mockReturnValue({ left: 45, top: 55, width: 15, height: 15 } as DOMRect);
+  const before = document.body.innerHTML;
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const badge = wrapper.querySelector<HTMLElement>("[data-power-hotbar-number]")!;
+  expect(badge.parentElement).toBe(wrapper);
+  expect(badge.style.left).toBe("42.5px");
+  expect(badge.textContent).toBe("1");
+  stop();
+  expect(document.body.innerHTML).toBe(before);
+});
