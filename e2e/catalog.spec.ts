@@ -30,7 +30,27 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     expect(
       Math.abs(numberBounds.x + numberBounds.width / 2 - categoryBounds.x - categoryBounds.width / 2),
     ).toBeLessThan(1);
-    expect(Math.abs(numberBounds.y + numberBounds.height / 2 - avatarBounds.y)).toBeLessThan(1);
+    expect(numberBounds.y).toBeGreaterThanOrEqual(avatarBounds.y + 1);
+    expect(numberBounds.width).toBe(14);
+    expect(numberBounds.height).toBe(14);
+    const centerOffset = await firstHotbarIcon
+      .locator("..")
+      .locator("[data-power-hotbar-number]")
+      .evaluate((badge) => {
+        const range = document.createRange();
+        range.selectNodeContents(badge);
+        const text = range.getBoundingClientRect();
+        const box = badge.getBoundingClientRect();
+        return {
+          x: Math.abs(text.x + text.width / 2 - box.x - box.width / 2),
+          y: Math.abs(text.y + text.height / 2 - box.y - box.height / 2),
+        };
+      });
+    expect(centerOffset.x).toBeLessThan(1.5);
+    expect(centerOffset.y).toBeLessThan(1.5);
+    const secondHotbar = window.locator('.HotbarMenu [id^="hotbarIcon-"]').nth(1);
+    const secondNumber = (await secondHotbar.locator("..").locator("[data-power-hotbar-number]").boundingBox())!;
+    expect(secondNumber.y - categoryBounds.y - categoryBounds.height).toBeGreaterThanOrEqual(2);
     const fixture = join(session.profile, "Freelens", "home", ".kube", "config");
     expect(await realpath(fixture)).not.toBe(await realpath(process.env.KUBECONFIG!));
 

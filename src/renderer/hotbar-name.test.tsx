@@ -223,6 +223,11 @@ it("aligns number badge centers with the native category marker outside the clip
   expect(badge.parentElement).toBe(wrapper);
   expect(badge.style.left).toBe("42.5px");
   expect(badge.textContent).toBe("1");
+  expect(getComputedStyle(badge).width).toBe("14px");
+  expect(getComputedStyle(badge).height).toBe("14px");
+  expect(getComputedStyle(badge).top).toBe("2px");
+  expect(getComputedStyle(badge).alignItems).toBe("center");
+  expect(getComputedStyle(badge).justifyContent).toBe("center");
   stop();
   expect(document.body.innerHTML).toBe(before);
 });

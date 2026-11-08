@@ -17,7 +17,7 @@ export function startHotbarName(): () => void {
   const style = document.createElement("style");
   style.textContent = `[data-power-hotbar-name]{position:relative;z-index:1;flex-shrink:0;width:100%;min-width:0;padding:6px;box-sizing:border-box;text-align:center;color:var(--settingsColor);font-size:10px;line-height:16px}[data-power-hotbar-name] span{display:block;padding:1px 4px;border:1px solid var(--borderColor);border-radius:4px;background:var(--secondaryBackground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`;
   style.textContent +=
-    "[data-power-hotbar-numbered]{position:relative}[data-power-hotbar-number]{position:absolute;left:100%;top:0;transform:translate(-50%,-50%);z-index:3;display:grid;place-items:center;min-width:12px;height:12px;padding:0 2px;box-sizing:border-box;border:1px solid var(--borderColor);border-radius:3px;background:var(--mainBackground);color:var(--textColorAccent);font:500 8px/10px system-ui;pointer-events:none}";
+    "[data-power-hotbar-numbered]{position:relative}[data-power-hotbar-number]{position:absolute;left:100%;top:2px;transform:translateX(-50%);z-index:3;display:flex;align-items:center;justify-content:center;width:14px;height:14px;padding:0;box-sizing:border-box;border:1px solid var(--borderColor);border-radius:3px;background:var(--mainBackground);color:var(--textColorAccent);font:500 9px/1 system-ui;font-variant-numeric:tabular-nums;pointer-events:none}";
   document.head.append(style);
   const remove = (selector: Element) => {
     const entry = owned.get(selector);
