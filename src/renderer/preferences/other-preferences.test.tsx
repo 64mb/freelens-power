@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 const stores = vi.hoisted(() => ({
   appearance: { clusterDiagnostics: true },
-  power: { nodeBulkActions: true, hotbarShortcuts: true },
+  power: { nodeBulkActions: true, hotbarShortcuts: true, hotbarItemShortcuts: true },
   monitoring: { resourceSearchEnabled: true, relationshipsVisible: true },
 }));
 vi.mock("../../common/store/appearance-preferences-store", () => ({
@@ -47,7 +47,7 @@ it("uses one switch for Node actions and Pod customization", () => {
   fireEvent.click(screen.getByRole("checkbox", { name: "Bulk resource actions" }));
   expect(stores.power.nodeBulkActions).toBe(false);
   expect(screen.getByText("Bulk actions and clearer resource dialogs.")).toBeTruthy();
-  expect(screen.getAllByRole("checkbox")).toHaveLength(4);
+  expect(screen.getAllByRole("checkbox")).toHaveLength(5);
 });
 
 it("uses the existing resource search setting with an ASCII shortcut label", () => {
@@ -62,4 +62,13 @@ it("exposes the hotbar shortcut opt-out in Other", () => {
   render(<OtherPreferences />);
   fireEvent.click(screen.getByRole("checkbox", { name: "Hotbar keyboard shortcuts" }));
   expect(stores.power.hotbarShortcuts).toBe(false);
+});
+
+it("exposes a separate item shortcut and number badge switch in Other", () => {
+  stores.power.hotbarShortcuts = true;
+  stores.power.hotbarItemShortcuts = true;
+  render(<OtherPreferences />);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Hotbar item shortcuts" }));
+  expect(stores.power.hotbarItemShortcuts).toBe(false);
+  expect(stores.power.hotbarShortcuts).toBe(true);
 });

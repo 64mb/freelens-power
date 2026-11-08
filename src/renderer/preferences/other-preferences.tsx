@@ -47,6 +47,19 @@ export const OtherPreferences = observer(() => {
       </div>
       <div>
         <Renderer.Component.Switch
+          checked={preferences.hotbarItemShortcuts}
+          onChange={(value) => {
+            preferences.hotbarItemShortcuts = value;
+          }}
+        >
+          Hotbar item shortcuts
+        </Renderer.Component.Switch>
+        <div className="power-settings-hint">
+          Show number badges and open hotbar items with 1-9 outside input fields.
+        </div>
+      </div>
+      <div>
+        <Renderer.Component.Switch
           checked={monitoring.resourceSearchEnabled}
           onChange={(value) => {
             monitoring.resourceSearchEnabled = value;

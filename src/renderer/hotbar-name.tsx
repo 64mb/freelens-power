@@ -1,3 +1,4 @@
+import { reaction } from "mobx";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
 import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
@@ -9,9 +10,12 @@ export function startHotbarName(): () => void {
   let count = 0;
   let stopped = false;
   let refreshing = false;
+  const numbers = new Map<HTMLElement, HTMLSpanElement>();
   const owned = new Map<Element, { host: HTMLDivElement; name: string }>();
   const style = document.createElement("style");
   style.textContent = `[data-power-hotbar-name]{position:relative;z-index:1;flex-shrink:0;width:100%;min-width:0;padding:6px;box-sizing:border-box;text-align:center;color:var(--settingsColor);font-size:10px;line-height:16px}[data-power-hotbar-name] span{display:block;padding:1px 4px;border:1px solid var(--borderColor);border-radius:4px;background:var(--secondaryBackground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`;
+  style.textContent +=
+    "[data-power-hotbar-numbered]{position:relative}[data-power-hotbar-number]{position:absolute;right:1px;top:1px;z-index:3;display:grid;place-items:center;min-width:12px;height:12px;padding:0 2px;box-sizing:border-box;border:1px solid var(--borderColor);border-radius:3px;background:var(--mainBackground);color:var(--textColorAccent);font:500 8px/10px system-ui;pointer-events:none}";
   document.head.append(style);
   const remove = (selector: Element) => {
     const entry = owned.get(selector);
@@ -21,6 +25,29 @@ export function startHotbarName(): () => void {
     owned.delete(selector);
   };
   const update = () => {
+    const icons =
+      preferences.hotbarItemShortcuts !== false
+        ? Array.from(document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]')).slice(0, 9)
+        : [];
+    for (const [icon, badge] of numbers) {
+      if (icons.includes(icon)) continue;
+      badge.remove();
+      icon.removeAttribute("data-power-hotbar-numbered");
+      numbers.delete(icon);
+    }
+    icons.forEach((icon, index) => {
+      let badge = numbers.get(icon);
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.setAttribute("data-power-hotbar-number", "");
+        badge.setAttribute("aria-hidden", "true");
+        numbers.set(icon, badge);
+        icon.setAttribute("data-power-hotbar-numbered", "");
+      }
+      const label = String(index + 1);
+      if (badge.textContent !== label) badge.textContent = label;
+      if (badge.parentElement !== icon) icon.append(badge);
+    });
     const targets = new Set<Element>();
     for (const badge of count > 1
       ? document.querySelectorAll<HTMLElement>(`.HotbarMenu [data-testid^="${prefix}"]`)
@@ -86,15 +113,16 @@ export function startHotbarName(): () => void {
   });
   void refreshCount();
   const keydown = (event: KeyboardEvent) => {
-    if (preferences.hotbarShortcuts === false) return;
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const itemShortcut = !event.metaKey && !event.ctrlKey;
+    if ((itemShortcut ? preferences.hotbarItemShortcuts : preferences.hotbarShortcuts) === false) return;
     if (
       event.defaultPrevented ||
       event.repeat ||
       event.isComposing ||
       event.altKey ||
       event.shiftKey ||
-      (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)
+      (!itemShortcut && (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey))
     )
       return;
     const digit = /^Digit([1-9])$/.exec(event.code);
@@ -102,6 +130,7 @@ export function startHotbarName(): () => void {
     const editable =
       'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], .monaco-editor, .xterm, .cm-editor, .CodeMirror';
     const catalogSearch =
+      !itemShortcut &&
       event.target instanceof HTMLInputElement &&
       event.target.matches('[data-testid^="catalog-list-for-"] > .header .SearchInput input');
     if (!catalogSearch && event.composedPath().some((node) => node instanceof Element && node.closest(editable)))
@@ -113,6 +142,15 @@ export function startHotbarName(): () => void {
     )
       return;
     const target = Number(digit[1]);
+    if (itemShortcut) {
+      if (document.querySelector(".Menu.portal, .HotbarMenu .isDragging")) return;
+      const icon = document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]')[target - 1];
+      if (!icon || icon.matches('[aria-disabled="true"], [disabled], [class*="disabled"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      icon.click();
+      return;
+    }
     const badge = document.querySelector<HTMLElement>('.HotbarMenu [data-testid^="hotbar-menu-badge-for-"]');
     const current = Number(badge?.textContent?.trim());
     const selector = badge?.closest('[class*="HotbarSelector"]');
@@ -132,11 +170,18 @@ export function startHotbarName(): () => void {
     for (let step = 0; step < Math.abs(target - current); step++) arrow.click();
   };
   document.addEventListener("keydown", keydown);
+  const stopItemPreference = reaction(() => preferences.hotbarItemShortcuts, update, { fireImmediately: true });
   const timer = setInterval(() => void refreshCount(), 2000);
   return () => {
     stopped = true;
     document.removeEventListener("keydown", keydown);
     clearInterval(timer);
+    stopItemPreference();
+    for (const [icon, badge] of numbers) {
+      badge.remove();
+      icon.removeAttribute("data-power-hotbar-numbered");
+    }
+    numbers.clear();
     observer.disconnect();
     for (const selector of owned.keys()) remove(selector);
     style.remove();

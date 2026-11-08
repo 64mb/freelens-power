@@ -1,6 +1,6 @@
 {
   "name": "@64mb/freelens-power",
-  "version": "2.21.5",
+  "version": "2.21.6",
   "description": "Power tools for Freelens Kubernetes IDE",
   "main": "dist/main.js",
   "renderer": "dist/renderer.js",

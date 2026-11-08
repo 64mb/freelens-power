@@ -18,6 +18,7 @@ it("defaults update checks on for existing preferences and preserves explicit op
     checkUpdates: false,
     nodeBulkActions: true,
     hotbarShortcuts: true,
+    hotbarItemShortcuts: true,
   });
   restored.enabled = true;
   expect(restored.checkUpdates).toBe(false);
@@ -47,4 +48,17 @@ it("enables hotbar shortcuts for legacy settings and preserves their explicit op
   const restored = new PowerPreferencesStore();
   restored.fromStore(store.toJSON());
   expect(restored.hotbarShortcuts).toBe(false);
+});
+
+it("persists item shortcuts separately from panel shortcuts with backward-compatible defaults", () => {
+  const store = new PowerPreferencesStore();
+  store.fromStore({ hotbarShortcuts: false });
+  expect(store.hotbarItemShortcuts).toBe(true);
+  store.hotbarItemShortcuts = false;
+  const restored = new PowerPreferencesStore();
+  restored.fromStore(store.toJSON());
+  expect(restored.hotbarItemShortcuts).toBe(false);
+  expect(restored.hotbarShortcuts).toBe(false);
+  restored.hotbarShortcuts = true;
+  expect(restored.hotbarItemShortcuts).toBe(false);
 });

@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 
-const roots = vi.hoisted(() => ({ render: vi.fn(), unmount: vi.fn(), count: 2, shortcuts: true }));
+const roots = vi.hoisted(() => ({ render: vi.fn(), unmount: vi.fn(), count: 2, shortcuts: true, itemShortcuts: true }));
 vi.mock("./react-roots", () => ({ renderIntoContainer: roots.render, unmountContainer: roots.unmount }));
 vi.mock("../common/store/power-preferences-store", () => ({
   PowerPreferencesStore: {
     getInstanceOrCreate: () => ({
+      get hotbarItemShortcuts() {
+        return roots.itemShortcuts;
+      },
       get hotbarShortcuts() {
         return roots.shortcuts;
       },
@@ -22,6 +25,7 @@ afterEach(() => {
   vi.clearAllMocks();
   roots.count = 2;
   roots.shortcuts = true;
+  roots.itemShortcuts = true;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -129,4 +133,60 @@ it.each([
   expect(key(input).defaultPrevented).toBe(false);
   expect(next).toHaveBeenCalledTimes(1);
   stop();
+});
+
+it("opens items with unmodified digits, preserves typing and obeys menu and preference guards", async () => {
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div id="hotbarIcon-first" tabindex="0"></div><div id="hotbarIcon-second" tabindex="0"></div><div id="hotbarIcon-third" class="avatar-module__disabled--sample"></div></div><main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input></div></div></main><textarea></textarea><div class="xterm" tabindex="0"></div><div contenteditable="true"></div>';
+  const first = vi.fn();
+  const second = vi.fn();
+  document.getElementById("hotbarIcon-first")!.addEventListener("click", first);
+  document.getElementById("hotbarIcon-second")!.addEventListener("click", second);
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const key = (target: Element | Document = document, code = "Digit2", extra = {}) => {
+    const event = new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true, ...extra });
+    target.dispatchEvent(event);
+    return event;
+  };
+  expect(key(document, "Digit1").defaultPrevented).toBe(true);
+  expect(first).toHaveBeenCalledOnce();
+  expect(key().defaultPrevented).toBe(true);
+  expect(second).toHaveBeenCalledOnce();
+  for (const element of document.querySelectorAll("input, textarea, .xterm, [contenteditable]"))
+    expect(key(element).defaultPrevented).toBe(false);
+  expect(key(document, "Digit3").defaultPrevented).toBe(false);
+  expect(key(document, "Digit9").defaultPrevented).toBe(false);
+  expect(key(document, "Digit2", { shiftKey: true }).defaultPrevented).toBe(false);
+  expect(key(document, "Digit2", { repeat: true }).defaultPrevented).toBe(false);
+  const menu = document.createElement("ul");
+  menu.className = "Menu portal";
+  document.body.append(menu);
+  expect(key().defaultPrevented).toBe(false);
+  menu.remove();
+  roots.itemShortcuts = false;
+  expect(key().defaultPrevented).toBe(false);
+  stop();
+  expect(key().defaultPrevented).toBe(false);
+  expect(second).toHaveBeenCalledOnce();
+});
+
+it("numbers occupied items in DOM order and removes badges when item shortcuts are disabled", async () => {
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div class="HotbarCell"></div><div id="hotbarIcon-first"></div><div class="HotbarCell"></div><div id="hotbarIcon-second"></div></div>';
+  const before = document.body.innerHTML;
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const badges = () => Array.from(document.querySelectorAll("[data-power-hotbar-number]"), (node) => node.textContent);
+  expect(badges()).toEqual(["1", "2"]);
+  const menu = document.querySelector(".HotbarMenu")!;
+  menu.prepend(document.getElementById("hotbarIcon-second")!);
+  await Promise.resolve();
+  expect(document.querySelector("#hotbarIcon-second [data-power-hotbar-number]")?.textContent).toBe("1");
+  roots.itemShortcuts = false;
+  menu.append(document.createElement("i"));
+  await Promise.resolve();
+  expect(badges()).toEqual([]);
+  stop();
+  document.body.innerHTML = before;
 });

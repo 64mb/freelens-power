@@ -185,7 +185,7 @@ async function checkDashboardScrollbars(info: TestInfo) {
           const controls = floating.contentView.children.filter(
             (view) =>
               "webContents" in view &&
-              (view as Electron.WebContentsView).webContents.getURL().startsWith("data:text/html"),
+              (view as Electron.WebContentsView).webContents.getURL().includes("dashboard-toggle-refresh"),
           );
           const control = controls[0] as Electron.WebContentsView | undefined;
           if (!control) return null;
@@ -202,10 +202,10 @@ async function checkDashboardScrollbars(info: TestInfo) {
     const control = (await refreshControl())!;
     expect(control.count).toBe(1);
     expect(control.bounds).toEqual({
-      x: control.window.width - 28,
-      y: control.window.height - 28,
-      width: 20,
-      height: 20,
+      x: control.window.width - 36,
+      y: control.window.height - 36,
+      width: 24,
+      height: 24,
     });
     await refreshControl(true);
     await expect.poll(async () => (await refreshControl())?.pressed).toBe("true");
