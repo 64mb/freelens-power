@@ -122,6 +122,46 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await expect(editor.locator(".view-lines")).not.toContainText(draftComment);
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    const hotbarSelector = window.locator('.HotbarMenu [data-testid^="hotbar-menu-badge-for-"]');
+    await hotbarSelector.click();
+    await window.getByText("Add hotbar ...", { exact: true }).click();
+    const panelName = window.getByPlaceholder("Hotbar name", { exact: true });
+    await panelName.fill("Second panel");
+    await panelName.press("Enter");
+    await expect(hotbarSelector).toHaveText("2");
+    await window.getByRole("treeitem", { name: /General$/ }).click();
+    await clustersEntry.getByTestId("icon-for-menu-actions-for-catalog-for-freelens-power-clusters").click();
+    await window
+      .locator('[data-testid="menu-actions-for-catalog-for-freelens-power-clusters"] .MenuItem')
+      .filter({ hasText: /Add to Hotbar\s*$/ })
+      .click();
+    await expect(window.locator(".HotbarMenu [data-power-hotbar-number]")).toHaveText(["1"]);
+    const cluster = await session.cluster(info);
+    await cluster.evaluate(() => {
+      const button = document.createElement("button");
+      button.id = "hotbar-shortcut-focus-fixture";
+      button.textContent = "Shortcut focus fixture";
+      document.body.append(button);
+    });
+    const focusFixture = cluster.locator("#hotbar-shortcut-focus-fixture");
+    await focusFixture.focus();
+    await window.keyboard.press("ControlOrMeta+1");
+    await expect(hotbarSelector).toHaveText("1");
+    await focusFixture.focus();
+    await window.keyboard.press("1");
+    await expect(window.locator('[id^="cluster-frame-"]').first()).not.toBeVisible();
+    const search = window.locator('[data-testid^="catalog-list-for-"] > .header .SearchInput input').first();
+    await expect(search).not.toBeFocused();
+    await window.keyboard.press("ControlOrMeta+2");
+    await expect(hotbarSelector).toHaveText("2");
+    await expect(window.locator(".HotbarMenu [data-power-hotbar-number]")).toHaveText(["1"]);
+    await search.focus();
+    await window.keyboard.press("1");
+    await expect(search).toHaveValue("1");
+    await search.fill("");
+    await search.blur();
+    await window.keyboard.press("1");
+    await expect(catalog).toBeVisible();
     failed = false;
   } finally {
     await session.close(info, true, failed);

@@ -1,5 +1,6 @@
 import { reaction } from "mobx";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
+import { forwardHotbarShortcut, startHotbarFrameShortcuts } from "./hotbar-frame-shortcuts";
 import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
 import { renderIntoContainer, unmountContainer } from "./react-roots";
@@ -10,6 +11,7 @@ export function startHotbarName(): () => void {
   let count = 0;
   let stopped = false;
   let refreshing = false;
+  const seenSearches = new WeakSet<HTMLInputElement>();
   const numbers = new Map<HTMLElement, HTMLSpanElement>();
   const owned = new Map<Element, { host: HTMLDivElement; name: string }>();
   const style = document.createElement("style");
@@ -25,6 +27,17 @@ export function startHotbarName(): () => void {
     owned.delete(selector);
   };
   const update = () => {
+    for (const input of document.querySelectorAll<HTMLInputElement>(
+      '[data-testid^="catalog-list-for-"] > .header .SearchInput input',
+    )) {
+      if (seenSearches.has(input)) continue;
+      seenSearches.add(input);
+      if (
+        (preferences.hotbarShortcuts !== false || preferences.hotbarItemShortcuts !== false) &&
+        document.activeElement === input
+      )
+        input.blur();
+    }
     const icons =
       preferences.hotbarItemShortcuts !== false
         ? Array.from(document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]')).slice(0, 9)
@@ -137,21 +150,21 @@ export function startHotbarName(): () => void {
     if (!digit) return;
     const editable =
       'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], .monaco-editor, .xterm, .cm-editor, .CodeMirror';
-    const catalogSearch =
-      !itemShortcut &&
-      event.target instanceof HTMLInputElement &&
-      event.target.matches('[data-testid^="catalog-list-for-"] > .header .SearchInput input');
-    if (!catalogSearch && event.composedPath().some((node) => node instanceof Element && node.closest(editable)))
-      return;
+    if (event.composedPath().some((node) => node instanceof Element && node.closest(editable))) return;
     if (
       document.querySelector(
         '.Dialog.modal, [aria-modal="true"], .SettingLayout, [class*="command-container-module__CommandContainer--"]',
       )
     )
       return;
+    if (itemShortcut && document.querySelector(".Menu.portal, .HotbarMenu .isDragging")) return;
+    if (forwardHotbarShortcut(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const target = Number(digit[1]);
     if (itemShortcut) {
-      if (document.querySelector(".Menu.portal, .HotbarMenu .isDragging")) return;
       const icon = document.querySelectorAll<HTMLElement>('.HotbarMenu [id^="hotbarIcon-"]')[target - 1];
       if (!icon || icon.matches('[aria-disabled="true"], [disabled], [class*="disabled"]')) return;
       event.preventDefault();
@@ -177,12 +190,16 @@ export function startHotbarName(): () => void {
     const arrow = arrows[target > current ? 1 : 0];
     for (let step = 0; step < Math.abs(target - current); step++) arrow.click();
   };
+  const stopFrameShortcuts = startHotbarFrameShortcuts((shortcut) => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { ...shortcut, bubbles: true, cancelable: true }));
+  });
   document.addEventListener("keydown", keydown);
   const stopItemPreference = reaction(() => preferences.hotbarItemShortcuts, update, { fireImmediately: true });
   const timer = setInterval(() => void refreshCount(), 2000);
   return () => {
     stopped = true;
     document.removeEventListener("keydown", keydown);
+    stopFrameShortcuts();
     clearInterval(timer);
     stopItemPreference();
     for (const [icon, badge] of numbers) {

@@ -104,7 +104,7 @@ it("switches hotbars with Cmd digits through native arrows while preserving inpu
 it.each([
   ["MacIntel", { metaKey: true }],
   ["Win32", { ctrlKey: true }],
-])("allows hotbar shortcuts only from native Catalog header search on %s", async (platform, modifier) => {
+])("preserves typing in Catalog search on %s", async (platform, modifier) => {
   vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
   document.body.innerHTML =
     '<div class="HotbarMenu"><div class="HotbarSelector"><button class="Icon"></button><span data-testid="hotbar-menu-badge-for-Example">1</span><button class="Icon"></button></div></div><main data-testid="catalog-list-for-General"><div class="header"><div class="SearchInput"><input value="example"></div></div><div class="SearchInput"><input id="row-input"></div></main><section><div class="header"><div class="SearchInput"><input id="other-search"></div></div></section>';
@@ -119,8 +119,8 @@ it.each([
     target.dispatchEvent(event);
     return event;
   };
-  expect(key(input).defaultPrevented).toBe(true);
-  expect(next).toHaveBeenCalledTimes(1);
+  expect(key(input).defaultPrevented).toBe(false);
+  expect(next).not.toHaveBeenCalled();
   expect(input.value).toBe("example");
   expect(key(document.getElementById("row-input")!).defaultPrevented).toBe(false);
   expect(key(document.getElementById("other-search")!).defaultPrevented).toBe(false);
@@ -131,13 +131,13 @@ it.each([
   modal.remove();
   roots.shortcuts = false;
   expect(key(input).defaultPrevented).toBe(false);
-  expect(next).toHaveBeenCalledTimes(1);
+  expect(next).not.toHaveBeenCalled();
   stop();
 });
 
 it("opens items with unmodified digits, preserves typing and obeys menu and preference guards", async () => {
   document.body.innerHTML =
-    '<div class="HotbarMenu"><div id="hotbarIcon-first" tabindex="0"></div><div id="hotbarIcon-second" tabindex="0"></div><div id="hotbarIcon-third" class="avatar-module__disabled--sample"></div></div><main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input></div></div></main><textarea></textarea><div class="xterm" tabindex="0"></div><div contenteditable="true"></div>';
+    '<div class="HotbarMenu"><div id="hotbarIcon-first" tabindex="0"></div><div id="hotbarIcon-second" tabindex="0"></div><div id="hotbarIcon-third" class="avatar-module__disabled--sample"></div></div><main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input></div></div></main><input id="other-input"><textarea></textarea><div class="xterm" tabindex="0"></div><div contenteditable="true"></div>';
   const first = vi.fn();
   const second = vi.fn();
   document.getElementById("hotbarIcon-first")!.addEventListener("click", first);
@@ -153,8 +153,9 @@ it("opens items with unmodified digits, preserves typing and obeys menu and pref
   expect(first).toHaveBeenCalledOnce();
   expect(key().defaultPrevented).toBe(true);
   expect(second).toHaveBeenCalledOnce();
-  for (const element of document.querySelectorAll("input, textarea, .xterm, [contenteditable]"))
+  for (const element of document.querySelectorAll("#other-input, textarea, .xterm, [contenteditable]"))
     expect(key(element).defaultPrevented).toBe(false);
+  expect(key(document.querySelector("main input")!).defaultPrevented).toBe(false);
   expect(key(document, "Digit3").defaultPrevented).toBe(false);
   expect(key(document, "Digit9").defaultPrevented).toBe(false);
   expect(key(document, "Digit2", { shiftKey: true }).defaultPrevented).toBe(false);
@@ -224,4 +225,24 @@ it("aligns number badge centers with the native category marker outside the clip
   expect(badge.textContent).toBe("1");
   stop();
   expect(document.body.innerHTML).toBe(before);
+});
+
+it.each([
+  true,
+  false,
+])("releases only the initial Catalog search focus when shortcuts are enabled: %s", async (enabled) => {
+  roots.shortcuts = enabled;
+  roots.itemShortcuts = enabled;
+  document.body.innerHTML =
+    '<main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input autofocus></div></div></main>';
+  const input = document.querySelector<HTMLInputElement>("input")!;
+  input.focus();
+  const stop = startHotbarName();
+  await Promise.resolve();
+  expect(document.activeElement === input).toBe(!enabled);
+  input.focus();
+  document.body.append(document.createElement("i"));
+  await Promise.resolve();
+  expect(document.activeElement).toBe(input);
+  stop();
 });
