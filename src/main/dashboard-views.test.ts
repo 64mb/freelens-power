@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   nextDebugger: undefined as any,
   backgroundThrottling: true,
   floating: [] as any[],
+  refreshControls: [] as any[],
   window: {
     on: vi.fn(),
     removeListener: vi.fn(),
@@ -112,6 +113,13 @@ vi.mock("electron", async () => {
     },
   };
 });
+vi.mock("./dashboard-floating-refresh", () => ({
+  createDashboardFloatingRefresh: (_window: unknown, enabled: boolean, toggle: () => void) => {
+    const control = { enabled, toggle, update: vi.fn(), dispose: vi.fn() };
+    mocks.refreshControls.push(control);
+    return control;
+  },
+}));
 vi.mock("./dashboard-icon-cache", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./dashboard-icon-cache")>()),
   loadDashboardIcons: vi.fn().mockResolvedValue([]),
@@ -172,6 +180,7 @@ beforeEach(() => {
   mocks.nextDebugger = undefined;
   mocks.backgroundThrottling = true;
   mocks.floating.length = 0;
+  mocks.refreshControls.length = 0;
   vi.clearAllMocks();
   mocks.permissions.fetch.mockImplementation(
     async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } }),
@@ -1777,4 +1786,56 @@ vi.mock("./power-ipc", async () => {
         sender.send(channel, ...args),
     },
   };
+});
+
+it("opens a configured catalog widget before visiting the dashboard and focuses its existing window", async () => {
+  const dispose = startDashboardViews();
+  const owner = event();
+  owner.senderFrame.url = "https://renderer.freelens.app/catalog";
+  owner.sender.getURL = () => owner.senderFrame.url;
+  const open = mocks.handlers.get("freelens-power:dashboard-views:open");
+  try {
+    expect(await mocks.handlers.get(sync)(owner, payload)).toBeUndefined();
+    expect(await open(owner, { id: "unknown" })).toBeUndefined();
+    expect(await open({ ...owner, senderFrame: { url: owner.senderFrame.url } }, { id: "site" })).toBeUndefined();
+    expect(mocks.views).toHaveLength(0);
+    expect(await open(owner, { id: "site", url: "https://attacker.example" })).toEqual({ pinned: ["site"] });
+    expect(mocks.floating).toHaveLength(1);
+    expect(mocks.floating[0].webContents.loadURL).toHaveBeenCalledWith("https://example.com/");
+    expect(mocks.window.contentView.addChildView.mock.calls[0][0].setVisible).toHaveBeenLastCalledWith(false);
+    await open(owner, { id: "site" });
+    expect(mocks.floating).toHaveLength(1);
+    expect(mocks.floating[0].focus).toHaveBeenCalledOnce();
+  } finally {
+    dispose();
+  }
+});
+
+it("synchronizes the floating auto-refresh control with saved dashboard settings and disposes it", async () => {
+  const dispose = startDashboardViews();
+  const owner = event();
+  const upsert = vi.fn((card) =>
+    runInAction(() => {
+      mocks.store.cards[0] = card;
+    }),
+  );
+  Object.assign(mocks.store, { upsertCard: upsert });
+  try {
+    await mocks.handlers.get(sync)(owner, payload);
+    await mocks.handlers.get("freelens-power:dashboard-views:pin")(owner, { id: "site", pinned: true });
+    const control = mocks.refreshControls[0];
+    expect(control.enabled).toBe(false);
+    control.toggle();
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ id: "site", refreshEvery10Seconds: true }));
+    expect(control.update).toHaveBeenLastCalledWith(true);
+    control.toggle();
+    expect(control.update).toHaveBeenLastCalledWith(false);
+    mocks.floating[0].close();
+    expect(control.dispose).toHaveBeenCalledOnce();
+    const count = upsert.mock.calls.length;
+    control.toggle();
+    expect(upsert).toHaveBeenCalledTimes(count);
+  } finally {
+    dispose();
+  }
 });

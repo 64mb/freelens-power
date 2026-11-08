@@ -26,6 +26,7 @@ import { startClusterIconOverlay } from "./cluster-icon-overlay";
 import { startClusterIconSettingsMenu } from "./cluster-icon-settings-menu";
 import { ClusterIconsPage } from "./cluster-icons";
 import { DashboardPage } from "./dashboard";
+import { startDashboardLinks } from "./dashboard-links";
 import { HpaDiagnosticsDetails } from "./details/hpa-diagnostics-details";
 import { NamespaceHealthDetails } from "./details/namespace-health-details";
 import { ResourceHealthDetails } from "./details/resource-health-details";
@@ -137,6 +138,7 @@ export default class FreelensPowerRenderer extends Renderer.LensExtension {
             startClusterIconSettingsMenu,
             startCatalogMenuIcons,
             startCatalogDisconnect,
+            startDashboardLinks,
             startWelcomeOverride,
             startAiChat,
             startResourceSearch,

@@ -33,3 +33,5 @@ export interface DashboardSiteIcon {
 
 export const DASHBOARD_VIEWS_PIN = "freelens-power:dashboard-views:pin";
 export const DASHBOARD_VIEWS_PINNED = "freelens-power:dashboard-views:pinned";
+
+export const DASHBOARD_VIEWS_OPEN = "freelens-power:dashboard-views:open";
