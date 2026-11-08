@@ -35,3 +35,15 @@ it("adds icons to catalog rows and native hotbar context menus without changing 
   expect(document.body.innerHTML).toBe(before);
   expect(roots.unmount).toHaveBeenCalledTimes(9);
 });
+
+it("decorates only the scoped cluster icon settings actions and preserves disabled state", () => {
+  document.body.innerHTML =
+    '<ul data-testid="menu-actions-for-cluster-icon-settings-for-example"><li class="MenuItem">Upload Icon</li><li class="MenuItem disabled" aria-disabled="true">Clear</li></ul><div class="MenuItem">Clear</div>';
+  const before = document.body.innerHTML;
+  const stop = startCatalogMenuIcons();
+  expect(document.querySelectorAll("[data-power-catalog-menu-icon]")).toHaveLength(2);
+  expect(roots.render.mock.calls.map(([node]) => node.props.material)).toEqual(["file_upload", "clear"]);
+  expect(document.querySelector('[aria-disabled="true"]')?.classList.contains("disabled")).toBe(true);
+  stop();
+  expect(document.body.innerHTML).toBe(before);
+});

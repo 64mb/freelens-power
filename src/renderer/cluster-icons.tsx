@@ -53,7 +53,7 @@ const styles = `
 @media (prefers-reduced-motion: reduce) { .power-icon-card { transition: none; transform: none; } }
 `;
 
-function IconEditor({
+export function IconEditor({
   entry,
   onClose,
   onSaved,
