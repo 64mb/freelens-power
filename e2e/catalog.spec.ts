@@ -21,7 +21,7 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     const fixture = join(session.profile, "Freelens", "home", ".kube", "config");
     expect(await realpath(fixture)).not.toBe(await realpath(process.env.KUBECONFIG!));
 
-    await window.getByRole("treeitem", { name: "General", exact: true }).click();
+    await window.getByRole("treeitem", { name: /General$/ }).click();
     const general = window.getByTestId("catalog-list-for-General");
     await expect(general).toBeVisible();
     const clustersEntry = general.locator(".TableRow").filter({
