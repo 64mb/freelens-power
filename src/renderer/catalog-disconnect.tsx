@@ -18,7 +18,7 @@ export function startCatalogDisconnect(): () => void {
   let renderedDisabled: boolean | undefined;
   const style = document.createElement("style");
   style.textContent =
-    ".power-catalog-disconnect{position:absolute;right:86px;bottom:30px;z-index:1}.power-catalog-disconnect button:disabled{opacity:.45;cursor:default}";
+    ".power-catalog-disconnect{position:absolute;right:94px;bottom:30px;z-index:1}.power-catalog-disconnect button:disabled{opacity:.45;cursor:default}";
   document.head.append(style);
   const remove = () => {
     if (!host) return;
