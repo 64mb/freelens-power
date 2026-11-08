@@ -7,6 +7,7 @@ const icons: Record<string, { material: string } | { svg: string }> = {
   "Upload Icon": { material: "file_upload" },
   Clear: { material: "clear" },
   "Open kubeconfig": { material: "edit" },
+  "Edit icon": { material: "palette" },
   Connect: { material: "link" },
   Disconnect: { material: "link_off" },
   Remove: { material: "delete" },

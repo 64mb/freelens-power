@@ -101,7 +101,11 @@ export function startHotbarName(): () => void {
     if (!digit) return;
     const editable =
       'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], .monaco-editor, .xterm, .cm-editor, .CodeMirror';
-    if (event.composedPath().some((node) => node instanceof Element && node.closest(editable))) return;
+    const catalogSearch =
+      event.target instanceof HTMLInputElement &&
+      event.target.matches('[data-testid^="catalog-list-for-"] > .header .SearchInput input');
+    if (!catalogSearch && event.composedPath().some((node) => node instanceof Element && node.closest(editable)))
+      return;
     if (
       document.querySelector(
         '.Dialog.modal, [aria-modal="true"], .SettingLayout, [class*="command-container-module__CommandContainer--"]',

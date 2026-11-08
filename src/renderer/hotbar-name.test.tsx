@@ -96,3 +96,37 @@ it("switches hotbars with Cmd digits through native arrows while preserving inpu
   expect(key(document).defaultPrevented).toBe(false);
   expect(next).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  ["MacIntel", { metaKey: true }],
+  ["Win32", { ctrlKey: true }],
+])("allows hotbar shortcuts only from native Catalog header search on %s", async (platform, modifier) => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div class="HotbarSelector"><button class="Icon"></button><span data-testid="hotbar-menu-badge-for-Example">1</span><button class="Icon"></button></div></div><main data-testid="catalog-list-for-General"><div class="header"><div class="SearchInput"><input value="example"></div></div><div class="SearchInput"><input id="row-input"></div></main><section><div class="header"><div class="SearchInput"><input id="other-search"></div></div></section>';
+  const next = vi.fn();
+  document.querySelectorAll(".Icon")[1].addEventListener("click", next);
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const input = document.querySelector<HTMLInputElement>("main > .header input")!;
+  input.focus();
+  const key = (target: Element) => {
+    const event = new KeyboardEvent("keydown", { code: "Digit2", bubbles: true, cancelable: true, ...modifier });
+    target.dispatchEvent(event);
+    return event;
+  };
+  expect(key(input).defaultPrevented).toBe(true);
+  expect(next).toHaveBeenCalledTimes(1);
+  expect(input.value).toBe("example");
+  expect(key(document.getElementById("row-input")!).defaultPrevented).toBe(false);
+  expect(key(document.getElementById("other-search")!).defaultPrevented).toBe(false);
+  const modal = document.createElement("div");
+  modal.className = "Dialog modal";
+  document.body.append(modal);
+  expect(key(input).defaultPrevented).toBe(false);
+  modal.remove();
+  roots.shortcuts = false;
+  expect(key(input).defaultPrevented).toBe(false);
+  expect(next).toHaveBeenCalledTimes(1);
+  stop();
+});
