@@ -150,6 +150,7 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await focusFixture.focus();
     await window.keyboard.press("1");
     await expect(window.locator('[id^="cluster-frame-"]').first()).not.toBeVisible();
+    await window.locator("#hotbarIcon-catalog-entity").click();
     await window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
     await expect(catalog).toBeVisible();
     const search = catalog.locator(":scope > .header .SearchInput input");
