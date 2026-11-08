@@ -21,12 +21,14 @@ import { dashboardSelectorScript } from "../common/dashboard-selector";
 import {
   DASHBOARD_SITE_ICONS,
   DASHBOARD_VIEWS_LOADING,
+  DASHBOARD_VIEWS_OPEN,
   DASHBOARD_VIEWS_PIN,
   DASHBOARD_VIEWS_PINNED,
   type DashboardSiteIcon,
 } from "../common/dashboard-views";
 import { DashboardPreferencesStore } from "../common/store/dashboard-preferences-store";
 import { setDashboardAiReader, waitForDashboardAiRead } from "./dashboard-ai";
+import { createDashboardFloatingRefresh } from "./dashboard-floating-refresh";
 import { boundedDashboardIcons, loadDashboardIcons, saveDashboardIcons } from "./dashboard-icon-cache";
 import { observeDashboardNetwork } from "./dashboard-network";
 import { powerIpc } from "./power-ipc";
@@ -136,6 +138,7 @@ type CardView = {
   refreshGeneration?: number;
   floating?: BrowserWindow;
   floatingStyles?: WebsiteStyleState;
+  floatingRefresh?: ReturnType<typeof createDashboardFloatingRefresh>;
   floatingPreparation?: {
     refresh: () => Promise<boolean>;
     selectorChanged: () => void;
@@ -511,6 +514,7 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
           card.floatingPreparation?.selectorChanged();
         }
         if (card.floating && !card.floating.isDestroyed()) card.floating.setTitle(setting.title);
+        card.floatingRefresh?.update(setting.refreshEvery10Seconds === true);
         if (card.floatingStyles) {
           const scrollbars = setting.size === "l" || setting.size === "xl";
           if (card.floatingStyles.scrollbars !== scrollbars) {
@@ -584,6 +588,10 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
       ),
     refreshTimers,
   );
+  const trustedRenderer = (event: IpcMainInvokeEvent) =>
+    event.senderFrame === event.sender.mainFrame &&
+    rendererUrl(event.senderFrame?.url ?? "") &&
+    rendererUrl(event.sender.getURL());
   const trusted = (event: IpcMainInvokeEvent) =>
     event.senderFrame === event.sender.mainFrame &&
     dashboardUrl(event.senderFrame?.url ?? "") &&
@@ -603,7 +611,7 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
     });
   });
   const syncViews = async (event: IpcMainInvokeEvent, payload: unknown, prepareHidden = false) => {
-    if (!trusted(event)) return;
+    if (!(prepareHidden ? trustedRenderer(event) : trusted(event))) return;
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window || window.isDestroyed()) return;
     const requested =
@@ -910,9 +918,8 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
         [...owner.cards].filter(([, card]) => card.floating).map(([id]) => id),
       );
   };
-  powerIpc.handle(DASHBOARD_VIEWS_PIN, (event, payload: unknown) => {
+  const setPinned = (event: IpcMainInvokeEvent, payload: unknown) => {
     if (
-      !trusted(event) ||
       !payload ||
       typeof payload !== "object" ||
       !("id" in payload) ||
@@ -1102,8 +1109,18 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
         ++generation;
         stopPreparation();
       });
+      card.floatingRefresh = createDashboardFloatingRefresh(floating, configured.refreshEvery10Seconds === true, () => {
+        const latest = configuredCards().find((item) => item.id === id && item.url === card.url);
+        if (card.floating !== floating || floating.isDestroyed() || !latest) return;
+        DashboardPreferencesStore.getInstanceOrCreate<DashboardPreferencesStore>().upsertCard({
+          ...latest,
+          refreshEvery10Seconds: !latest.refreshEvery10Seconds,
+        });
+      });
       floating.on("closed", () => {
         if (card.floating !== floating) return;
+        card.floatingRefresh?.dispose();
+        card.floatingRefresh = undefined;
         card.floatingPreparation?.stop();
         card.floatingPreparation = undefined;
         floatingStyles.websiteStylesGeneration = (floatingStyles.websiteStylesGeneration ?? 0) + 1;
@@ -1117,6 +1134,23 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
     }
     publishPinned(event.sender, owner);
     return { pinned: [...owner.cards].filter(([, item]) => item.floating).map(([id]) => id) };
+  };
+  powerIpc.handle(DASHBOARD_VIEWS_PIN, (event, payload: unknown) => {
+    if (!trusted(event)) return;
+    return setPinned(event, payload);
+  });
+  powerIpc.handle(DASHBOARD_VIEWS_OPEN, async (event, payload: unknown) => {
+    if (!trustedRenderer(event) || !payload || typeof payload !== "object" || !("id" in payload)) return;
+    const configured = configuredCards().find((item) => item.id === payload.id);
+    if (!configured) return;
+    const cached = owners.get(event.sender)?.cards.get(configured.id);
+    if (!cached || cached.url !== configured.url) {
+      const bounds = { x: 0, y: 0, width: 1024, height: 768 };
+      await syncViews(event, { cards: [{ id: configured.id, bounds, clip: bounds }] }, true);
+    }
+    if (!trustedRenderer(event)) return;
+    const card = owners.get(event.sender)?.cards.get(configured.id);
+    return setPinned(event, card?.floating ? { id: configured.id, focus: true } : { id: configured.id, pinned: true });
   });
   powerIpc.handle(clearChannel, (event) => {
     if (
@@ -1151,6 +1185,7 @@ export function startDashboardViews(onIconsChanged: (icons: DashboardSiteIcon[])
     setDashboardAiReader(undefined);
     stopSettingsReaction();
     powerIpc.removeHandler(DASHBOARD_VIEWS_PIN);
+    powerIpc.removeHandler(DASHBOARD_VIEWS_OPEN);
     powerIpc.removeHandler(DASHBOARD_SITE_ICONS);
     powerIpc.removeHandler(syncChannel);
     powerIpc.removeHandler(clearChannel);

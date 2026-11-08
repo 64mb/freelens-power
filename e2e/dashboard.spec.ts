@@ -165,6 +165,59 @@ async function checkDashboardScrollbars(info: TestInfo) {
     await dashboard.getByRole("button", { name: `Unpin ${title}`, exact: true }).click();
     await expect.poll(async () => (await states()).filter((state) => state.pinned).length).toBe(0);
     await expectMode(false, false);
+    holdResources = false;
+    for (const response of pending) finishImage(response);
+    await page.evaluate(
+      "globalThis.FreelensExtensionApi.Renderer.Navigation.navigate('/catalog/entity.k8slens.dev/WebLink')",
+    );
+    const links = page.getByTestId("catalog-list-for-Web Links");
+    await expect(links).toBeVisible();
+    const link = links.getByText(title, { exact: true });
+    await link.click();
+    await expect.poll(async () => (await states()).filter((state) => state.pinned).length).toBe(1);
+    await link.click();
+    await expect.poll(async () => (await states()).filter((state) => state.pinned).length).toBe(1);
+    const refreshControl = (click = false) =>
+      session.app.evaluate(
+        async ({ BrowserWindow }, args) => {
+          const floating = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL() === args.url);
+          if (!floating) return null;
+          const controls = floating.contentView.children.filter(
+            (view) =>
+              "webContents" in view &&
+              (view as Electron.WebContentsView).webContents.getURL().startsWith("data:text/html"),
+          );
+          const control = controls[0] as Electron.WebContentsView | undefined;
+          if (!control) return null;
+          const pressed = await control.webContents.executeJavaScript(
+            'document.querySelector("button")?.getAttribute("aria-pressed")',
+          );
+          if (args.click)
+            await control.webContents.executeJavaScript('document.querySelector("button")?.click()', true);
+          return { pressed, bounds: control.getBounds(), window: floating.getContentBounds(), count: controls.length };
+        },
+        { url, click },
+      );
+    await expect.poll(async () => (await refreshControl())?.pressed).toBe("false");
+    const control = (await refreshControl())!;
+    expect(control.count).toBe(1);
+    expect(control.bounds).toEqual({
+      x: control.window.width - 28,
+      y: control.window.height - 28,
+      width: 20,
+      height: 20,
+    });
+    await refreshControl(true);
+    await expect.poll(async () => (await refreshControl())?.pressed).toBe("true");
+    await page.evaluate(
+      "globalThis.FreelensExtensionApi.Renderer.Navigation.navigate('/extension/freelens-power/dashboard')",
+    );
+    const autoRefresh = dashboard.getByRole("button", { name: `Auto-refresh ${title} every 10 seconds`, exact: true });
+    await expect(autoRefresh).toHaveAttribute("aria-pressed", "true");
+    await autoRefresh.click();
+    await expect.poll(async () => (await refreshControl())?.pressed).toBe("false");
+    await dashboard.getByRole("button", { name: `Unpin ${title}`, exact: true }).click();
+    await expect.poll(async () => (await states()).filter((state) => state.pinned).length).toBe(0);
     failed = false;
   } catch (error) {
     failure = error;
