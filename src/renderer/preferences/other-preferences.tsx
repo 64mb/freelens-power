@@ -55,7 +55,7 @@ export const OtherPreferences = observer(() => {
           Hotbar item shortcuts
         </Renderer.Component.Switch>
         <div className="power-settings-hint">
-          Show number badges and open hotbar items with 1-9 outside input fields.
+          Show number badges and open hotbar items with 1-9 or the last item with 0 outside input fields.
         </div>
       </div>
       <div>

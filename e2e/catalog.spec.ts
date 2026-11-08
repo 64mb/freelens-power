@@ -19,8 +19,38 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await session.install(info);
     const window = session.window;
     const firstHotbarIcon = window.locator('.HotbarMenu [id^="hotbarIcon-"]').first();
-    await expect(firstHotbarIcon.locator("[data-power-hotbar-number]")).toHaveText("1");
-    await expect(firstHotbarIcon.locator("[data-power-hotbar-number]")).toBeVisible();
+    await expect(firstHotbarIcon.locator("..").locator("[data-power-hotbar-number]")).toHaveText("1");
+    await expect(firstHotbarIcon.locator("..").locator("[data-power-hotbar-number]")).toBeVisible();
+    const numberBounds = (await firstHotbarIcon.locator("..").locator("[data-power-hotbar-number]").boundingBox())!;
+    const categoryBounds = (await firstHotbarIcon
+      .locator("..")
+      .locator(':scope > .Icon[class*="badge"]')
+      .boundingBox())!;
+    const avatarBounds = (await firstHotbarIcon.boundingBox())!;
+    expect(
+      Math.abs(numberBounds.x + numberBounds.width / 2 - categoryBounds.x - categoryBounds.width / 2),
+    ).toBeLessThan(1);
+    expect(numberBounds.y).toBeGreaterThanOrEqual(avatarBounds.y + 1);
+    expect(numberBounds.width).toBe(14);
+    expect(numberBounds.height).toBe(14);
+    const centerOffset = await firstHotbarIcon
+      .locator("..")
+      .locator("[data-power-hotbar-number]")
+      .evaluate((badge) => {
+        const range = document.createRange();
+        range.selectNodeContents(badge);
+        const text = range.getBoundingClientRect();
+        const box = badge.getBoundingClientRect();
+        return {
+          x: Math.abs(text.x + text.width / 2 - box.x - box.width / 2),
+          y: Math.abs(text.y + text.height / 2 - box.y - box.height / 2),
+        };
+      });
+    expect(centerOffset.x).toBeLessThan(1.5);
+    expect(centerOffset.y).toBeLessThan(1.5);
+    const secondHotbar = window.locator('.HotbarMenu [id^="hotbarIcon-"]').nth(1);
+    const secondNumber = (await secondHotbar.locator("..").locator("[data-power-hotbar-number]").boundingBox())!;
+    expect(secondNumber.y - categoryBounds.y - categoryBounds.height).toBeGreaterThanOrEqual(2);
     const fixture = join(session.profile, "Freelens", "home", ".kube", "config");
     expect(await realpath(fixture)).not.toBe(await realpath(process.env.KUBECONFIG!));
 
@@ -49,6 +79,9 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
       .click();
     const dialog = window.getByRole("dialog", { name: "Kubeconfig", exact: true });
     await expect(dialog).toBeVisible();
+    for (const title of ["Reload", "Close", "Save"]) {
+      await expect(dialog.getByRole("button", { name: title, exact: true }).locator(".Icon")).toHaveCount(1);
+    }
     const editor = dialog.locator(".monaco-editor");
     await expect(editor).toBeVisible();
     await expect(dialog.getByRole("textbox", { name: "Kubeconfig YAML", exact: true })).toBeVisible();
@@ -112,6 +145,50 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await expect(editor.locator(".view-lines")).not.toContainText(draftComment);
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    const hotbarSelector = window.locator('.HotbarMenu [data-testid^="hotbar-menu-badge-for-"]');
+    await hotbarSelector.click();
+    await window.getByText("Add hotbar ...", { exact: true }).click();
+    const panelName = window.getByPlaceholder("Hotbar name", { exact: true });
+    await panelName.fill("Second panel");
+    await panelName.press("Enter");
+    await expect(hotbarSelector).toHaveText("2");
+    await window.getByRole("treeitem", { name: /General$/ }).click();
+    await clustersEntry.getByTestId("icon-for-menu-actions-for-catalog-for-freelens-power-clusters").click();
+    await window
+      .locator('[data-testid="menu-actions-for-catalog-for-freelens-power-clusters"] .MenuItem')
+      .filter({ hasText: /Add to Hotbar\s*$/ })
+      .click();
+    await expect(window.locator(".HotbarMenu [data-power-hotbar-number]")).toHaveText(["1"]);
+    const cluster = await session.cluster(info);
+    await cluster.evaluate(() => {
+      const button = document.createElement("button");
+      button.id = "hotbar-shortcut-focus-fixture";
+      button.textContent = "Shortcut focus fixture";
+      document.body.append(button);
+    });
+    const focusFixture = cluster.locator("#hotbar-shortcut-focus-fixture");
+    await focusFixture.focus();
+    await window.keyboard.press("ControlOrMeta+1");
+    await expect(hotbarSelector).toHaveText("1");
+    await focusFixture.focus();
+    await window.keyboard.press("1");
+    await expect(window.locator('[id^="cluster-frame-"]').first()).not.toBeVisible();
+    await window.keyboard.press("0");
+    await window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
+    await expect(catalog).toBeVisible();
+    const search = catalog.locator(":scope > .header .SearchInput input");
+    await expect(search).toBeVisible();
+    await expect(search).not.toBeFocused();
+    await window.keyboard.press("ControlOrMeta+2");
+    await expect(hotbarSelector).toHaveText("2");
+    await expect(window.locator(".HotbarMenu [data-power-hotbar-number]")).toHaveText(["1"]);
+    await search.focus();
+    await window.keyboard.press("1");
+    await expect(search).toHaveValue("1");
+    await search.fill("");
+    await search.blur();
+    await window.keyboard.press("1");
+    await expect(catalog).toBeVisible();
     failed = false;
   } finally {
     await session.close(info, true, failed);

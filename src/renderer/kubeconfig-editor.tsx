@@ -10,6 +10,17 @@ import { NativeTooltip } from "./native-tooltip";
 import { SettingsModal } from "./preferences/settings-modal";
 import { renderIntoContainer, unmountContainer } from "./react-roots";
 
+function actionLabel(label: string, material: string) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span aria-hidden="true" style={{ display: "inline-flex" }}>
+        <Renderer.Component.Icon material={material} size={16} />
+      </span>
+      {label}
+    </span>
+  );
+}
+
 export const KubeconfigEditor = observer(function KubeconfigEditor({
   clusterId,
   onClose,
@@ -114,7 +125,7 @@ export const KubeconfigEditor = observer(function KubeconfigEditor({
         {discard && <p role="alert">Discard unsaved changes?</p>}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 16 }}>
           <Renderer.Component.Button
-            label="Reload"
+            label={actionLabel("Reload", "refresh")}
             disabled={busy}
             onClick={() => {
               if (dirty) {
@@ -134,9 +145,13 @@ export const KubeconfigEditor = observer(function KubeconfigEditor({
                 }}
               />
             )}
-            <Renderer.Component.Button label={discard ? "Keep editing" : "Close"} disabled={busy} onClick={close} />
             <Renderer.Component.Button
-              label="Save"
+              label={actionLabel(discard ? "Keep editing" : "Close", discard ? "edit" : "close")}
+              disabled={busy}
+              onClick={close}
+            />
+            <Renderer.Component.Button
+              label={actionLabel("Save", "save")}
               primary
               disabled={busy || !!readOnly || !dirty}
               onClick={() => void save()}

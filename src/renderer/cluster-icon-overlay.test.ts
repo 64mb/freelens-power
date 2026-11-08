@@ -122,3 +122,16 @@ it("updates both cluster settings avatars from saved designs and restores native
   stop();
   expect(document.body.innerHTML).toBe(before);
 });
+
+it("keeps hotbar number badges visible on custom cluster avatars", () => {
+  state.icons = observable({ icons: { sample: { design: defaultClusterIconDesign("Sample") } } });
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div id="hotbarIcon-sample"><span data-native-label>EX</span><span data-power-hotbar-number>1</span></div></div>';
+  const stop = startClusterIconOverlay();
+  const avatar = document.getElementById("hotbarIcon-sample")!;
+  expect(avatar.hasAttribute("data-power-cluster-icon")).toBe(true);
+  expect(getComputedStyle(avatar.querySelector("[data-native-label]")!).visibility).toBe("hidden");
+  expect(getComputedStyle(avatar.querySelector("[data-power-hotbar-number]")!).visibility).toBe("visible");
+  stop();
+  expect(getComputedStyle(avatar.querySelector("[data-native-label]")!).visibility).toBe("visible");
+});

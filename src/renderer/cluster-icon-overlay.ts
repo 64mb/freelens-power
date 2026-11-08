@@ -9,7 +9,7 @@ export function startClusterIconOverlay(): () => void {
   const owned = new Map<HTMLElement, HTMLImageElement>();
   const webLinkAvatars = new Set<HTMLElement>();
   const style = document.createElement("style");
-  style.textContent = `[data-power-cluster-icon]{position:relative!important;color:transparent!important;background:transparent!important}[data-power-cluster-icon]>:not([data-power-icon-image]){visibility:hidden!important}[data-power-icon-image]{position:absolute;inset:0;width:100%;height:100%;border-radius:inherit;pointer-events:none;object-fit:cover}[data-power-web-link-avatar]>img{width:16px;height:16px;margin:auto;object-fit:contain}`;
+  style.textContent = `[data-power-cluster-icon]{position:relative!important;color:transparent!important;background:transparent!important}[data-power-cluster-icon]>:not([data-power-icon-image]):not([data-power-hotbar-number]){visibility:hidden!important}[data-power-icon-image]{position:absolute;inset:0;width:100%;height:100%;border-radius:inherit;pointer-events:none;object-fit:cover}[data-power-web-link-avatar]>img{width:16px;height:16px;margin:auto;object-fit:contain}`;
   document.head.append(style);
   let stopped = false;
   const update = () => {

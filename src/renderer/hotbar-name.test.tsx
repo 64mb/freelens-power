@@ -104,7 +104,7 @@ it("switches hotbars with Cmd digits through native arrows while preserving inpu
 it.each([
   ["MacIntel", { metaKey: true }],
   ["Win32", { ctrlKey: true }],
-])("allows hotbar shortcuts only from native Catalog header search on %s", async (platform, modifier) => {
+])("preserves typing in Catalog search on %s", async (platform, modifier) => {
   vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
   document.body.innerHTML =
     '<div class="HotbarMenu"><div class="HotbarSelector"><button class="Icon"></button><span data-testid="hotbar-menu-badge-for-Example">1</span><button class="Icon"></button></div></div><main data-testid="catalog-list-for-General"><div class="header"><div class="SearchInput"><input value="example"></div></div><div class="SearchInput"><input id="row-input"></div></main><section><div class="header"><div class="SearchInput"><input id="other-search"></div></div></section>';
@@ -119,8 +119,8 @@ it.each([
     target.dispatchEvent(event);
     return event;
   };
-  expect(key(input).defaultPrevented).toBe(true);
-  expect(next).toHaveBeenCalledTimes(1);
+  expect(key(input).defaultPrevented).toBe(false);
+  expect(next).not.toHaveBeenCalled();
   expect(input.value).toBe("example");
   expect(key(document.getElementById("row-input")!).defaultPrevented).toBe(false);
   expect(key(document.getElementById("other-search")!).defaultPrevented).toBe(false);
@@ -131,13 +131,13 @@ it.each([
   modal.remove();
   roots.shortcuts = false;
   expect(key(input).defaultPrevented).toBe(false);
-  expect(next).toHaveBeenCalledTimes(1);
+  expect(next).not.toHaveBeenCalled();
   stop();
 });
 
 it("opens items with unmodified digits, preserves typing and obeys menu and preference guards", async () => {
   document.body.innerHTML =
-    '<div class="HotbarMenu"><div id="hotbarIcon-first" tabindex="0"></div><div id="hotbarIcon-second" tabindex="0"></div><div id="hotbarIcon-third" class="avatar-module__disabled--sample"></div></div><main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input></div></div></main><textarea></textarea><div class="xterm" tabindex="0"></div><div contenteditable="true"></div>';
+    '<div class="HotbarMenu"><div id="hotbarIcon-first" tabindex="0"></div><div id="hotbarIcon-second" tabindex="0"></div><div id="hotbarIcon-third" class="avatar-module__disabled--sample"></div></div><main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input></div></div></main><input id="other-input"><textarea></textarea><div class="xterm" tabindex="0"></div><div contenteditable="true"></div>';
   const first = vi.fn();
   const second = vi.fn();
   document.getElementById("hotbarIcon-first")!.addEventListener("click", first);
@@ -153,8 +153,9 @@ it("opens items with unmodified digits, preserves typing and obeys menu and pref
   expect(first).toHaveBeenCalledOnce();
   expect(key().defaultPrevented).toBe(true);
   expect(second).toHaveBeenCalledOnce();
-  for (const element of document.querySelectorAll("input, textarea, .xterm, [contenteditable]"))
+  for (const element of document.querySelectorAll("#other-input, textarea, .xterm, [contenteditable]"))
     expect(key(element).defaultPrevented).toBe(false);
+  expect(key(document.querySelector("main input")!).defaultPrevented).toBe(false);
   expect(key(document, "Digit3").defaultPrevented).toBe(false);
   expect(key(document, "Digit9").defaultPrevented).toBe(false);
   expect(key(document, "Digit2", { shiftKey: true }).defaultPrevented).toBe(false);
@@ -189,4 +190,98 @@ it("numbers occupied items in DOM order and removes badges when item shortcuts a
   expect(badges()).toEqual([]);
   stop();
   document.body.innerHTML = before;
+});
+
+it("restarts numbering at one when the current hotbar is replaced", async () => {
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div class="HotbarItems"><div id="hotbarIcon-first"></div><div id="hotbarIcon-second"></div></div></div>';
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const items = document.querySelector(".HotbarItems")!;
+  items.innerHTML =
+    '<div id="hotbarIcon-third" data-power-cluster-icon></div><div id="hotbarIcon-fourth" data-power-cluster-icon></div>';
+  await Promise.resolve();
+  expect(Array.from(items.querySelectorAll("[data-power-hotbar-number]"), (node) => node.textContent)).toEqual([
+    "1",
+    "2",
+  ]);
+  expect(items.querySelector("#hotbarIcon-third [data-power-hotbar-number]")?.textContent).toBe("1");
+  stop();
+});
+
+it("aligns number badge centers with the native category marker outside the clipped avatar", async () => {
+  document.body.innerHTML =
+    '<div class="HotbarMenu"><div class="hotbar-icon-module__HotbarIcon--sample"><div id="hotbarIcon-sample" style="overflow:hidden"></div><i class="Icon hotbar-entity-icon-module__badge--sample"></i></div></div>';
+  const wrapper = document.querySelector<HTMLElement>('[class*="HotbarIcon"]')!;
+  const marker = wrapper.querySelector<HTMLElement>(".Icon")!;
+  vi.spyOn(wrapper, "getBoundingClientRect").mockReturnValue({ left: 10, top: 20, width: 40, height: 40 } as DOMRect);
+  vi.spyOn(marker, "getBoundingClientRect").mockReturnValue({ left: 45, top: 55, width: 15, height: 15 } as DOMRect);
+  const before = document.body.innerHTML;
+  const stop = startHotbarName();
+  await Promise.resolve();
+  const badge = wrapper.querySelector<HTMLElement>("[data-power-hotbar-number]")!;
+  expect(badge.parentElement).toBe(wrapper);
+  expect(badge.style.left).toBe("42.5px");
+  expect(badge.textContent).toBe("1");
+  expect(getComputedStyle(badge).width).toBe("14px");
+  expect(getComputedStyle(badge).height).toBe("14px");
+  expect(getComputedStyle(badge).top).toBe("2px");
+  expect(getComputedStyle(badge).alignItems).toBe("center");
+  expect(getComputedStyle(badge).justifyContent).toBe("center");
+  stop();
+  expect(document.body.innerHTML).toBe(before);
+});
+
+it.each([
+  true,
+  false,
+])("releases only the initial Catalog search focus when shortcuts are enabled: %s", async (enabled) => {
+  roots.shortcuts = enabled;
+  roots.itemShortcuts = enabled;
+  document.body.innerHTML =
+    '<main data-testid="catalog-list-for-Clusters"><div class="header"><div class="SearchInput"><input autofocus></div></div></main>';
+  const input = document.querySelector<HTMLInputElement>("input")!;
+  input.focus();
+  const stop = startHotbarName();
+  await Promise.resolve();
+  expect(document.activeElement === input).toBe(!enabled);
+  input.focus();
+  document.body.append(document.createElement("i"));
+  await Promise.resolve();
+  expect(document.activeElement).toBe(input);
+  stop();
+});
+
+it("opens the last item with zero and badges it beyond nine while preserving modified zero", async () => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+  document.body.innerHTML = `<div class="HotbarMenu">${Array.from({ length: 12 }, (_, index) => `<div id="hotbarIcon-${index + 1}"></div>`).join("")}</div><input>`;
+  const last = document.getElementById("hotbarIcon-12")!;
+  const click = vi.fn();
+  last.addEventListener("click", click);
+  const stop = startHotbarName();
+  await Promise.resolve();
+  expect(Array.from(document.querySelectorAll("[data-power-hotbar-number]"), (node) => node.textContent)).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+  ]);
+  expect(last.querySelector("[data-power-hotbar-number]")?.textContent).toBe("0");
+  const key = (target: Element | Document, extra = {}) => {
+    const event = new KeyboardEvent("keydown", { code: "Digit0", bubbles: true, cancelable: true, ...extra });
+    target.dispatchEvent(event);
+    return event;
+  };
+  expect(key(document).defaultPrevented).toBe(true);
+  expect(click).toHaveBeenCalledOnce();
+  expect(key(document.querySelector("input")!).defaultPrevented).toBe(false);
+  expect(key(document, { metaKey: true }).defaultPrevented).toBe(false);
+  expect(key(document, { ctrlKey: true }).defaultPrevented).toBe(false);
+  stop();
 });
