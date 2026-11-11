@@ -86,6 +86,38 @@ describe("metrics-server overview", () => {
     state.nodes.mockReset().mockRejectedValue(new Error("Forbidden"));
     state.pods.mockReset().mockRejectedValue(new Error("Forbidden"));
   });
+  it("reuses the native issues grid area without spanning all auto-fit columns and follows resize", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML =
+      '<div data-testid="cluster-overview-page" style="display:grid"><div id="metrics" class="ClusterMetrics_example" style="min-height:280px">Native history</div><div id="pies"><div id="cpu"><div class="PieChart"><div class="chart-title">CPU</div></div></div><div id="memory"><div class="PieChart"><div class="chart-title">Memory</div></div></div><div id="pods"><div class="PieChart"><div class="chart-title">Pods</div></div></div></div><div id="issues" class="ClusterIssues_example" style="grid-area:issues">Events</div></div>';
+    const original = document.body.innerHTML;
+    const stop = startMonitoring();
+    await vi.advanceTimersByTimeAsync(1);
+    const host = document.querySelector<HTMLElement>("[data-freelens-power-cluster-diagnostics]")!;
+    const issues = document.getElementById("issues")!;
+    expect(host.style.gridArea).toBe("issues");
+    expect(host.style.gridColumn).not.toBe("1 / -1");
+    expect(document.getElementById("metrics")?.getAttribute("style")).toBe("min-height:280px");
+    expect(document.getElementById("cpu")?.getAttribute("style")).toBeNull();
+    expect(document.getElementById("memory")?.getAttribute("style")).toBeNull();
+    expect(state.list).not.toHaveBeenCalled();
+    issues.style.gridArea = "auto";
+    fireEvent.resize(window);
+    expect(host.style.gridColumn).toBe("1 / -1");
+    issues.style.gridArea = "issues";
+    fireEvent.resize(window);
+    expect(host.style.gridArea).toBe("issues");
+    expect(host.style.gridColumn).not.toBe("1 / -1");
+    runInAction(() => {
+      state.appearance.clusterDiagnostics = false;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.body.innerHTML).toBe(original);
+    stop();
+    fireEvent.resize(window);
+    expect(document.body.innerHTML).toBe(original);
+    vi.useRealTimers();
+  });
   it("controls diagnostics independently and restores native panels when both features are disabled", async () => {
     vi.useFakeTimers();
     state.list.mockResolvedValue([]);
