@@ -756,7 +756,6 @@ function mountMonitoring(
       diagnosticsHost = document.createElement("div");
       diagnosticsHost.setAttribute("data-freelens-power-cluster-diagnostics", "");
       diagnosticsHost.style.minWidth = "0";
-      diagnosticsHost.style.gridColumn = "1 / -1";
       overview.append(diagnosticsHost);
       renderIntoContainer(<ClusterDiagnosticsOverview onOpenDiagnostics={onOpenDiagnostics} />, diagnosticsHost);
     } else if (!clusterDiagnostics && diagnosticsHost) {
@@ -766,6 +765,10 @@ function mountMonitoring(
     }
     if (diagnosticsHost) {
       const issues = Array.from(overview.children).find((child) => child.matches('[class*="ClusterIssues"]'));
+      const area = issues ? getComputedStyle(issues).gridArea : "auto";
+      diagnosticsHost.style.gridColumn = "";
+      diagnosticsHost.style.gridArea = area || "auto";
+      if (!area || area === "auto") diagnosticsHost.style.gridColumn = "1 / -1";
       if (issues && diagnosticsHost.nextElementSibling !== issues) issues.before(diagnosticsHost);
       else if (!issues && overview.lastElementChild !== diagnosticsHost) overview.append(diagnosticsHost);
     }
@@ -926,6 +929,10 @@ function mountMonitoring(
       void update();
     },
   );
+  const onResize = () => {
+    if (!stopped) void update();
+  };
+  window.addEventListener("resize", onResize);
   const observer = new MutationObserver(() => {
     void update();
   });
@@ -937,6 +944,7 @@ function mountMonitoring(
   return () => {
     stopped = true;
     stopDiagnostics();
+    window.removeEventListener("resize", onResize);
     generation++;
     window.clearInterval(timer);
     observer.disconnect();
