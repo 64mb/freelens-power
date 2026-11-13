@@ -637,7 +637,12 @@ extensionTest("Power Logs workload sources, captures, SQL and reviewed AI contex
   await expect(page.locator(".power-log-row .power-log-origin").first()).toContainText(logsDeployment);
   await expect(page.locator(".power-log-row").first()).toHaveAttribute("data-level", "error");
   await expect(page.getByRole("combobox", { name: "Search context", exact: true })).toHaveCount(0);
-  const matchedRow = page.locator(".power-log-row").first();
+  // keep the same record when hover scrolls the virtualized stream
+  const matchedSourceId = await page.locator(".power-log-row .power-log-origin").first().getAttribute("id");
+  expect(matchedSourceId).toBeTruthy();
+  const matchedRow = page.locator(".power-log-row").filter({
+    has: frame.locator(`[id=${JSON.stringify(matchedSourceId)}]`),
+  });
   await matchedRow.hover();
   const surrounding = matchedRow.getByRole("button", { name: "Show surrounding lines", exact: true });
   await expect(surrounding).toHaveCSS("opacity", "1");
