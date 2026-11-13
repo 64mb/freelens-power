@@ -11,3 +11,4 @@
 /.e2e-runtime/
 /test-results/
 /playwright-report/
+.env
