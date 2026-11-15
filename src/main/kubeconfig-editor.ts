@@ -10,7 +10,6 @@ import {
   type KubeconfigEditorResponse,
 } from "../common/kubeconfig-editor";
 import { PowerPreferencesStore } from "../common/store/power-preferences-store";
-import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { trustedClusterIconsSender } from "./cluster-icons";
 import { powerIpc } from "./power-ipc";
 
@@ -86,7 +85,6 @@ export function startKubeconfigEditor(): () => void {
       )
         throw failure();
     };
-    const readOnly = () => ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>().enabled;
     let temporary: string | undefined;
     let locked: string | undefined;
     try {
@@ -106,11 +104,10 @@ export function startKubeconfigEditor(): () => void {
       if (input.operation === "read") {
         const result = await readFile(path);
         check();
-        return { text: result.text, revision: result.revision, readOnly: readOnly() };
+        return { text: result.text, revision: result.revision, readOnly: false };
       }
       if (
         input.operation !== "save" ||
-        readOnly() ||
         typeof input.text !== "string" ||
         typeof input.revision !== "string" ||
         !/^[a-f0-9]{64}$/.test(input.revision)
@@ -145,7 +142,6 @@ export function startKubeconfigEditor(): () => void {
       const target = await lstat(path);
       check();
       if (
-        readOnly() ||
         current.revision !== previous.revision ||
         target.isSymbolicLink() ||
         target.dev !== previous.stat.dev ||
@@ -156,7 +152,7 @@ export function startKubeconfigEditor(): () => void {
         throw failure();
       await rename(temporary, path);
       temporary = undefined;
-      return { text: input.text, revision: revisionOf(bytes), readOnly: readOnly() };
+      return { text: input.text, revision: revisionOf(bytes), readOnly: false };
     } catch {
       throw failure();
     } finally {

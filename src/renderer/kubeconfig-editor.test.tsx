@@ -78,7 +78,8 @@ afterEach(() => {
   history.replaceState({}, "", "/");
 });
 
-it("loads kubeconfig and writes only after explicit Save with the original revision", async () => {
+it.each([false, true])("saves local kubeconfig explicitly with cluster read-only mode set to %s", async (readOnly) => {
+  state.readOnly = readOnly;
   render(<KubeconfigEditor clusterId="example" onClose={vi.fn()} />);
   const editor = await screen.findByRole("textbox", { name: "Kubeconfig YAML" });
   expect((editor as HTMLTextAreaElement).value).toBe(original);

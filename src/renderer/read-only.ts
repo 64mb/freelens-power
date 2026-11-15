@@ -1,10 +1,10 @@
+import { Common, Renderer } from "@freelensapp/extensions";
 import { reaction } from "mobx";
 import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 
 const marker = "data-freelens-power-read-only";
 const excluded = ".freelens-power-preferences, #freelens-power-settings, .freelens-power-dashboard, .power-ai-panel";
 const directActions = [
-  ".CatalogAddButton",
   ".KubeObjectListLayout .AddRemoveButtons .add-button",
   ".AddRemoveButtons .remove-button",
   ".create-resource-tab",
@@ -47,10 +47,26 @@ export function startReadOnlyMode(): () => void {
 
   function isMutation(element: HTMLElement): boolean {
     if (element.closest(excluded)) return false;
+    const catalogMenu = element.closest<HTMLElement>(
+      '[data-testid^="menu-actions-for-catalog-for-"], [id^="menu-actions-for-catalog-entity-drawer-menu-"]',
+    );
+    const catalogId =
+      catalogMenu?.dataset.testid?.slice("menu-actions-for-catalog-for-".length) ??
+      catalogMenu?.id.slice("menu-actions-for-catalog-entity-drawer-menu-".length);
+    const entity = catalogId ? Renderer.Catalog.catalogEntities.getById(catalogId) : undefined;
+    if (
+      entity?.apiVersion === Common.Catalog.WebLink.apiVersion &&
+      entity.kind === Common.Catalog.WebLink.kind &&
+      entity.metadata.source === "local"
+    )
+      return false;
     if (element.matches(directActions)) return true;
     if (!element.matches('.MenuActions .MenuItem, [data-testid^="menu-actions-for-kube-object-menu-"] .MenuItem'))
       return false;
-    const title = (element.querySelector(".title")?.textContent ?? element.textContent)?.trim().toLowerCase();
+    const label = (element.querySelector(".title") ?? element).cloneNode(true) as HTMLElement;
+    for (const icon of label.querySelectorAll(".Icon, [data-power-catalog-menu-icon]")) icon.remove();
+    const title = label.textContent?.trim().toLowerCase();
+    if (title === "open kubeconfig" || title === "edit icon") return false;
     if (title && menuActions.has(title)) return true;
     return !!element.querySelector(
       '[data-icon-name="edit"], [data-icon-name="delete"], [data-icon-name="delete_forever"], [data-icon-name="delete_sweep"], [data-icon-name="pause_circle_filled"], [data-icon-name="play_circle_filled"]',

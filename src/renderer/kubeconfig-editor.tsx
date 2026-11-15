@@ -3,7 +3,6 @@ import { reaction } from "mobx";
 import { observer } from "mobx-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KUBECONFIG_EDITOR_CHANNEL, type KubeconfigEditorResponse } from "../common/kubeconfig-editor";
-import { ReadOnlyPreferencesStore } from "../common/store/read-only-preferences-store";
 import { HelmCodeView } from "./helm-code-view";
 import { ipcRenderer } from "./ipc";
 import { NativeTooltip } from "./native-tooltip";
@@ -37,8 +36,7 @@ export const KubeconfigEditor = observer(function KubeconfigEditor({
   const [discardReload, setDiscardReload] = useState(false);
   const sequence = useRef(0);
   const dirty = snapshot !== undefined && text !== snapshot.text;
-  const readOnly =
-    snapshot?.readOnly || ReadOnlyPreferencesStore.getInstanceOrCreate<ReadOnlyPreferencesStore>().enabled;
+  const readOnly = snapshot?.readOnly;
   const load = useCallback(async () => {
     const request = ++sequence.current;
     setBusy(true);
