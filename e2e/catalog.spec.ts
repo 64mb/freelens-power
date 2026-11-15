@@ -220,7 +220,7 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await expect(addCluster).toHaveCount(0);
     await window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
     await expect(catalog.getByText("readonly-import", { exact: true })).toBeVisible();
-    await window.getByRole("treeitem", { name: "Web Links", exact: true }).click();
+    await window.getByRole("treeitem", { name: /Web Links$/ }).click();
     const links = window.getByTestId("catalog-list-for-Web Links");
     await expect(links).toBeVisible();
     await window.locator(".CatalogAddButton .MuiSpeedDial-fab").click();
