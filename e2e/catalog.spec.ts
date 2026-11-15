@@ -64,6 +64,13 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await clustersEntry.getByText("Clusters", { exact: true }).click();
     const catalog = window.getByTestId("catalog-list-for-Clusters");
     await expect(catalog).toBeVisible();
+    await window.locator(".freelens-power-settings-icon").click();
+    const readOnly = window
+      .locator('.freelens-power-preferences label[data-testid="switch"]')
+      .filter({ hasText: "Read-only mode" });
+    await readOnly.click();
+    await expect(readOnly.locator("input")).toBeChecked();
+    await window.locator('div[class*="close-button-module__closeButton--"][aria-label="Close"]').click();
     const row = catalog.locator(".TableRow").filter({ has: window.getByText("kind-power-e2e", { exact: true }) });
     await expect(row).toHaveCount(1);
     await row.locator('[data-testid^="icon-for-menu-actions-for-catalog-for-"]').click();
@@ -189,6 +196,49 @@ test("Clusters catalog menus and isolated kubeconfig editor lifecycle", async ({
     await search.blur();
     await window.keyboard.press("1");
     await expect(catalog).toBeVisible();
+    await window.locator(".CatalogAddButton .MuiSpeedDial-fab").hover();
+    await window.getByRole("menuitem", { name: "Add from kubeconfig", exact: true }).click();
+    const addCluster = window.getByTestId("add-cluster-page");
+    await expect(addCluster).toBeVisible();
+    await expect(addCluster.locator(".monaco-editor")).toBeVisible();
+    const importEditor = addCluster.getByRole("textbox");
+    await importEditor.focus();
+    await window.keyboard.insertText(
+      JSON.stringify({
+        apiVersion: "v1",
+        kind: "Config",
+        clusters: [{ name: "readonly-import", cluster: { server: "https://127.0.0.1:1" } }],
+        users: [{ name: "readonly-import", user: {} }],
+        contexts: [{ name: "readonly-import", context: { cluster: "readonly-import", user: "readonly-import" } }],
+        "current-context": "readonly-import",
+      }),
+    );
+    const submit = addCluster.getByRole("button", { name: "Add cluster", exact: true });
+    await expect(submit).toBeEnabled();
+    await session.screenshot(info, "read-only-cluster-import");
+    await submit.click();
+    await expect(addCluster).toHaveCount(0);
+    await window.getByRole("treeitem", { name: "Clusters", exact: true }).click();
+    await expect(catalog.getByText("readonly-import", { exact: true })).toBeVisible();
+    await window.getByRole("treeitem", { name: /Web Links$/ }).click();
+    const links = window.getByTestId("catalog-list-for-Web Links");
+    await expect(links).toBeVisible();
+    await window.locator(".CatalogAddButton .MuiSpeedDial-fab").click();
+    const linkUrl = window.getByPlaceholder("Link URL", { exact: true });
+    await linkUrl.fill("https://127.0.0.1:1/");
+    await linkUrl.press("Enter");
+    const linkName = window.getByPlaceholder("Name (optional)", { exact: true });
+    await linkName.fill("readonly-local-link");
+    await linkName.press("Enter");
+    const localLink = links.locator(".TableRow").filter({ hasText: "readonly-local-link" });
+    await expect(localLink).toBeVisible();
+    await localLink.locator('[data-testid^="icon-for-menu-actions-for-catalog-for-"]').click();
+    await window
+      .locator('[data-testid^="menu-actions-for-catalog-for-"]:visible .MenuItem')
+      .filter({ hasText: /Delete\s*$/ })
+      .click();
+    await window.getByTestId("confirmation-dialog").getByTestId("confirm").click();
+    await expect(localLink).toHaveCount(0);
     failed = false;
   } finally {
     await session.close(info, true, failed);

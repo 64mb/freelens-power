@@ -107,11 +107,13 @@ it("rejects external edits", async () => {
   await writeFile(state.path, `${original}contexts: []\n`);
   await expect(save(original, result.revision)).rejects.toThrow();
 });
-it("reads in read-only mode and rejects writes", async () => {
+it("allows explicit local kubeconfig saves while cluster read-only mode is enabled", async () => {
   state.readonly.enabled = true;
   const result = await read();
-  expect(result.readOnly).toBe(true);
-  await expect(save(original, result.revision)).rejects.toThrow();
+  expect(result.readOnly).toBe(false);
+  const next = `${original}contexts: []\n`;
+  expect((await save(next, result.revision)).text).toBe(next);
+  expect(await readFile(state.path, "utf8")).toBe(next);
 });
 it("rejects disabled power, untrusted senders and unknown clusters", async () => {
   state.power.enabled = false;

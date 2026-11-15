@@ -17,7 +17,8 @@ export const ReadOnlyPreferences = observer(() => {
         Read-only mode
       </Switch>
       <div className="power-settings-hint">
-        Hide common create, edit and delete actions for resources, nodes and clusters without changing permissions.
+        Hide common resource and node changes and cluster removal without changing permissions or local kubeconfig
+        editing.
       </div>
     </div>
   );
