@@ -209,7 +209,7 @@ export const AiPreferences = observer(() => {
     ? "Fast and Ultrafast use higher-priced API service tiers; model and account access required."
     : isClaude
       ? "Fast mode for Opus; account access required."
-      : "Fast mode depends on model and account.";
+      : "Fast and Ultrafast depend on model and account access.";
   const controlStyle = { width: 220, maxWidth: "100%", flexShrink: 0 };
   const rowStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 };
   return (
@@ -357,7 +357,7 @@ export const AiPreferences = observer(() => {
               options={[
                 { value: "default", label: "Default" },
                 { value: "fast", label: "Fast" },
-                ...(isApi ? [{ value: "ultrafast" as const, label: "Ultrafast" }] : []),
+                ...(!isClaude ? [{ value: "ultrafast" as const, label: "Ultrafast" }] : []),
               ]}
               isDisabled={!preferences.enabled}
               isClearable={false}
@@ -367,7 +367,7 @@ export const AiPreferences = observer(() => {
                 if (isApi && ["default", "fast", "ultrafast"].includes(option.value))
                   preferences.codexApiServiceTier = option.value as "default" | "fast" | "ultrafast";
                 else if (isClaude) preferences.claudeSpeed = option.value as "default" | "fast";
-                else preferences.speed = option.value as "default" | "fast";
+                else preferences.speed = option.value as "default" | "fast" | "ultrafast";
               }}
             />
           </div>

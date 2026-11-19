@@ -101,6 +101,12 @@ it("uses the CLI model catalog for API while retaining metadata for the explicit
         reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
         defaultReasoningEffort: "medium",
       },
+      ...["Sol", "Astra"].map((name) => ({
+        id: `gpt-6.2-${name.toLowerCase()}`,
+        label: `GPT-6.2 ${name}`,
+        reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+        defaultReasoningEffort: "low",
+      })),
     ]);
   } finally {
     stop();

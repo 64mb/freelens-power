@@ -25,6 +25,13 @@ export function piModelEfforts(id: string): string[] {
 }
 
 export const CODEX_API_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const CODEX_62_MODELS: AiModel[] = ["Sol", "Astra"].map((name) => ({
+  id: `gpt-6.2-${name.toLowerCase()}`,
+  label: `GPT-6.2 ${name}`,
+  reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  defaultReasoningEffort: "low",
+}));
+
 export const CODEX_API_MODELS: AiModel[] = [
   {
     id: "gpt-6.1-sol",
@@ -32,4 +39,5 @@ export const CODEX_API_MODELS: AiModel[] = [
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     defaultReasoningEffort: "medium",
   },
+  ...CODEX_62_MODELS,
 ];
