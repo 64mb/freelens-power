@@ -95,8 +95,8 @@ it("keeps provider controls separate and ignores late model catalogs after switc
   const view = render(<AiPreferences />);
   try {
     expect(screen.getByText("Local Codex model catalog.").title).toBe("Local Codex model catalog.");
-    expect(screen.getByText("Fast mode depends on model and account.").title).toBe(
-      "Fast mode depends on model and account.",
+    expect(screen.getByText("Fast and Ultrafast depend on model and account access.").title).toBe(
+      "Fast and Ultrafast depend on model and account access.",
     );
     expect(screen.getByText("Controls reasoning depth; higher may take longer.")).toBeTruthy();
     const savedEffort = screen.getByLabelText("Effort") as HTMLSelectElement;
@@ -110,7 +110,7 @@ it("keeps provider controls separate and ignores late model catalogs after switc
     expect(screen.getByText("Fast mode for Opus; account access required.").title).toBe(
       "Fast mode for Opus; account access required.",
     );
-    expect(screen.queryByText("Fast mode depends on model and account.")).toBeNull();
+    expect(screen.queryByText("Fast and Ultrafast depend on model and account access.")).toBeNull();
     expect((screen.getByLabelText("Speed") as HTMLSelectElement).value).toBe("default");
     fireEvent.change(screen.getByLabelText("Speed"), { target: { value: "fast" } });
     expect(mocks.preferences.claudeSpeed).toBe("fast");

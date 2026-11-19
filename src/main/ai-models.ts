@@ -6,6 +6,7 @@ import {
   AI_MODELS_CHANNEL,
   type AiModel,
   CLAUDE_REASONING_EFFORTS,
+  CODEX_62_MODELS,
   CODEX_API_MODELS,
   CODEX_API_REASONING_EFFORTS,
   CODEX_REASONING_EFFORTS,
@@ -89,8 +90,10 @@ export function startAiModels(): () => void {
         return [];
       if (provider === "codex-api") {
         const models = await readAiModels();
-        const catalog = models.length ? [...models] : [...CODEX_API_MODELS];
-        if (!catalog.some((model) => model.id === CODEX_API_MODELS[0].id)) catalog.push(CODEX_API_MODELS[0]);
+        const catalog = [
+          ...models,
+          ...CODEX_API_MODELS.filter((fallback) => !models.some((model) => model.id === fallback.id)),
+        ];
         return catalog.map((model) => ({
           ...model,
           reasoningEfforts: model.reasoningEfforts.filter((effort) => CODEX_API_REASONING_EFFORTS.includes(effort)),
@@ -113,7 +116,8 @@ export function startAiModels(): () => void {
         return piModels;
       }
       if (provider !== "codex") return [];
-      return readAiModels();
+      const models = await readAiModels();
+      return [...models, ...CODEX_62_MODELS.filter((fallback) => !models.some((model) => model.id === fallback.id))];
     } catch {
       return [];
     }

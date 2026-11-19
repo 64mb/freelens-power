@@ -28,7 +28,7 @@ export interface AiChatRequest {
   systemPrompt?: string;
   reasoningEffort?: string;
   model: string;
-  speed: "default" | "fast";
+  speed: AiApiServiceTier;
 }
 
 export interface AiChatResponse {

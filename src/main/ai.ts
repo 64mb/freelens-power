@@ -3,6 +3,7 @@ import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type AiApiServiceTier,
   type AiChatRequest,
   type AiChatResponse,
   type AiFailureCode,
@@ -114,7 +115,7 @@ const disabledFeatures = [
 
 export function codexAiArguments(
   model: string,
-  speed: "default" | "fast",
+  speed: AiApiServiceTier,
   directory: string,
   reasoningEffort = "",
 ): string[] {
@@ -146,10 +147,10 @@ export function codexAiArguments(
     'approval_policy="never"',
     'shell_environment_policy.inherit="none"',
     "project_doc_max_bytes=0",
-    `features.fast_mode=${speed === "fast"}`,
+    `features.fast_mode=${speed !== "default"}`,
   ])
     args.push("-c", setting);
-  if (speed === "fast") args.push("-c", 'service_tier="fast"');
+  if (speed === "fast" || speed === "ultrafast") args.push("-c", `service_tier="${speed}"`);
   if (model) args.push("--model", model);
   if (reasoningEffort) args.push("-c", `model_reasoning_effort="${reasoningEffort}"`);
   args.push("-");
@@ -158,7 +159,7 @@ export function codexAiArguments(
 
 export function claudeAiArguments(
   model: string,
-  speed: "default" | "fast" = "default",
+  speed: AiApiServiceTier = "default",
   reasoningEffort = "",
   finalAnswer = false,
 ): string[] {
@@ -568,7 +569,8 @@ export async function runAiChat(
       (message) => !message || !["user", "assistant"].includes(message.role) || typeof message.text !== "string",
     ) ||
     !request.context ||
-    !["default", "fast"].includes(request.speed) ||
+    (!["default", "fast"].includes(request.speed) &&
+      !(request.speed === "ultrafast" && (request.provider === undefined || request.provider === "codex"))) ||
     typeof request.model !== "string" ||
     (request.reasoningEffort !== undefined &&
       (typeof request.reasoningEffort !== "string" ||

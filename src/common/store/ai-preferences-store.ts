@@ -35,7 +35,7 @@ export interface AiPreferencesModel {
   clusterPrompt: string;
   model: string;
   reasoningEffort: string;
-  speed: "default" | "fast";
+  speed: AiApiServiceTier;
   chatFontSize: number;
   chatPanelWidth: number;
   conversations: Record<string, AiMessage[]>;
@@ -56,7 +56,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
   clusterPrompt = DEFAULT_AI_CLUSTER_PROMPT;
   model = "";
   reasoningEffort = "";
-  speed: "default" | "fast" = "default";
+  speed: AiApiServiceTier = "default";
   chatFontSize = 14;
   chatPanelWidth = 560;
   conversations: Record<string, AiMessage[]> = {};
@@ -146,7 +146,7 @@ export class AiPreferencesStore extends Common.Store.ExtensionStore<AiPreference
     this.model = typeof data?.model === "string" ? data.model : "";
     const reasoningEffort = data?.reasoningEffort ?? "";
     this.reasoningEffort = CODEX_REASONING_EFFORTS.includes(reasoningEffort) ? reasoningEffort : "";
-    this.speed = data?.speed === "fast" ? "fast" : "default";
+    this.speed = data?.speed === "fast" || data?.speed === "ultrafast" ? data.speed : "default";
     this.chatFontSize =
       typeof data?.chatFontSize === "number" &&
       Number.isInteger(data.chatFontSize) &&

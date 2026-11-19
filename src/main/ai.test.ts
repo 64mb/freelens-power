@@ -207,6 +207,7 @@ describe("AI read boundary", () => {
       expect(args).toContain(flag);
     expect(args).not.toContain('service_tier="fast"');
     expect(codexAiArguments("example-model", "fast", "/tmp/example")).toContain('service_tier="fast"');
+    expect(codexAiArguments("gpt-6.2-sol", "ultrafast", "/tmp/example")).toContain('service_tier="ultrafast"');
     expect(() => codexAiArguments("--bad-model", "fast", "/tmp/example")).not.toThrow();
     expect(() => codexAiArguments("bad model", "fast", "/tmp/example")).toThrow();
   });
