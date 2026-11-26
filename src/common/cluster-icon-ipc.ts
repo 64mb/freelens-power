@@ -10,4 +10,7 @@ export interface ClusterIconEntry {
   customized: boolean;
 }
 
-export type ClusterIconRequest = { operation: "list" } | { operation: "apply"; id: string; design: ClusterIconDesign };
+export type ClusterIconRequest =
+  | { operation: "list" }
+  | { operation: "clear"; id: string }
+  | { operation: "apply"; id: string; design: ClusterIconDesign };

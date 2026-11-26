@@ -2,12 +2,16 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  icons: {} as Record<string, unknown>,
   invoke: vi.fn(),
   render: vi.fn(),
   unmount: vi.fn(),
   error: vi.fn(),
   on: vi.fn(),
   off: vi.fn(),
+}));
+vi.mock("../common/store/cluster-icons-store", () => ({
+  ClusterIconsStore: { getInstanceOrCreate: () => ({ icons: mocks.icons }) },
 }));
 vi.mock("./ipc", () => ({ ipcRenderer: { invoke: mocks.invoke } }));
 vi.mock("./react-roots", () => ({ renderIntoContainer: mocks.render, unmountContainer: mocks.unmount }));
@@ -26,6 +30,7 @@ import { startClusterIconSettingsMenu } from "./cluster-icon-settings-menu";
 
 afterEach(() => {
   document.body.innerHTML = "";
+  mocks.icons = {};
   vi.resetAllMocks();
 });
 
@@ -113,4 +118,15 @@ it("adds Edit icon to the native cluster row menu and removes its subscription o
   const count = mocks.invoke.mock.calls.length;
   context.menuItems[0].onClick();
   expect(mocks.invoke).toHaveBeenCalledTimes(count);
+});
+
+it("clears the saved extension icon through the settings menu", async () => {
+  const before = setup();
+  mocks.icons.sample = {};
+  mocks.invoke.mockResolvedValue([]);
+  const stop = startClusterIconSettingsMenu();
+  document.querySelector<HTMLElement>('[aria-label="Clear"]')!.click();
+  expect(mocks.invoke).toHaveBeenCalledWith(expect.any(String), { operation: "clear", id: "sample" });
+  stop();
+  expect(document.body.innerHTML).toBe(before);
 });

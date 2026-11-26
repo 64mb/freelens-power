@@ -83,6 +83,14 @@ export const GLYPHS = Object.freeze([
     label: "Rocket",
     body: '<g transform="translate(32 11.4) scale(1.497435897) translate(-12.25 -2)" stroke-width="1.869863014"><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09M9 12a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.4 22.4 0 0 1-4 2zM9 12H4s.55-3.03 2-4c1.62-1.08 5 .05 5 .05"/></g>',
   }),
+  ...Array.from({ length: 10 }, (_, index) => {
+    const number = String(index + 1).padStart(2, "0");
+    return Object.freeze({
+      id: `number-${number}`,
+      label: number,
+      body: `<text x="32" y="36" text-anchor="middle" font-family="monospace" font-size="28" font-weight="700" fill="currentColor" stroke="none">${number}</text>`,
+    });
+  }),
 ]);
 const COLOR = /^#[\da-f]{6}$/i;
 const LABEL = /^[\p{L}\p{N}\p{M}\p{P}\p{S} ]*$/u;
@@ -139,7 +147,7 @@ function escapeXml(text: string): string {
 export function clusterIconDataUrl(input: ClusterIconDesign): string {
   const design = normalizeClusterIconDesign(input);
   const glyph = GLYPHS.find((candidate) => candidate.id === design.glyph)!;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="15" fill="#292d38" stroke="${design.outlineColor}" stroke-width="3"/><g fill="none" stroke="${design.iconColor}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">${glyph.body}</g><rect x="15" y="46" width="34" height="12" rx="6" fill="${design.labelColor}"/><text x="32" y="55.2" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="9.5" font-weight="800" fill="#292d38">${escapeXml(design.label)}</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="15" fill="#292d38" stroke="${design.outlineColor}" stroke-width="3"/><g fill="none" stroke="${design.iconColor}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">${glyph.body.replace("currentColor", design.iconColor)}</g><rect x="15" y="46" width="34" height="12" rx="6" fill="${design.labelColor}"/><text x="32" y="55.2" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="9.5" font-weight="800" fill="#292d38">${escapeXml(design.label)}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -154,7 +162,7 @@ export function clusterIconDesignFromDataUrl(value: unknown): ClusterIconDesign 
     const outlineColor = /<rect x="2"[^>]* stroke="(#[a-f\d]{6})"/i.exec(svg)?.[1];
     const iconColor = /<g\b[^>]*\bstroke="(#[a-f\d]{6})"/i.exec(svg)?.[1];
     const labelColor = /<rect x="15"[^>]* fill="(#[a-f\d]{6})"/i.exec(svg)?.[1];
-    const text = /<text\b[^>]*>([^<]*)<\/text>/.exec(svg)?.[1];
+    const text = [...svg.matchAll(/<text\b[^>]*>([^<]*)<\/text>/g)].at(-1)?.[1];
     if (text === undefined || /\bon[a-z]+\s*=|(?:href|style)\s*=/i.test(svg)) return undefined;
     const label = text.replace(
       /&(amp|lt|gt|quot|apos);/g,
