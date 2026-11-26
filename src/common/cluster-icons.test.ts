@@ -10,16 +10,16 @@ import {
 const design = defaultClusterIconDesign("demo cluster");
 
 describe("cluster icon design", () => {
-  it("offers fifteen distinct whitelisted glyphs and renders each selection", () => {
-    expect(GLYPHS).toHaveLength(15);
-    expect(new Set(GLYPHS.map((glyph) => glyph.id)).size).toBe(15);
+  it("offers twenty-five distinct whitelisted glyphs and renders each selection", () => {
+    expect(GLYPHS).toHaveLength(25);
+    expect(new Set(GLYPHS.map((glyph) => glyph.id)).size).toBe(25);
     const generated = GLYPHS.map((glyph) => {
       expect(normalizeClusterIconDesign({ ...design, glyph: glyph.id }).glyph).toBe(glyph.id);
       const url = clusterIconDataUrl({ ...design, glyph: glyph.id });
-      expect(decodeURIComponent(url.split(",")[1])).toContain(glyph.body);
+      expect(decodeURIComponent(url.split(",")[1])).toContain(glyph.body.replace("currentColor", design.iconColor));
       return url;
     });
-    expect(new Set(generated).size).toBe(15);
+    expect(new Set(generated).size).toBe(25);
     expect(() => clusterIconDataUrl({ ...design, glyph: "unlisted" })).toThrow();
   });
 

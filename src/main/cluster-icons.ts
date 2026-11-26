@@ -55,12 +55,20 @@ export function createClusterIconsService(host: ClusterIconsHost, store: Cluster
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid icon request");
     const input = payload as { operation?: unknown; id?: unknown; design?: unknown };
     if (input.operation === "list") return list();
-    if (input.operation !== "apply") throw new Error("Invalid icon operation");
+    if (input.operation !== "apply" && input.operation !== "clear") throw new Error("Invalid icon operation");
     if (typeof input.id !== "string" || !input.id || input.id.length > 1024)
       throw new Error("Invalid cluster identifier");
     const cluster = host.clusters().find((entry) => entry.id === input.id);
     if (!cluster) throw new Error("Cluster is no longer available");
     const id = cluster.id;
+    if (input.operation === "clear") {
+      runInAction(() => {
+        const icons = { ...store.icons };
+        delete icons[id];
+        store.icons = icons;
+      });
+      return list();
+    }
     const design = normalizeClusterIconDesign(input.design);
     runInAction(() => {
       store.icons = { ...store.icons, [id]: { design } };

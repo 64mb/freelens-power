@@ -90,6 +90,17 @@ it.each([
   expect(restored.toJSON()).toEqual({ icons: { saved: { design: changed } } });
 });
 
+it("clears the saved design and restores the native icon", () => {
+  const original = "data:image/png;base64,original";
+  const { service, store } = fixture(original);
+  service.request({ operation: "apply", id: "saved", design });
+  expect(service.request({ operation: "clear", id: "saved" })[0]).toMatchObject({
+    icon: original,
+    customized: false,
+  });
+  expect(store.toJSON()).toEqual({ icons: {} });
+});
+
 it("rejects malformed designs and unavailable clusters without changing stored data", () => {
   const { service, store, remove } = fixture();
   expect(() => service.request({ operation: "apply", id: "saved", design: {} })).toThrow();
